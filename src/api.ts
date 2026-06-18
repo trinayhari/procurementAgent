@@ -30,6 +30,12 @@ export type Package = Schemas['Package']
 export type SupplierComm = Schemas['SupplierComm']
 export type Milestone = Schemas['Milestone']
 export type GanttBar = Schemas['GanttBar']
+// Supplier sourcing + generated RFQs.
+export type FoundSupplier = Schemas['FoundSupplier']
+export type SupplierTier = Schemas['SupplierTier']
+export type SupplierSearchResult = Schemas['SupplierSearchResult']
+export type PersistedRfq = Schemas['PersistedRfq']
+export type RfqRecipient = Schemas['RfqRecipient']
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -96,6 +102,66 @@ export function saveDocumentLineItems(
 // Human-in-the-loop: mark a document's BOM as reviewed/approved.
 export function confirmDocument(docId: string): Promise<Document> {
   return post<Document>(`/api/documents/${docId}/confirm`)
+}
+
+// ------------------------------------------------------- supplier sourcing
+// Kick off a background Places search for one project + buy-package. The
+// frontend then polls getFoundSuppliers until status leaves 'searching'.
+export function searchSuppliers(
+  projectId: string,
+  pkg: string,
+  radiusMi: number,
+): Promise<{ status: string; package: string }> {
+  return post(`/api/projects/${projectId}/packages/${pkg}/search-suppliers`, {
+    radius_mi: radiusMi,
+  })
+}
+
+// Found suppliers for a package, bucketed into distance tiers.
+export function getFoundSuppliers(
+  projectId: string,
+  pkg: string,
+): Promise<SupplierSearchResult> {
+  return get<SupplierSearchResult>(
+    `/api/projects/${projectId}/suppliers/found?package=${encodeURIComponent(pkg)}`,
+  )
+}
+
+// ------------------------------------------------------------- generated RFQs
+// Generate a draft RFQ for a package from the chosen found-supplier ids.
+export function generateRfq(
+  projectId: string,
+  pkg: string,
+  supplierIds: string[],
+): Promise<PersistedRfq> {
+  return post<PersistedRfq>(`/api/projects/${projectId}/packages/${pkg}/rfqs/generate`, {
+    supplier_ids: supplierIds,
+  })
+}
+
+export function listGeneratedRfqs(projectId: string): Promise<PersistedRfq[]> {
+  return get<PersistedRfq[]>(`/api/projects/${projectId}/rfqs/generated`)
+}
+
+export function saveRfq(
+  projectId: string,
+  rfqId: string,
+  patch: { subject: string; body: string; recipients: RfqRecipient[] },
+): Promise<PersistedRfq> {
+  return fetch(`${BASE}/api/projects/${projectId}/rfqs/${rfqId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).then((r) => {
+    if (!r.ok) throw new Error(`save rfq -> ${r.status}`)
+    return r.json() as Promise<PersistedRfq>
+  })
+}
+
+// User-approved send: delivers the RFQ to every recipient via Gmail (or the
+// logging mock when Gmail is unconfigured). Flips the RFQ to 'Sent'.
+export function sendRfq(projectId: string, rfqId: string): Promise<PersistedRfq> {
+  return post<PersistedRfq>(`/api/projects/${projectId}/rfqs/${rfqId}/send`)
 }
 
 // The reshaped bundle that buildModel() consumes. Mirrors the keys returned by

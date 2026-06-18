@@ -45,3 +45,37 @@ class MessageCreate(BaseModel):
 
 class FollowupDraft(BaseModel):
     body: str
+
+
+# ------------------------------------------------ persisted (generated) RFQs
+class RfqRecipient(BaseModel):
+    supplierId: Optional[str] = None
+    name: str
+    email: str
+    sentMessageId: Optional[str] = None
+
+
+class RfqLineItem(BaseModel):
+    n: str
+    q: str = ""
+
+
+class PersistedRfq(Rfq):
+    """An RFQ generated from a buy-package, stored per project."""
+
+    projectId: str
+    package: str
+    subject: str
+    body: str
+    lineItems: List[RfqLineItem] = []
+    recipients: List[RfqRecipient] = []
+
+
+class RfqGenerateRequest(BaseModel):
+    supplier_ids: List[str]
+
+
+class RfqUpdate(BaseModel):
+    subject: str
+    body: str
+    recipients: List[RfqRecipient]

@@ -1,0 +1,173 @@
+"""Supplier search orchestrator.
+
+search_suppliers(loc, category, radius) → list of FoundSupplierResult bucketed by
+tier. With no Google key it returns a clearly-flagged mock so the whole flow is
+exercisable offline (mirrors extraction/service.py).
+"""
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass, field
+from typing import List, Optional, Tuple
+
+from app.config import settings
+from app.services.sourcing import distance, emails, packages, places
+
+LatLng = Tuple[float, float]
+
+
+@dataclass
+class FoundSupplierResult:
+    name: str
+    address: str
+    distance_miles: float
+    tier: int
+    contact_name: Optional[str]
+    email: Optional[str]
+    phone: Optional[str]
+    website: Optional[str]
+    material_categories: List[str] = field(default_factory=list)
+    email_source: str = "none"
+    place_id: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def is_configured() -> bool:
+    return places.is_configured()
+
+
+def search_suppliers(
+    project_loc: str,
+    category_key: str,
+    radius_mi: int,
+    cached_latlng: Optional[LatLng] = None,
+) -> Tuple[List[FoundSupplierResult], Optional[LatLng], bool]:
+    """Return (results, latlng_used, mocked).
+
+    results are sorted by distance and capped at search_max_results_per_package.
+    latlng_used is returned so the caller can cache the project geocode.
+    """
+    if not places.is_configured():
+        return _mock_suppliers(category_key, radius_mi), None, True
+
+    # 1. Geocode (or reuse cached project coordinates).
+    origin = cached_latlng
+    if origin is None:
+        origin = places.geocode(project_loc)
+
+    radius_m = int(min(radius_mi, settings.search_tier3_max_mi) * 1609.34)
+    label = packages.label_for(category_key)
+
+    # 2. Text Search across the package's keywords; dedupe by place_id.
+    raw: dict = {}
+    for keyword in packages.keywords_for(category_key):
+        for place in places.text_search(f"{keyword} {project_loc}", origin[0], origin[1], radius_m):
+            pid = place.get("place_id")
+            if pid and pid not in raw:
+                raw[pid] = place
+
+    # 3. Details + email discovery, concurrently and isolated per supplier.
+    def _enrich(item: Tuple[str, dict]) -> Optional[FoundSupplierResult]:
+        pid, place = item
+        try:
+            loc = place.get("geometry", {}).get("location", {})
+            coords = (float(loc["lat"]), float(loc["lng"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+        dist = distance.haversine_miles(origin, coords)
+        if dist > radius_mi:
+            return None
+        tier = distance.tier_for(dist)
+        if tier == 0:
+            return None
+        detail = {}
+        try:
+            detail = places.place_details(pid)
+        except places.PlacesUnavailable:
+            detail = {}
+        name = detail.get("name") or place.get("name") or "Unknown supplier"
+        website = places.website_for(detail)
+        disc = emails.discover_email(website, name)
+        return FoundSupplierResult(
+            name=name,
+            address=detail.get("formatted_address") or place.get("formatted_address") or "",
+            distance_miles=round(dist, 1),
+            tier=tier,
+            contact_name=None,
+            email=disc.email,
+            phone=detail.get("formatted_phone_number"),
+            website=website,
+            material_categories=[label],
+            email_source=disc.source,
+            place_id=pid,
+        )
+
+    results: List[FoundSupplierResult] = []
+    if raw:
+        with ThreadPoolExecutor(max_workers=settings.search_max_workers) as pool:
+            for res in pool.map(_enrich, list(raw.items())):
+                if res is not None:
+                    results.append(res)
+
+    results.sort(key=lambda r: r.distance_miles)
+    return results[: settings.search_max_results_per_package], origin, False
+
+
+# --------------------------------------------------------------------- mock
+# Plausible suppliers spread across tiers, so the UI is fully exercisable with no
+# Google key. Modeled loosely on real waterworks/precast distributors.
+_MOCK = {
+    "water": [
+        ("Core & Main", 12.0, "sales@coreandmain.com"),
+        ("Ferguson Waterworks", 18.0, "quotes@ferguson.com"),
+        ("HD Supply Waterworks", 41.0, "priya.anand@hdsupply.com"),
+        ("Mayer Supply", 63.0, None),
+        ("National Waterworks Mfg", 134.0, "estimating@nationalww.com"),
+    ],
+    "sewer": [
+        ("Core & Main", 12.0, "sales@coreandmain.com"),
+        ("Fortiline Waterworks", 22.0, "lromero@fortiline.com"),
+        ("Regional Precast Co.", 48.0, "sales@regionalprecast.com"),
+        ("County Precast Manufacturing", 88.0, None),
+    ],
+    "storm": [
+        ("Oldcastle Infrastructure", 16.0, "bids@oldcastle.com"),
+        ("County Materials", 39.0, "sales@countymaterials.com"),
+        ("Forterra Pipe & Precast", 67.0, "quotes@forterra.com"),
+        ("Regional RCP Plant", 142.0, None),
+    ],
+    "erosion": [
+        ("Sitework Supply Co.", 9.0, "sales@siteworksupply.com"),
+        ("Geotextile Distributors Inc.", 28.0, "info@geotextiledist.com"),
+        ("Landscape Supply Yard", 54.0, None),
+    ],
+}
+
+
+def _mock_suppliers(category_key: str, radius_mi: int) -> List[FoundSupplierResult]:
+    label = packages.label_for(category_key)
+    out: List[FoundSupplierResult] = []
+    for i, (name, dist, email) in enumerate(_MOCK.get(category_key, [])):
+        if dist > radius_mi:
+            continue
+        tier = distance.tier_for(dist)
+        if tier == 0:
+            continue
+        slug = name.lower().split()[0]
+        out.append(
+            FoundSupplierResult(
+                name=name,
+                address=f"{100 + i * 25} Industrial Pkwy",
+                distance_miles=dist,
+                tier=tier,
+                contact_name=None,
+                email=email,
+                phone=f"(555) 555-0{100 + i:03d}",
+                website=f"https://{slug}.example.com",
+                material_categories=[label],
+                email_source="mock" if email else "none",
+                place_id=f"mock-{category_key}-{i}",
+            )
+        )
+    out.sort(key=lambda r: r.distance_miles)
+    return out

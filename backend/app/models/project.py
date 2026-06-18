@@ -1,4 +1,6 @@
-from sqlalchemy import Integer, String
+from typing import Optional
+
+from sqlalchemy import Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -30,6 +32,11 @@ class Project(Base):
     risk: Mapped[str] = mapped_column(String, nullable=False, default="Low")
     risk_tone: Mapped[str] = mapped_column(String, nullable=False, default="success")
     bar_color: Mapped[str] = mapped_column(String, nullable=False, default="var(--primary)")
+    # Cached geocode of `loc` (supplier search). `geocoded_loc` records the
+    # string that was geocoded so a changed `loc` invalidates the cache.
+    lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    geocoded_loc: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     def to_dict(self) -> dict:
         """Shape a row into the camelCase payload the API schemas expect."""
@@ -47,4 +54,6 @@ class Project(Base):
             "risk": self.risk,
             "riskTone": self.risk_tone,
             "barColor": self.bar_color,
+            "lat": self.lat,
+            "lng": self.lng,
         }

@@ -209,6 +209,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/packages/{package}/search-suppliers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search Suppliers */
+        post: operations["search_suppliers_api_projects__project_id__packages__package__search_suppliers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/suppliers/found": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Found Suppliers */
+        get: operations["get_found_suppliers_api_projects__project_id__suppliers_found_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Rfq */
+        post: operations["generate_rfq_api_projects__project_id__packages__package__rfqs_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rfqs/generated": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Generated Rfqs */
+        get: operations["list_generated_rfqs_api_projects__project_id__rfqs_generated_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rfqs/{rfq_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Generated Rfq */
+        get: operations["get_generated_rfq_api_projects__project_id__rfqs__rfq_id__get"];
+        /** Update Generated Rfq */
+        put: operations["update_generated_rfq_api_projects__project_id__rfqs__rfq_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rfqs/{rfq_id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Generated Rfq */
+        post: operations["send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/suppliers": {
         parameters: {
             query?: never;
@@ -601,6 +704,37 @@ export interface components {
             /** Body */
             body: string;
         };
+        /** FoundSupplier */
+        FoundSupplier: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Address */
+            address: string;
+            /** Distancemiles */
+            distanceMiles: number;
+            /** Tier */
+            tier: number;
+            /** Contactname */
+            contactName?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Website */
+            website?: string | null;
+            /**
+             * Materialcategories
+             * @default []
+             */
+            materialCategories: string[];
+            /**
+             * Emailsource
+             * @default none
+             */
+            emailSource: string;
+        };
         /** GanttBar */
         GanttBar: {
             /** Name */
@@ -733,6 +867,53 @@ export interface components {
             /** Pct */
             pct: number;
             tone: components["schemas"]["Tone"];
+        };
+        /**
+         * PersistedRfq
+         * @description An RFQ generated from a buy-package, stored per project.
+         */
+        PersistedRfq: {
+            /** Id */
+            id: string;
+            /** Sup */
+            sup: string;
+            /** Pkg */
+            pkg: string;
+            /** Folder */
+            folder: string;
+            status: components["schemas"]["RfqStatus"];
+            statusTone: components["schemas"]["Tone"];
+            /** Preview */
+            preview: string;
+            /** Time */
+            time: string;
+            /**
+             * Unread
+             * @default false
+             */
+            unread: boolean;
+            /** Logo */
+            logo: string;
+            /** Logobg */
+            logoBg: string;
+            /** Projectid */
+            projectId: string;
+            /** Package */
+            package: string;
+            /** Subject */
+            subject: string;
+            /** Body */
+            body: string;
+            /**
+             * Lineitems
+             * @default []
+             */
+            lineItems: components["schemas"]["RfqLineItem"][];
+            /**
+             * Recipients
+             * @default []
+             */
+            recipients: components["schemas"]["RfqRecipient"][];
         };
         /**
          * PlanType
@@ -916,11 +1097,46 @@ export interface components {
             /** Count */
             count: string;
         };
+        /** RfqGenerateRequest */
+        RfqGenerateRequest: {
+            /** Supplier Ids */
+            supplier_ids: string[];
+        };
+        /** RfqLineItem */
+        RfqLineItem: {
+            /** N */
+            n: string;
+            /**
+             * Q
+             * @default
+             */
+            q: string;
+        };
+        /** RfqRecipient */
+        RfqRecipient: {
+            /** Supplierid */
+            supplierId?: string | null;
+            /** Name */
+            name: string;
+            /** Email */
+            email: string;
+            /** Sentmessageid */
+            sentMessageId?: string | null;
+        };
         /**
          * RfqStatus
          * @enum {string}
          */
         RfqStatus: "Draft" | "Sent" | "Awaiting" | "Quoted";
+        /** RfqUpdate */
+        RfqUpdate: {
+            /** Subject */
+            subject: string;
+            /** Body */
+            body: string;
+            /** Recipients */
+            recipients: components["schemas"]["RfqRecipient"][];
+        };
         /**
          * Risk
          * @enum {string}
@@ -1028,6 +1244,57 @@ export interface components {
             total: string;
             /** Avg */
             avg: string;
+        };
+        /** SupplierSearchAccepted */
+        SupplierSearchAccepted: {
+            /** Status */
+            status: string;
+            /** Package */
+            package: string;
+        };
+        /** SupplierSearchRequest */
+        SupplierSearchRequest: {
+            /**
+             * Radius Mi
+             * @default 75
+             */
+            radius_mi: number;
+        };
+        /** SupplierSearchResult */
+        SupplierSearchResult: {
+            /** Status */
+            status: string;
+            /**
+             * Mocked
+             * @default false
+             */
+            mocked: boolean;
+            /**
+             * Radiusmi
+             * @default 0
+             */
+            radiusMi: number;
+            /**
+             * Package
+             * @default
+             */
+            package: string;
+            /** Error */
+            error?: string | null;
+            /**
+             * Tiers
+             * @default []
+             */
+            tiers: components["schemas"]["SupplierTier"][];
+        };
+        /** SupplierTier */
+        SupplierTier: {
+            /** Tier */
+            tier: number;
+            /** Label */
+            label: string;
+            /** Suppliers */
+            suppliers: components["schemas"]["FoundSupplier"][];
         };
         /** ThreadMessage */
         ThreadMessage: {
@@ -1441,6 +1708,242 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Comparison"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_suppliers_api_projects__project_id__packages__package__search_suppliers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                package: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierSearchAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_found_suppliers_api_projects__project_id__suppliers_found_get: {
+        parameters: {
+            query: {
+                package: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierSearchResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_rfq_api_projects__project_id__packages__package__rfqs_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                package: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RfqGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersistedRfq"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_generated_rfqs_api_projects__project_id__rfqs_generated_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersistedRfq"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_generated_rfq_api_projects__project_id__rfqs__rfq_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                rfq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersistedRfq"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_generated_rfq_api_projects__project_id__rfqs__rfq_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                rfq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RfqUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersistedRfq"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                rfq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersistedRfq"];
                 };
             };
             /** @description Validation Error */

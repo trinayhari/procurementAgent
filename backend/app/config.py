@@ -47,5 +47,29 @@ class Settings(BaseSettings):
     vision_tile_dpi: int = 200
     vision_tile_overlap: float = 0.08
 
+    # ------------------------------------------------ Google Maps Platform
+    # Geocoding (project loc → lat/lng) + Places Text Search/Details (supplier
+    # discovery). Leave empty to run a clearly-flagged mock supplier search.
+    google_maps_api_key: str = ""
+
+    # ------------------------------------------- Gmail (single-user OAuth2 send)
+    # Mint the refresh token once out-of-band (InstalledAppFlow, scope
+    # gmail.send) and paste it here. Empty creds → mock sender (logs only).
+    gmail_client_id: str = ""
+    gmail_client_secret: str = ""
+    gmail_refresh_token: str = ""
+    gmail_sender_address: str = ""  # the "From" address, e.g. you@gmail.com
+
+    # ------------------------------------------------ supplier search tuning
+    # Tier bounds (miles) for bucketing results; the UI radius slider re-buckets.
+    search_default_radius_mi: int = 75
+    search_tier1_max_mi: int = 25   # Tier 1: local
+    search_tier2_max_mi: int = 75   # Tier 2: regional branches
+    search_tier3_max_mi: int = 250  # Tier 3: manufacturers / large distributors
+    search_max_results_per_package: int = 20
+    # Per-supplier website fetch for email discovery (best-effort).
+    search_email_fetch_timeout_s: int = 8
+    search_max_workers: int = 6  # cap concurrent details + website fetches
+
 
 settings = Settings()

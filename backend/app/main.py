@@ -7,6 +7,7 @@ from app.api.routes import (
     projects,
     quotes,
     rfqs,
+    sourcing,
     suppliers,
     timeline,
 )
@@ -37,5 +38,5 @@ def health():
     return {"status": "ok"}
 
 
-for module in (dashboard, projects, suppliers, documents, rfqs, quotes, timeline):
+for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline):
     app.include_router(module.router)
