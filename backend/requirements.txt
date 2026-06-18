@@ -1,0 +1,8 @@
+fastapi==0.112.2
+uvicorn[standard]==0.30.6
+pydantic==2.8.2
+pydantic-settings==2.4.0
+python-multipart==0.0.9
+# AI document extraction (GPT-4.1 vision + PDF rasterisation).
+openai>=1.40.0,<2.0.0
+PyMuPDF>=1.24.0

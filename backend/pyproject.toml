@@ -1,0 +1,17 @@
+[project]
+name = "procureai-backend"
+version = "0.1.0"
+description = "FastAPI backend for the ProcureAI procurement OS"
+requires-python = ">=3.8"
+dependencies = [
+    "fastapi==0.112.2",
+    "uvicorn[standard]==0.30.6",
+    "pydantic==2.8.2",
+    "pydantic-settings==2.4.0",
+    "python-multipart==0.0.9",
+    "openai>=1.40.0,<2.0.0",
+    "PyMuPDF>=1.24.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

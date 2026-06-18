@@ -1,0 +1,45 @@
+:root{
+  --bg:#f6f7f9;--panel:#ffffff;--panel-2:#f2f4f7;--panel-3:#eaedf2;
+  --border:#e7e9ee;--border-strong:#d5d8e0;
+  --text:#171a1f;--text-2:#5e636e;--text-3:#959aa4;
+  --primary:#2563eb;--primary-2:#1d4ed8;--primary-soft:#e9f1ff;--primary-softer:#f3f8ff;
+  --violet:#7c3aed;--violet-soft:#f0eafe;
+  --success:#15a34a;--success-soft:#e6f7ed;--warn:#b6790c;--warn-soft:#f8f0db;--danger:#dc2626;--danger-soft:#fbe9e9;
+  --on-primary:#ffffff;
+  --shadow-sm:0 1px 2px rgba(16,24,40,.05);
+  --shadow:0 1px 3px rgba(16,24,40,.07),0 1px 2px rgba(16,24,40,.04);
+  --shadow-md:0 6px 16px -4px rgba(16,24,40,.10),0 2px 6px -2px rgba(16,24,40,.06);
+  --shadow-lg:0 22px 48px -18px rgba(16,24,40,.28);
+}
+[data-theme="dark"]{
+  --bg:#0a0b0d;--panel:#131418;--panel-2:#191b20;--panel-3:#202329;
+  --border:#262931;--border-strong:#383c46;
+  --text:#eef0f3;--text-2:#9398a3;--text-3:#646a76;
+  --primary:#3b82f6;--primary-2:#60a5fa;--primary-soft:#152138;--primary-softer:#101725;
+  --violet:#a78bfa;--violet-soft:#231a3c;
+  --success:#34d399;--success-soft:#102a1e;--warn:#e0a93b;--warn-soft:#2b2210;--danger:#f87171;--danger-soft:#2c1616;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+  --shadow:0 1px 3px rgba(0,0,0,.5);
+  --shadow-md:0 8px 22px -6px rgba(0,0,0,.6);
+  --shadow-lg:0 24px 52px -18px rgba(0,0,0,.7);
+}
+[data-accent="indigo"]{--primary:#4f46e5;--primary-2:#4338ca;--primary-soft:#ececfe;--primary-softer:#f5f5ff}
+[data-accent="teal"]{--primary:#0d9488;--primary-2:#0f766e;--primary-soft:#dcfaf3;--primary-softer:#f0fdfa}
+[data-accent="violet"]{--primary:#7c3aed;--primary-2:#6d28d9;--primary-soft:#f0e9ff;--primary-softer:#f8f4ff}
+[data-theme="dark"][data-accent="indigo"]{--primary:#6366f1;--primary-2:#818cf8;--primary-soft:#1b1a3a}
+[data-theme="dark"][data-accent="teal"]{--primary:#2dd4bf;--primary-2:#5eead4;--primary-soft:#0c2b28}
+[data-theme="dark"][data-accent="violet"]{--primary:#a78bfa;--primary-2:#c4b5fd;--primary-soft:#221a3d}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:'Figtree',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none;padding:0}
+input{font:inherit;outline:none}
+a{color:inherit;text-decoration:none}
+::selection{background:rgba(37,99,235,.16)}
+*::-webkit-scrollbar{width:11px;height:11px}
+*::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:10px;border:3px solid var(--bg);background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:var(--text-3)}
+@keyframes pcSpin{to{transform:rotate(360deg)}}
+@keyframes pcPulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes pcUp{from{transform:translateY(7px)}to{transform:none}}
+@keyframes pcShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
