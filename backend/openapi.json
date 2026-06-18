@@ -1,0 +1,2590 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ProcureAI API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Get Dashboard",
+        "operationId": "get_dashboard_api_dashboard_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dashboard"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Projects",
+        "operationId": "list_projects_api_projects_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Project"
+                  },
+                  "type": "array",
+                  "title": "Response List Projects Api Projects Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create Project",
+        "operationId": "create_project_api_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project",
+        "operationId": "get_project_api_projects__project_id__get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/documents": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Documents",
+        "operationId": "list_documents_api_projects__project_id__documents_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Document"
+                  },
+                  "title": "Response List Documents Api Projects  Project Id  Documents Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/line-items": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Line Items",
+        "operationId": "list_line_items_api_projects__project_id__line_items_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LineItemGroup"
+                  },
+                  "title": "Response List Line Items Api Projects  Project Id  Line Items Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/suppliers": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Project Suppliers",
+        "operationId": "list_project_suppliers_api_projects__project_id__suppliers_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Supplier"
+                  },
+                  "title": "Response List Project Suppliers Api Projects  Project Id  Suppliers Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/quotes": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Quotes",
+        "operationId": "list_quotes_api_projects__project_id__quotes_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Quote"
+                  },
+                  "title": "Response List Quotes Api Projects  Project Id  Quotes Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/rfqs": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Rfqs",
+        "operationId": "list_rfqs_api_projects__project_id__rfqs_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Rfq"
+                  },
+                  "title": "Response List Rfqs Api Projects  Project Id  Rfqs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/rfq-folders": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Rfq Folders",
+        "operationId": "list_rfq_folders_api_projects__project_id__rfq_folders_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RfqFolder"
+                  },
+                  "title": "Response List Rfq Folders Api Projects  Project Id  Rfq Folders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/timeline": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Timeline",
+        "operationId": "get_timeline_api_projects__project_id__timeline_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Timeline"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/packages/{pkg}/comparison": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Comparison",
+        "operationId": "get_comparison_api_projects__project_id__packages__pkg__comparison_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "pkg",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pkg"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comparison"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/suppliers": {
+      "get": {
+        "tags": [
+          "suppliers"
+        ],
+        "summary": "List Suppliers",
+        "operationId": "list_suppliers_api_suppliers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Supplier"
+                  },
+                  "type": "array",
+                  "title": "Response List Suppliers Api Suppliers Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/suppliers/{supplier_id}": {
+      "get": {
+        "tags": [
+          "suppliers"
+        ],
+        "summary": "Get Supplier",
+        "operationId": "get_supplier_api_suppliers__supplier_id__get",
+        "parameters": [
+          {
+            "name": "supplier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Supplier Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/plan-types": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "List Plan Types",
+        "description": "Plan types the extractor supports \u2014 drives the upload selector.",
+        "operationId": "list_plan_types_api_documents_plan_types_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlanType"
+                  },
+                  "type": "array",
+                  "title": "Response List Plan Types Api Documents Plan Types Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get Document",
+        "operationId": "get_document_api_documents__document_id__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/{document_id}/line-items": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get Document Line Items",
+        "description": "BOM groups extracted from one document.",
+        "operationId": "get_document_line_items_api_documents__document_id__line_items_get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LineItemGroup"
+                  },
+                  "title": "Response Get Document Line Items Api Documents  Document Id  Line Items Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Save Document Line Items",
+        "description": "Human-in-the-loop: replace a document's BOM with the reviewer's edits.\n\nRecomputes group counts and the document's item total, and flags it as edited.",
+        "operationId": "save_document_line_items_api_documents__document_id__line_items_put",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineItemsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LineItemGroup"
+                  },
+                  "title": "Response Save Document Line Items Api Documents  Document Id  Line Items Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/{document_id}/confirm": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Confirm Document",
+        "description": "Human-in-the-loop: mark a document's BOM as reviewed and approved.",
+        "operationId": "confirm_document_api_documents__document_id__confirm_post",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Upload Document",
+        "description": "Upload a plan set and kick off background AI extraction. The document is\nattached to `project_id` so each project keeps its own document list.",
+        "operationId": "upload_document_api_documents_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_document_api_documents_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/{document_id}/analyze": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Analyze Document",
+        "description": "Re-run extraction for an already-uploaded document.",
+        "operationId": "analyze_document_api_documents__document_id__analyze_post",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rfqs/{rfq_id}": {
+      "get": {
+        "tags": [
+          "rfqs"
+        ],
+        "summary": "Get Rfq",
+        "operationId": "get_rfq_api_rfqs__rfq_id__get",
+        "parameters": [
+          {
+            "name": "rfq_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rfq Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RfqDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rfqs/{rfq_id}/messages": {
+      "post": {
+        "tags": [
+          "rfqs"
+        ],
+        "summary": "Send Message",
+        "description": "Command: post a reply to an RFQ thread.",
+        "operationId": "send_message_api_rfqs__rfq_id__messages_post",
+        "parameters": [
+          {
+            "name": "rfq_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rfq Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadMessage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rfqs/{rfq_id}/followup": {
+      "post": {
+        "tags": [
+          "rfqs"
+        ],
+        "summary": "Draft Followup",
+        "description": "Command: generate an AI follow-up nudge for a non-responsive supplier.\n\nStubbed \u2014 returns a templated message. Replace with an LLM call.",
+        "operationId": "draft_followup_api_rfqs__rfq_id__followup_post",
+        "parameters": [
+          {
+            "name": "rfq_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rfq Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowupDraft"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/quotes/{quote_id}": {
+      "get": {
+        "tags": [
+          "quotes"
+        ],
+        "summary": "Get Quote",
+        "operationId": "get_quote_api_quotes__quote_id__get",
+        "parameters": [
+          {
+            "name": "quote_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Quote Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quote"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/quotes/{quote_id}/select": {
+      "post": {
+        "tags": [
+          "quotes"
+        ],
+        "summary": "Select Quote",
+        "description": "Command: select a supplier's quote and issue a purchase order.",
+        "operationId": "select_quote_api_quotes__quote_id__select_post",
+        "parameters": [
+          {
+            "name": "quote_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Quote Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Activity": {
+        "properties": {
+          "icon": {
+            "type": "string",
+            "title": "Icon"
+          },
+          "tone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "meta": {
+            "type": "string",
+            "title": "Meta"
+          },
+          "time": {
+            "type": "string",
+            "title": "Time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "icon",
+          "tone",
+          "title",
+          "meta",
+          "time"
+        ],
+        "title": "Activity"
+      },
+      "Body_upload_document_api_documents_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          },
+          "plan_type": {
+            "type": "string",
+            "title": "Plan Type"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id",
+            "default": "riverside"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_document_api_documents_post"
+      },
+      "Comparison": {
+        "properties": {
+          "pkg": {
+            "type": "string",
+            "title": "Pkg"
+          },
+          "suppliers": {
+            "items": {
+              "$ref": "#/components/schemas/ComparisonSupplier"
+            },
+            "type": "array",
+            "title": "Suppliers"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ComparisonRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "recommendation": {
+            "type": "string",
+            "title": "Recommendation"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "savings": {
+            "type": "string",
+            "title": "Savings"
+          },
+          "savingsNote": {
+            "type": "string",
+            "title": "Savingsnote"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pkg",
+          "suppliers",
+          "rows",
+          "recommendation",
+          "reasons",
+          "savings",
+          "savingsNote"
+        ],
+        "title": "Comparison"
+      },
+      "ComparisonRow": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "vals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Vals"
+          },
+          "best": {
+            "type": "integer",
+            "title": "Best"
+          },
+          "emph": {
+            "type": "boolean",
+            "title": "Emph",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "vals",
+          "best"
+        ],
+        "title": "ComparisonRow"
+      },
+      "ComparisonSupplier": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "logo": {
+            "type": "string",
+            "title": "Logo"
+          },
+          "logoBg": {
+            "type": "string",
+            "title": "Logobg"
+          },
+          "rec": {
+            "type": "boolean",
+            "title": "Rec",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "logo",
+          "logoBg"
+        ],
+        "title": "ComparisonSupplier"
+      },
+      "Dashboard": {
+        "properties": {
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/Metric"
+            },
+            "type": "array",
+            "title": "Metrics"
+          },
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/Activity"
+            },
+            "type": "array",
+            "title": "Activity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metrics",
+          "activity"
+        ],
+        "title": "Dashboard"
+      },
+      "DocStatus": {
+        "type": "string",
+        "enum": [
+          "Queued",
+          "Processing",
+          "Analyzed",
+          "Failed"
+        ],
+        "title": "DocStatus"
+      },
+      "Document": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocStatus"
+          },
+          "statusTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "items": {
+            "type": "string",
+            "title": "Items"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages"
+          },
+          "processing": {
+            "type": "boolean",
+            "title": "Processing",
+            "default": false
+          },
+          "planType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plantype"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked",
+            "default": false
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "reviewed": {
+            "type": "boolean",
+            "title": "Reviewed",
+            "default": false
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewedat"
+          },
+          "edited": {
+            "type": "boolean",
+            "title": "Edited",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "type",
+          "date",
+          "status",
+          "statusTone",
+          "items",
+          "pages"
+        ],
+        "title": "Document"
+      },
+      "FollowupDraft": {
+        "properties": {
+          "body": {
+            "type": "string",
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "title": "FollowupDraft"
+      },
+      "GanttBar": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "len": {
+            "type": "integer",
+            "title": "Len"
+          },
+          "tone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "warn": {
+            "type": "boolean",
+            "title": "Warn",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "start",
+          "len",
+          "tone",
+          "label"
+        ],
+        "title": "GanttBar"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LineItem": {
+        "properties": {
+          "n": {
+            "type": "string",
+            "title": "N"
+          },
+          "q": {
+            "type": "string",
+            "title": "Q"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n",
+          "q"
+        ],
+        "title": "LineItem"
+      },
+      "LineItemGroup": {
+        "properties": {
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "tone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LineItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "count",
+          "tone",
+          "items"
+        ],
+        "title": "LineItemGroup"
+      },
+      "LineItemsUpdate": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/LineItemGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups"
+        ],
+        "title": "LineItemsUpdate",
+        "description": "Body for saving a human-edited BOM (full replacement of the groups)."
+      },
+      "MessageCreate": {
+        "properties": {
+          "body": {
+            "type": "string",
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "title": "MessageCreate"
+      },
+      "Metric": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "delta": {
+            "type": "string",
+            "title": "Delta"
+          },
+          "sub": {
+            "type": "string",
+            "title": "Sub",
+            "default": ""
+          },
+          "up": {
+            "type": "boolean",
+            "title": "Up",
+            "default": false
+          },
+          "down": {
+            "type": "boolean",
+            "title": "Down",
+            "default": false
+          },
+          "ai": {
+            "type": "boolean",
+            "title": "Ai",
+            "default": false
+          },
+          "risk": {
+            "type": "boolean",
+            "title": "Risk",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "value",
+          "delta"
+        ],
+        "title": "Metric"
+      },
+      "Milestone": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "desc": {
+            "type": "string",
+            "title": "Desc"
+          },
+          "tone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "done": {
+            "type": "boolean",
+            "title": "Done",
+            "default": false
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "date",
+          "status",
+          "desc",
+          "tone"
+        ],
+        "title": "Milestone"
+      },
+      "OverviewCard": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "sub": {
+            "type": "string",
+            "title": "Sub"
+          },
+          "icon": {
+            "type": "string",
+            "title": "Icon"
+          },
+          "tone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "ai": {
+            "type": "boolean",
+            "title": "Ai",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "value",
+          "sub",
+          "icon",
+          "tone"
+        ],
+        "title": "OverviewCard"
+      },
+      "Package": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "pct": {
+            "type": "integer",
+            "title": "Pct"
+          },
+          "tone": {
+            "$ref": "#/components/schemas/Tone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "pct",
+          "tone"
+        ],
+        "title": "Package"
+      },
+      "PlanType": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "description",
+          "enabled",
+          "categories"
+        ],
+        "title": "PlanType",
+        "description": "A registered plan type, surfaced to the upload UI."
+      },
+      "Project": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "loc": {
+            "type": "string",
+            "title": "Loc"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/Stage"
+          },
+          "stageTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "progress": {
+            "type": "integer",
+            "title": "Progress"
+          },
+          "suppliers": {
+            "type": "integer",
+            "title": "Suppliers"
+          },
+          "rfqs": {
+            "type": "integer",
+            "title": "Rfqs"
+          },
+          "quotes": {
+            "type": "integer",
+            "title": "Quotes"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/Risk"
+          },
+          "riskTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "barColor": {
+            "type": "string",
+            "title": "Barcolor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "loc",
+          "stage",
+          "stageTone",
+          "value",
+          "progress",
+          "suppliers",
+          "rfqs",
+          "quotes",
+          "risk",
+          "riskTone",
+          "barColor"
+        ],
+        "title": "Project"
+      },
+      "ProjectCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "loc": {
+            "type": "string",
+            "title": "Loc",
+            "default": ""
+          },
+          "value": {
+            "type": "string",
+            "title": "Value",
+            "default": ""
+          },
+          "stage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Stage"
+              }
+            ],
+            "default": "Plans Review"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ProjectCreate",
+        "description": "Payload for creating a project from the New project modal."
+      },
+      "ProjectDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "loc": {
+            "type": "string",
+            "title": "Loc"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/Stage"
+          },
+          "stageTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "progress": {
+            "type": "integer",
+            "title": "Progress"
+          },
+          "suppliers": {
+            "type": "integer",
+            "title": "Suppliers"
+          },
+          "rfqs": {
+            "type": "integer",
+            "title": "Rfqs"
+          },
+          "quotes": {
+            "type": "integer",
+            "title": "Quotes"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/Risk"
+          },
+          "riskTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "barColor": {
+            "type": "string",
+            "title": "Barcolor"
+          },
+          "overviewCards": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewCard"
+            },
+            "type": "array",
+            "title": "Overviewcards"
+          },
+          "packages": {
+            "items": {
+              "$ref": "#/components/schemas/Package"
+            },
+            "type": "array",
+            "title": "Packages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "loc",
+          "stage",
+          "stageTone",
+          "value",
+          "progress",
+          "suppliers",
+          "rfqs",
+          "quotes",
+          "risk",
+          "riskTone",
+          "barColor",
+          "overviewCards",
+          "packages"
+        ],
+        "title": "ProjectDetail",
+        "description": "Full project workspace payload."
+      },
+      "Quote": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "sup": {
+            "type": "string",
+            "title": "Sup"
+          },
+          "pkg": {
+            "type": "string",
+            "title": "Pkg"
+          },
+          "amount": {
+            "type": "string",
+            "title": "Amount"
+          },
+          "freight": {
+            "type": "string",
+            "title": "Freight"
+          },
+          "total": {
+            "type": "string",
+            "title": "Total"
+          },
+          "lead": {
+            "type": "string",
+            "title": "Lead"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "logo": {
+            "type": "string",
+            "title": "Logo"
+          },
+          "logoBg": {
+            "type": "string",
+            "title": "Logobg"
+          },
+          "best": {
+            "type": "boolean",
+            "title": "Best",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "sup",
+          "pkg",
+          "amount",
+          "freight",
+          "total",
+          "lead",
+          "date",
+          "logo",
+          "logoBg"
+        ],
+        "title": "Quote"
+      },
+      "Rfq": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "sup": {
+            "type": "string",
+            "title": "Sup"
+          },
+          "pkg": {
+            "type": "string",
+            "title": "Pkg"
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RfqStatus"
+          },
+          "statusTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "preview": {
+            "type": "string",
+            "title": "Preview"
+          },
+          "time": {
+            "type": "string",
+            "title": "Time"
+          },
+          "unread": {
+            "type": "boolean",
+            "title": "Unread",
+            "default": false
+          },
+          "logo": {
+            "type": "string",
+            "title": "Logo"
+          },
+          "logoBg": {
+            "type": "string",
+            "title": "Logobg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "sup",
+          "pkg",
+          "folder",
+          "status",
+          "statusTone",
+          "preview",
+          "time",
+          "logo",
+          "logoBg"
+        ],
+        "title": "Rfq"
+      },
+      "RfqDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "sup": {
+            "type": "string",
+            "title": "Sup"
+          },
+          "pkg": {
+            "type": "string",
+            "title": "Pkg"
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RfqStatus"
+          },
+          "statusTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "preview": {
+            "type": "string",
+            "title": "Preview"
+          },
+          "time": {
+            "type": "string",
+            "title": "Time"
+          },
+          "unread": {
+            "type": "boolean",
+            "title": "Unread",
+            "default": false
+          },
+          "logo": {
+            "type": "string",
+            "title": "Logo"
+          },
+          "logoBg": {
+            "type": "string",
+            "title": "Logobg"
+          },
+          "thread": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadMessage"
+            },
+            "type": "array",
+            "title": "Thread"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "sup",
+          "pkg",
+          "folder",
+          "status",
+          "statusTone",
+          "preview",
+          "time",
+          "logo",
+          "logoBg",
+          "thread"
+        ],
+        "title": "RfqDetail"
+      },
+      "RfqFolder": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "count": {
+            "type": "string",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "title": "RfqFolder"
+      },
+      "RfqStatus": {
+        "type": "string",
+        "enum": [
+          "Draft",
+          "Sent",
+          "Awaiting",
+          "Quoted"
+        ],
+        "title": "RfqStatus"
+      },
+      "Risk": {
+        "type": "string",
+        "enum": [
+          "Low",
+          "Medium",
+          "High"
+        ],
+        "title": "Risk"
+      },
+      "SelectResult": {
+        "properties": {
+          "quote_id": {
+            "type": "string",
+            "title": "Quote Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quote_id",
+          "status",
+          "message"
+        ],
+        "title": "SelectResult"
+      },
+      "Stage": {
+        "type": "string",
+        "enum": [
+          "RFQs Out",
+          "Quotes In",
+          "Plans Review",
+          "Complete",
+          "Sourcing"
+        ],
+        "title": "Stage"
+      },
+      "Supplier": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "cats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cats"
+          },
+          "contact": {
+            "type": "string",
+            "title": "Contact"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "web": {
+            "type": "string",
+            "title": "Web"
+          },
+          "rfq": {
+            "type": "string",
+            "title": "Rfq"
+          },
+          "rfqTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "last": {
+            "type": "string",
+            "title": "Last"
+          },
+          "quotes": {
+            "type": "string",
+            "title": "Quotes"
+          },
+          "quoteVal": {
+            "type": "string",
+            "title": "Quoteval"
+          },
+          "lead": {
+            "type": "string",
+            "title": "Lead"
+          },
+          "logo": {
+            "type": "string",
+            "title": "Logo"
+          },
+          "logoBg": {
+            "type": "string",
+            "title": "Logobg"
+          },
+          "fin": {
+            "$ref": "#/components/schemas/SupplierFinancials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "cats",
+          "contact",
+          "phone",
+          "email",
+          "web",
+          "rfq",
+          "rfqTone",
+          "last",
+          "quotes",
+          "quoteVal",
+          "lead",
+          "logo",
+          "logoBg",
+          "fin"
+        ],
+        "title": "Supplier"
+      },
+      "SupplierComm": {
+        "properties": {
+          "tone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "time": {
+            "type": "string",
+            "title": "Time"
+          },
+          "icon": {
+            "type": "string",
+            "title": "Icon"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tone",
+          "title",
+          "body",
+          "time",
+          "icon"
+        ],
+        "title": "SupplierComm"
+      },
+      "SupplierDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "cats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cats"
+          },
+          "contact": {
+            "type": "string",
+            "title": "Contact"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "web": {
+            "type": "string",
+            "title": "Web"
+          },
+          "rfq": {
+            "type": "string",
+            "title": "Rfq"
+          },
+          "rfqTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "last": {
+            "type": "string",
+            "title": "Last"
+          },
+          "quotes": {
+            "type": "string",
+            "title": "Quotes"
+          },
+          "quoteVal": {
+            "type": "string",
+            "title": "Quoteval"
+          },
+          "lead": {
+            "type": "string",
+            "title": "Lead"
+          },
+          "logo": {
+            "type": "string",
+            "title": "Logo"
+          },
+          "logoBg": {
+            "type": "string",
+            "title": "Logobg"
+          },
+          "fin": {
+            "$ref": "#/components/schemas/SupplierFinancials"
+          },
+          "comms": {
+            "items": {
+              "$ref": "#/components/schemas/SupplierComm"
+            },
+            "type": "array",
+            "title": "Comms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "cats",
+          "contact",
+          "phone",
+          "email",
+          "web",
+          "rfq",
+          "rfqTone",
+          "last",
+          "quotes",
+          "quoteVal",
+          "lead",
+          "logo",
+          "logoBg",
+          "fin",
+          "comms"
+        ],
+        "title": "SupplierDetail"
+      },
+      "SupplierFinancials": {
+        "properties": {
+          "submitted": {
+            "type": "string",
+            "title": "Submitted"
+          },
+          "total": {
+            "type": "string",
+            "title": "Total"
+          },
+          "avg": {
+            "type": "string",
+            "title": "Avg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submitted",
+          "total",
+          "avg"
+        ],
+        "title": "SupplierFinancials"
+      },
+      "ThreadMessage": {
+        "properties": {
+          "dir": {
+            "type": "string",
+            "title": "Dir"
+          },
+          "who": {
+            "type": "string",
+            "title": "Who"
+          },
+          "initials": {
+            "type": "string",
+            "title": "Initials"
+          },
+          "time": {
+            "type": "string",
+            "title": "Time"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "attach": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attach"
+          },
+          "logoBg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logobg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dir",
+          "who",
+          "initials",
+          "time",
+          "body"
+        ],
+        "title": "ThreadMessage"
+      },
+      "Timeline": {
+        "properties": {
+          "milestones": {
+            "items": {
+              "$ref": "#/components/schemas/Milestone"
+            },
+            "type": "array",
+            "title": "Milestones"
+          },
+          "gantt": {
+            "items": {
+              "$ref": "#/components/schemas/GanttBar"
+            },
+            "type": "array",
+            "title": "Gantt"
+          },
+          "ganttCols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ganttcols"
+          }
+        },
+        "type": "object",
+        "required": [
+          "milestones",
+          "gantt",
+          "ganttCols"
+        ],
+        "title": "Timeline"
+      },
+      "Tone": {
+        "type": "string",
+        "enum": [
+          "blue",
+          "violet",
+          "gray",
+          "success",
+          "warn",
+          "danger",
+          "ai"
+        ],
+        "title": "Tone",
+        "description": "Semantic color token consumed by the frontend (maps to a CSS variable)."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

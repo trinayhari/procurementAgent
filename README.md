@@ -6,8 +6,10 @@ AI-native procurement OS for construction — frontend implemented from the
 
 ## Stack
 
-- **Frontend:** React 18 + Vite. Styling is plain CSS variables (light/dark +
-  accent themes) plus inline styles, ported verbatim from the design prototype.
+- **Frontend:** React 18 + Vite + **TypeScript**. Styling is plain CSS variables
+  (light/dark + accent themes) plus inline styles, ported verbatim from the design
+  prototype. The API client is **type-safe end-to-end**: TS types are generated
+  from the backend's OpenAPI schema (see [Type generation](#type-generation)).
 - **Backend:** FastAPI + Pydantic v2 (Python 3.8+) serving a REST/JSON API. See
   [`backend/README.md`](backend/README.md).
 
@@ -17,8 +19,10 @@ AI-native procurement OS for construction — frontend implemented from the
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # production build to dist/
+npm run dev        # http://localhost:5173
+npm run build      # type-check (tsc --noEmit) then production build to dist/
+npm run typecheck  # type-check only
+npm run gen:api    # regenerate src/api-types.ts from the backend OpenAPI schema
 ```
 
 **Backend** (optional — the UI falls back to baked-in data when it's down)
@@ -31,20 +35,36 @@ uvicorn app.main:app --reload --port 8000   # docs at /docs
 ```
 
 The frontend reads `VITE_API_URL` (default `http://localhost:8000`); copy
-`.env.example` to `.env` to override. On load, `src/api.js` hydrates the model
-from the API; if the request fails, `src/model.js` renders its literal data so
+`.env.example` to `.env` to override. On load, `src/api.ts` hydrates the model
+from the API; if the request fails, `src/model.ts` renders its literal data so
 the app always works.
+
+## Type generation
+
+The frontend types its API client against the backend's contract instead of
+hand-maintaining duplicate types. `npm run gen:api` dumps the FastAPI OpenAPI
+schema to `backend/openapi.json` (via `backend/scripts/export_openapi.py`) and
+runs [`openapi-typescript`](https://github.com/openapi-ts/openapi-typescript) to
+write `src/api-types.ts`. `src/api.ts` re-exports friendly aliases (`Document`,
+`Project`, `Quote`, …) from that file, so any change to a Pydantic model surfaces
+as a TypeScript error after regenerating.
+
+The script uses the backend virtualenv at `backend/.venv` by default; override
+with the `PYTHON` env var (e.g. `PYTHON=python npm run gen:api` on Windows, after
+activating the venv). Re-run it whenever the backend schemas change, then commit
+the regenerated `src/api-types.ts`.
 
 ## Structure
 
 | File | Purpose |
 | --- | --- |
 | `src/index.css` | Design tokens (`:root`, `[data-theme=dark]`, accents) and base styles. |
-| `src/lib.jsx` | `css()` string→style helper, `Box` (hover-aware element), icon map, badge/chip/bar/logo style helpers. |
-| `src/model.js` | `buildModel(state, set, props)` — mirrors the prototype's `renderVals()`, producing all computed data and styles each render. Prefers `props.data` (from the API), falling back to baked-in literals. |
-| `src/api.js` | Backend client — `loadModelData()` fetches and reshapes the API payload into the keys `buildModel` consumes. |
+| `src/lib.tsx` | `css()` string→style helper, `Box` (hover-aware element), icon map, badge/chip/bar/logo style helpers. |
+| `src/model.ts` | `buildModel(state, set, props)` — mirrors the prototype's `renderVals()`, producing all computed data and styles each render. Prefers `props.data` (from the API), falling back to baked-in literals. Exports the `State`, `ModelProps`, and `Model` types. |
+| `src/api.ts` | Backend client — `loadModelData()` fetches and reshapes the API payload into the keys `buildModel` consumes. Typed against `src/api-types.ts`. |
+| `src/api-types.ts` | **Generated** from the backend OpenAPI schema (`npm run gen:api`). Do not edit by hand. |
 | `backend/` | FastAPI REST API (see its own README). Serves the same data as pure JSON. |
-| `src/App.jsx` | All screens: dashboard, projects, suppliers, settings, design system, and the project workspace tabs (overview, documents, suppliers, RFQs, quotes, quote comparison, timeline), plus the supplier drawer and mobile nav. |
+| `src/App.tsx` | All screens: dashboard, projects, suppliers, settings, design system, and the project workspace tabs (overview, documents, suppliers, RFQs, quotes, quote comparison, timeline), plus the supplier drawer and mobile nav. |
 
 ## Screens
 

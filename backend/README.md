@@ -54,6 +54,8 @@ app/
   repositories/      data access — projects.py (DB) + seed.py (in-memory rest)
   services/          business logic (reserved for phase 2)
 migrations/          Alembic environment + versioned schema migrations
+scripts/             dev scripts — export_openapi.py dumps openapi.json for the
+                     frontend's `npm run gen:api` type generation
 ```
 
 ## Endpoints

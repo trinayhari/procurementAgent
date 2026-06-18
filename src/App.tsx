@@ -1,15 +1,44 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, DcIcon, css } from './lib.jsx'
-import { buildModel } from './model.js'
+import type { CSSProperties, DragEvent, FormEvent } from 'react'
+import { Box, DcIcon, css } from './lib'
+import { buildModel } from './model'
+import type { Model, State } from './model'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument,
-} from './api.js'
+} from './api'
+
+// Every screen component receives the computed model `m` from buildModel().
+type MProps = { m: Model }
+
+// A BOM group as rendered by ExtractedPanel — either a plain draft group or an
+// extracted group decorated with presentational styles.
+type BomGroup = {
+  group: string
+  count: number
+  items: { n: string; q: string }[]
+  dotStyle?: CSSProperties
+  countBadge?: CSSProperties
+}
 
 // Small inline svg helper for the many literal icons in the markup.
 // `d` may be raw element markup (starts with "<") or bare path data, which is
 // wrapped in a <path>. Some constants embed extra `"/><path d="` to add paths.
-function Svg({ d, size = 17, sw = 2, fill = false, stroke = 'currentColor', style }) {
+function Svg({
+  d,
+  size = 17,
+  sw = 2,
+  fill = false,
+  stroke = 'currentColor',
+  style,
+}: {
+  d: string
+  size?: number
+  sw?: number
+  fill?: boolean
+  stroke?: string
+  style?: CSSProperties
+}) {
   const inner = d.trim().startsWith('<') ? d : `<path d="${d}" />`
   return (
     <svg
@@ -22,7 +51,7 @@ function Svg({ d, size = 17, sw = 2, fill = false, stroke = 'currentColor', styl
   )
 }
 // Icon from the ICONS map, rendered inline (matches dangerouslySetInnerHTML usage).
-function IconHtml({ html, size = 15, sw = 2 }) {
+function IconHtml({ html, size = 15, sw = 2 }: { html: { __html: string }; size?: number; sw?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
@@ -37,14 +66,14 @@ const CHEVRON = 'm9 6 6 6-6 6'
 const PIN = 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="2.6'
 
 export default function App() {
-  const [s, setS] = useState({
+  const [s, setS] = useState<State>({
     nav: 'dashboard', tab: 'overview', compare: false, docIdx: 0, rfqIdx: 0,
     supplierId: null, theme: 'light', vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
     data: null,
     planTypes: null, planType: 'site_plan', uploading: false, uploadError: null, docLineItems: null,
     editBom: false, bomDraft: null, bomBusy: false,
   })
-  const set = (patch) => setS((prev) => ({ ...prev, ...patch }))
+  const set = (patch: Partial<State>) => setS((prev) => ({ ...prev, ...patch }))
 
   useEffect(() => {
     const f = () => set({ vw: window.innerWidth })
@@ -69,7 +98,7 @@ export default function App() {
   }, [])
 
   // Upload a plan set, then refresh so it appears in the documents list.
-  const uploadDoc = async (file) => {
+  const uploadDoc = async (file: File) => {
     set({ uploading: true, uploadError: null })
     try {
       await uploadDocument(file, s.planType, s.projectId)
@@ -112,18 +141,18 @@ export default function App() {
     set({ editBom: true, bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })) })
   }
   const cancelBomEdit = () => set({ editBom: false, bomDraft: null })
-  const editBomItem = (gi, ii, field, value) =>
-    set({ bomDraft: s.bomDraft.map((g, i) => (i !== gi ? g : { ...g, items: g.items.map((it, j) => (j !== ii ? it : { ...it, [field]: value })) })) })
-  const addBomItem = (gi) =>
-    set({ bomDraft: s.bomDraft.map((g, i) => (i !== gi ? g : { ...g, items: [...g.items, { n: '', q: '' }] })) })
-  const deleteBomItem = (gi, ii) =>
-    set({ bomDraft: s.bomDraft.map((g, i) => (i !== gi ? g : { ...g, items: g.items.filter((_, j) => j !== ii) })) })
+  const editBomItem = (gi: number, ii: number, field: string, value: string) =>
+    set({ bomDraft: (s.bomDraft ?? []).map((g, i) => (i !== gi ? g : { ...g, items: g.items.map((it, j) => (j !== ii ? it : { ...it, [field]: value })) })) })
+  const addBomItem = (gi: number) =>
+    set({ bomDraft: (s.bomDraft ?? []).map((g, i) => (i !== gi ? g : { ...g, items: [...g.items, { n: '', q: '' }] })) })
+  const deleteBomItem = (gi: number, ii: number) =>
+    set({ bomDraft: (s.bomDraft ?? []).map((g, i) => (i !== gi ? g : { ...g, items: g.items.filter((_, j) => j !== ii) })) })
   const saveBom = async () => {
     const doc = currentDoc()
     if (!doc) return
     set({ bomBusy: true })
     try {
-      await saveDocumentLineItems(doc.id, s.bomDraft)
+      await saveDocumentLineItems(doc.id, s.bomDraft ?? [])
       const groups = await getDocumentLineItems(doc.id)
       set({ editBom: false, bomDraft: null, docLineItems: { id: doc.id, groups } })
       await reload()
@@ -176,7 +205,7 @@ export default function App() {
 }
 
 /* ------------------------------------------------------------------ Sidebar */
-function Sidebar({ m }) {
+function Sidebar({ m }: MProps) {
   return (
     <aside style={css('position:sticky;top:0;align-self:flex-start;height:100vh;width:248px;flex:none;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;padding:16px 12px;z-index:20')}>
       <div style={css('display:flex;align-items:center;gap:10px;padding:6px 8px 16px')}>
@@ -235,7 +264,7 @@ function Sidebar({ m }) {
 }
 
 /* ------------------------------------------------------------------- Header */
-function Header({ m }) {
+function Header({ m }: MProps) {
   return (
     <header style={css('position:sticky;top:0;z-index:30;min-height:57px;display:flex;align-items:center;gap:12px;padding:0 clamp(14px,2vw,26px);border-bottom:1px solid var(--border);background:var(--panel)')}>
       {m.mobile && (
@@ -271,7 +300,7 @@ function Header({ m }) {
 }
 
 /* ---------------------------------------------------------------- Dashboard */
-function Dashboard({ m }) {
+function Dashboard({ m }: MProps) {
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px')}>
@@ -360,7 +389,7 @@ function Dashboard({ m }) {
 }
 
 /* ----------------------------------------------------------------- Projects */
-function Projects({ m }) {
+function Projects({ m }: MProps) {
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
@@ -399,7 +428,7 @@ function Projects({ m }) {
 }
 
 /* ---------------------------------------------------------------- Suppliers */
-function SupplierCard({ x }) {
+function SupplierCard({ x }: { x: Model['suppliers'][number] }) {
   return (
     <Box as="button" onClick={x.onOpen} style={css('text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:15px;padding:16px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:13px;transition:box-shadow .15s,transform .15s')} hover="box-shadow:var(--shadow-md);transform:translateY(-2px)">
       <div style={css('display:flex;align-items:flex-start;gap:11px')}>
@@ -418,7 +447,7 @@ function SupplierCard({ x }) {
     </Box>
   )
 }
-function Suppliers({ m }) {
+function Suppliers({ m }: MProps) {
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
@@ -438,7 +467,7 @@ function Suppliers({ m }) {
 }
 
 /* ----------------------------------------------------------------- Settings */
-function Settings({ m }) {
+function Settings({ m }: MProps) {
   const toggleOn = css('width:38px;height:22px;border-radius:999px;background:var(--primary);position:relative;flex:none')
   return (
     <div style={css('animation:pcUp .25s ease both;max-width:680px')}>
@@ -474,8 +503,8 @@ function Settings({ m }) {
 }
 
 /* ------------------------------------------------------------- DesignSystem */
-function DesignSystem({ m }) {
-  const swatch = (bg, label, extra) => (
+function DesignSystem({ m }: MProps) {
+  const swatch = (bg: string, label: string, extra?: CSSProperties) => (
     <div><div style={{ height: 46, borderRadius: 9, background: bg, ...(extra || {}) }}></div><div style={css('font-size:10.5px;color:var(--text-3);margin-top:5px')}>{label}</div></div>
   )
   return (
@@ -530,7 +559,7 @@ function DesignSystem({ m }) {
 }
 
 /* -------------------------------------------------- Project workspace shell */
-function ProjectWorkspace({ m }) {
+function ProjectWorkspace({ m }: MProps) {
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px')}>
@@ -573,7 +602,7 @@ function ProjectWorkspace({ m }) {
 }
 
 /* ------------------------------------------------------------ Overview tab */
-function TabOverview({ m }) {
+function TabOverview({ m }: MProps) {
   return (
     <>
       <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(162px,1fr));gap:13px;margin-bottom:18px')}>
@@ -623,15 +652,15 @@ function TabOverview({ m }) {
 }
 
 /* ----------------------------------------------------------- Documents tab */
-function Dropzone({ m }) {
-  const inputRef = useRef(null)
+function Dropzone({ m }: MProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
   const [drag, setDrag] = useState(false)
 
-  const onFiles = (fileList) => {
+  const onFiles = (fileList: FileList | null) => {
     const file = fileList && fileList[0]
     if (file) m.onUpload(file)
   }
-  const onDrop = (e) => {
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault(); setDrag(false)
     if (!m.uploading) onFiles(e.dataTransfer.files)
   }
@@ -678,7 +707,7 @@ function Dropzone({ m }) {
   )
 }
 
-function TabDocuments({ m }) {
+function TabDocuments({ m }: MProps) {
   return (
     <>
       <Dropzone m={m} />
@@ -714,9 +743,11 @@ function TabDocuments({ m }) {
 }
 
 /* ------------------------------- AI-extracted materials (human-in-the-loop) */
-function ExtractedPanel({ m }) {
+function ExtractedPanel({ m }: MProps) {
   const editing = m.bomEditing
-  const groups = editing ? m.bomDraft : m.extracted
+  // In edit mode we render the draft (plain BOM groups); otherwise the extracted
+  // groups, which carry presentational extras (dotStyle/countBadge).
+  const groups = (editing ? m.bomDraft : m.extracted) as BomGroup[]
   const reviewed = m.doc && m.doc.reviewed
   const inputCss = css('flex:1;min-width:0;font-size:12px;padding:5px 7px;border-radius:6px;border:1px solid var(--border);background:var(--panel-2);color:var(--text)')
 
@@ -782,7 +813,7 @@ function ExtractedPanel({ m }) {
 }
 
 /* ------------------------------------------------ Suppliers tab (project) */
-function TabSuppliers({ m }) {
+function TabSuppliers({ m }: MProps) {
   return (
     <>
       <div style={css('display:flex;align-items:center;justify-content:space-between;margin-bottom:14px')}><h2 style={css('margin:0;font-size:15px;font-weight:600')}>Suppliers on this project <span style={css('color:var(--text-3);font-weight:500')}>· 12</span></h2></div>
@@ -794,7 +825,7 @@ function TabSuppliers({ m }) {
 }
 
 /* ----------------------------------------------------------------- RFQs tab */
-function TabRfqs({ m }) {
+function TabRfqs({ m }: MProps) {
   const r = m.rfqSel
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
@@ -853,7 +884,7 @@ function TabRfqs({ m }) {
 }
 
 /* --------------------------------------------------------------- Quotes tab */
-function TabQuotes({ m }) {
+function TabQuotes({ m }: MProps) {
   const gridCols = 'minmax(180px,1.6fr) 130px 110px 92px 110px 96px 92px'
   return (
     <>
@@ -882,7 +913,7 @@ function TabQuotes({ m }) {
 }
 
 /* ------------------------------------------------------------- Compare tab */
-function TabCompare({ m }) {
+function TabCompare({ m }: MProps) {
   return (
     <>
       <Box as="button" onClick={m.closeCompare} style={css('display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text-2);margin-bottom:14px')} hover="color:var(--text)"><Svg size={16} d='m15 18-6-6 6-6' />Back to quotes</Box>
@@ -929,7 +960,7 @@ function TabCompare({ m }) {
 }
 
 /* ------------------------------------------------------------- Timeline tab */
-function TabTimeline({ m }) {
+function TabTimeline({ m }: MProps) {
   return (
     <>
       <div style={css('display:flex;align-items:flex-start;gap:11px;padding:14px 16px;border:1px solid var(--warn-soft);background:var(--warn-soft);border-radius:13px;margin-bottom:16px')}>
@@ -964,7 +995,7 @@ function TabTimeline({ m }) {
 }
 
 /* ------------------------------------------------------- Supplier drawer */
-function SupplierDrawer({ m }) {
+function SupplierDrawer({ m }: MProps) {
   const a = m.activeSupplier
   return (
     <div style={css('position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end')}>
@@ -1007,7 +1038,7 @@ function SupplierDrawer({ m }) {
 }
 
 /* ----------------------------------------------------------- Mobile nav */
-function MobileNav({ m }) {
+function MobileNav({ m }: MProps) {
   return (
     <div style={css('position:fixed;inset:0;z-index:70;display:flex')}>
       <div onClick={m.closeMnav} style={css('position:absolute;inset:0;background:rgba(15,20,30,.45)')}></div>
@@ -1032,14 +1063,14 @@ const STAGES = ['Plans Review', 'Sourcing', 'RFQs Out', 'Quotes In', 'Complete']
 const fieldLabel = css('display:block;font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:6px')
 const fieldInput = css('width:100%;height:38px;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13.5px')
 
-function NewProjectModal({ m }) {
+function NewProjectModal({ m }: MProps) {
   const [name, setName] = useState('')
   const [loc, setLoc] = useState('')
   const [value, setValue] = useState('')
   const [stage, setStage] = useState('Plans Review')
   const valid = name.trim().length > 0
 
-  const submit = (e) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault()
     if (!valid) return
     m.createProject({ name, loc, value, stage })

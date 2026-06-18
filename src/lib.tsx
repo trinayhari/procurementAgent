@@ -1,9 +1,14 @@
 import { useState } from 'react'
+import type { CSSProperties, ElementType, ReactNode } from 'react'
+
+// A style value may be supplied either as a CSS string ("display:flex;gap:8px")
+// or as an already-built React style object.
+export type StyleInput = string | CSSProperties
 
 // Convert a CSS string ("display:flex;gap:8px") into a React style object.
 // Lets us reuse the design prototype's inline-style strings nearly verbatim.
-export function css(str) {
-  const o = {}
+export function css(str?: string): CSSProperties {
+  const o: Record<string, string> = {}
   if (!str) return o
   for (const part of str.split(';')) {
     const i = part.indexOf(':')
@@ -11,19 +16,28 @@ export function css(str) {
     const k = part.slice(0, i).trim()
     const v = part.slice(i + 1).trim()
     if (!k) continue
-    o[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v
+    o[k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = v
   }
-  return o
+  return o as CSSProperties
 }
 
 // Polymorphic element with optional hover styles (replaces the design's `style-hover`).
 // `css`/`hover` accept either a CSS string or an already-built style object.
-function toStyle(v) {
+function toStyle(v?: StyleInput): CSSProperties {
   return typeof v === 'string' ? css(v) : v || {}
 }
-export function Box({ as = 'div', css: base, hover, style, children, ...rest }) {
+
+type BoxProps = {
+  as?: ElementType
+  css?: StyleInput
+  hover?: StyleInput
+  style?: StyleInput
+  children?: ReactNode
+} & Record<string, unknown>
+
+export function Box({ as = 'div', css: base, hover, style, children, ...rest }: BoxProps) {
   const [h, setH] = useState(false)
-  const merged = { ...toStyle(base), ...toStyle(style), ...(h && hover ? toStyle(hover) : {}) }
+  const merged: CSSProperties = { ...toStyle(base), ...toStyle(style), ...(h && hover ? toStyle(hover) : {}) }
   const Tag = as
   const hoverProps = hover
     ? { onMouseEnter: () => setH(true), onMouseLeave: () => setH(false) }
@@ -36,7 +50,7 @@ export function Box({ as = 'div', css: base, hover, style, children, ...rest }) 
 }
 
 // --- Icons (stroke/fill paths copied from the design) ---
-export const ICONS = {
+export const ICONS: Record<string, string> = {
   quote: '<circle cx="12" cy="12" r="9"/><path d="M14.5 9.3c-.5-.9-1.4-1.4-2.5-1.4-1.4 0-2.4.8-2.4 1.9 0 1 .8 1.5 2.4 1.9 1.6.4 2.5.9 2.5 2 0 1.1-1 1.9-2.5 1.9-1.1 0-2-.5-2.5-1.4M12 6.4v1.5M12 16.1v1.5"/>',
   rfq: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 5.5L20.5 7"/>',
   check: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.4 2.4L15.5 9.5"/>',
@@ -48,12 +62,22 @@ export const ICONS = {
   calendar: '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9.5h16M8.5 3v3.5M15.5 3v3.5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/>',
 }
-export function ic(n) {
+export function ic(n: string): { __html: string } {
   return { __html: ICONS[n] || '' }
 }
 
 // Renders an inline svg icon from the ICONS map (used by chip/activity rows).
-export function DcIcon({ name, size = 15, stroke = true, fill = false }) {
+export function DcIcon({
+  name,
+  size = 15,
+  stroke = true,
+  fill = false,
+}: {
+  name: string
+  size?: number
+  stroke?: boolean
+  fill?: boolean
+}) {
   return (
     <svg
       width={size}
@@ -70,8 +94,10 @@ export function DcIcon({ name, size = 15, stroke = true, fill = false }) {
 }
 
 // --- Style token helpers (from the design's DCLogic methods) ---
-export function tone(t) {
-  const M = {
+export type Tone = 'blue' | 'violet' | 'gray' | 'success' | 'warn' | 'danger' | 'ai'
+
+export function tone(t: string): { bg: string; fg: string } {
+  const M: Record<string, [string, string]> = {
     blue: ['var(--primary-soft)', 'var(--primary)'],
     violet: ['var(--violet-soft)', 'var(--violet)'],
     gray: ['var(--panel-3)', 'var(--text-2)'],
@@ -83,7 +109,7 @@ export function tone(t) {
   const [bg, fg] = M[t] || M.gray
   return { bg, fg }
 }
-export function badge(t, opts) {
+export function badge(t: string, opts?: CSSProperties): CSSProperties {
   const { bg, fg } = tone(t)
   return {
     display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px',
@@ -91,18 +117,18 @@ export function badge(t, opts) {
     whiteSpace: 'nowrap', lineHeight: 1.3, ...(opts || {}),
   }
 }
-export function chip(t) {
+export function chip(t: string): CSSProperties {
   const { bg, fg } = tone(t)
   return {
     width: 30, height: 30, borderRadius: 9, flex: 'none', display: 'flex',
     alignItems: 'center', justifyContent: 'center', background: bg, color: fg,
   }
 }
-export function bar(pct, color) {
+export function bar(pct: number | string, color?: string): CSSProperties {
   return { width: pct + '%', height: '100%', borderRadius: 999, background: color || 'var(--primary)' }
 }
 // Logo badge style helper (`lb` in the design).
-export function lb(bg, size) {
+export function lb(bg: string, size?: number): CSSProperties {
   return {
     width: size || 38, height: size || 38, borderRadius: size && size < 32 ? 8 : 10,
     background: bg, color: '#fff', display: 'flex', alignItems: 'center',
