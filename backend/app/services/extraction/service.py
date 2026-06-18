@@ -1,20 +1,17 @@
 """Extraction orchestrator.
 
-`extract_document(path, plan_type)` is the one entry point the API uses. To produce
-a COMPLETE Bill of Materials it runs a two-pass pipeline:
-  1. resolve the plan-type spec from the registry,
-  2. rasterise every sheet to an image,
-  3. PER-SHEET extraction — read each sheet in isolation (in parallel), so pipe
-     lengths on profiles, structure counts on plan views, and schedule items are
-     all captured. No sheet is skipped.
-  4. CONSOLIDATION — a text-only pass merges the per-sheet items into one
-     deduplicated BOM (the same run/structure appears on multiple sheets and must
-     be counted once), then
-  5. map the consolidated, category-keyed output onto the frontend's BOM groups
-     (`group`, `count`, `tone`, `items[{n, q}]`), using the spec for labels/tones.
+`extract_document(path, plan_type)` is the one entry point the API uses. It is
+TEXT-FIRST:
+  • Vector CAD PDFs carry an embedded text layer with every callout, quantity, and
+    schedule as exact text. When present, we send that text to a regular (non-vision)
+    model in ONE call — fast, cheap, and more accurate than reading pixels.
+  • Scanned PDFs / image uploads have no text layer, so they fall back to the vision
+    pipeline: each sheet is rasterised to high-DPI tiles, read per-sheet in parallel,
+    then a consolidation pass merges the per-sheet items into one deduplicated BOM.
 
-Step 5 is the only place presentation is derived, keeping the vision contract pure.
-A clearly-flagged mock runs when no key/SDK is present.
+Either way the category-keyed result is mapped onto the frontend's BOM groups
+(`group`, `count`, `tone`, `items[{n, q}]`) via `_to_groups` — the only place
+presentation is derived. A clearly-flagged mock runs when no key/SDK is present.
 """
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Tuple
@@ -22,7 +19,13 @@ from typing import List, Optional, Tuple
 from app.config import settings
 from app.services.extraction import registry, vision
 from app.services.extraction.models import ExtractedBom, ExtractedItem, VisionExtraction
-from app.services.extraction.pdf import UnsupportedDocument, page_count, to_page_tiles
+from app.services.extraction.pdf import (
+    UnsupportedDocument,
+    extract_text_pages,
+    has_text_layer,
+    page_count,
+    to_page_tiles,
+)
 
 
 class ExtractionResult:
@@ -122,6 +125,50 @@ def _safe(fn):
     return wrapped
 
 
+def _vision_topup(spec, path, sheets, final) -> None:
+    """Fill `final` in place for graphical categories the text pass left empty.
+
+    For each category flagged `vision_fallback` that has no items yet, find the
+    sheets whose text title matches its `sheet_keywords`, vision-extract them, and
+    append that category's items (deduped by name). Text-first stays primary — this
+    only runs for the gap, and only on the matching sheet(s).
+    """
+    present = {b.category for b in final.boms if b.items}
+    gaps = [c for c in spec.categories if c.vision_fallback and c.key not in present]
+    if not gaps:
+        return
+
+    for cat in gaps:
+        # Sheets whose embedded text mentions this discipline's plan title.
+        targets = [
+            int(s["sheet"].split()[1]) - 1  # "Sheet N of M" -> N-1
+            for s in sheets
+            if any(kw.upper() in s["text"].upper() for kw in cat.sheet_keywords)
+        ][:3]  # bound cost
+        items, seen = [], set()
+        for idx in targets:
+            try:
+                tiles = to_page_tiles(
+                    path, idx,
+                    dpi=settings.vision_tile_dpi,
+                    cols=settings.vision_tile_cols,
+                    rows=settings.vision_tile_rows,
+                    overlap=settings.vision_tile_overlap,
+                )
+                ex = vision.extract(spec, tiles, sheet=f"Sheet {idx + 1}")
+            except vision.VisionUnavailable:
+                continue
+            for bom in ex.boms:
+                if bom.category != cat.key:
+                    continue
+                for it in bom.items:
+                    if it.name.lower() not in seen:
+                        seen.add(it.name.lower())
+                        items.append(it)
+        if items:
+            final.boms.append(ExtractedBom(category=cat.key, items=items))
+
+
 def extract_document(path: str, plan_type: str) -> ExtractionResult:
     spec = registry.require(plan_type)
 
@@ -141,6 +188,21 @@ def extract_document(path: str, plan_type: str) -> ExtractionResult:
             summary="Mock extraction (set PROCUREAI_OPENAI_API_KEY for live GPT-4.1 extraction).",
         )
 
+    # Text-first — vector CAD PDFs carry the BOM as exact text; one cheap text call.
+    if has_text_layer(path):
+        sheets = extract_text_pages(path, settings.vision_max_pages)
+        try:
+            final = vision.extract_text(spec, sheets)
+        except vision.VisionUnavailable as exc:
+            return ExtractionResult([], 0, error=str(exc))
+        # Targeted vision top-up for graphical disciplines (e.g. erosion control) that
+        # carry no quantities in the text layer.
+        _vision_topup(spec, path, sheets, final)
+        groups, total = _to_groups(spec, final)
+        summary = (final.sheet_summary or "").strip() or f"{len(sheets)} sheet(s) · text layer"
+        return ExtractionResult(groups, total, summary=summary)
+
+    # Fallback (scanned PDF / image): vision.
     # Pass 1 — per-sheet extraction over the whole document (each sheet tiled).
     try:
         per_sheet, ok, failed = _extract_sheets(spec, path, n_pages)

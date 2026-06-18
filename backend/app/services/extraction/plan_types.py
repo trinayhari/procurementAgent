@@ -133,6 +133,10 @@ register(
                     "Erosion Control Blanket",
                 ],
                 typical_units=["LF", "EA", "SY", "SF"],
+                # Erosion control plans are graphical — BMPs are symbols, not text — so
+                # the text layer carries no quantities. Vision the erosion-plan sheet.
+                vision_fallback=True,
+                sheet_keywords=["EROSION CONTROL PLAN"],
             ),
         ],
     )

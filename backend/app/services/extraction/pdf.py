@@ -58,6 +58,42 @@ def to_base64_images(path: str, *, dpi: int = 150, max_pages: int = 12) -> List[
     raise UnsupportedDocument(f"Unsupported document type '{ext}' for vision extraction")
 
 
+def has_text_layer(path: str, min_chars: int = 500) -> bool:
+    """True if the PDF carries an embedded text layer (vector CAD export) rather
+    than being a scan. Text-layer PDFs are extracted with a fast/cheap text model;
+    scans fall back to vision."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in PDF_EXTS:
+        return False
+    import fitz  # PyMuPDF
+
+    total = 0
+    with fitz.open(path) as doc:
+        for page in doc:
+            total += len(page.get_text().strip())
+            if total >= min_chars:
+                return True
+    return False
+
+
+def extract_text_pages(path: str, max_pages: int = 30) -> List[dict]:
+    """Return [{'sheet': 'Sheet N of M', 'text': ...}] of the embedded text per page.
+
+    Whitespace is collapsed to keep the prompt compact; CAD text has no meaningful
+    line structure anyway. Empty pages are skipped.
+    """
+    import fitz  # PyMuPDF
+
+    pages: List[dict] = []
+    with fitz.open(path) as doc:
+        total = min(doc.page_count, max_pages)
+        for i in range(total):
+            text = " ".join(doc[i].get_text().split())
+            if text:
+                pages.append({"sheet": f"Sheet {i + 1} of {total}", "text": text})
+    return pages
+
+
 def to_page_tiles(
     path: str,
     page_index: int,

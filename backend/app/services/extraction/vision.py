@@ -16,6 +16,7 @@ from app.services.extraction.prompts import (
     build_consolidation_system_prompt,
     build_consolidation_user_prompt,
     build_system_prompt,
+    build_text_prompt,
     build_user_prompt,
 )
 from app.services.extraction.registry import PlanTypeSpec
@@ -81,6 +82,19 @@ def extract(spec: PlanTypeSpec, images_b64: List[str], sheet: str = None) -> Vis
                 *_image_content(images_b64),
             ],
         },
+    ]
+    return _parse(_client(), messages)
+
+
+def extract_text(spec: PlanTypeSpec, sheets: List[dict]) -> VisionExtraction:
+    """Text-only, one-shot extraction from the PDF's embedded text layer (no images).
+
+    Far faster/cheaper than vision and more accurate for vector CAD plans, since the
+    callouts, quantities, and schedules are already exact text.
+    """
+    messages = [
+        {"role": "system", "content": build_system_prompt()},
+        {"role": "user", "content": build_text_prompt(spec, sheets)},
     ]
     return _parse(_client(), messages)
 

@@ -26,6 +26,13 @@ class BomCategory(BaseModel):
     description: str
     examples: List[str] = []
     typical_units: List[str] = []
+    # Some disciplines are drawn graphically with no quantities in the PDF text layer
+    # (e.g. erosion control: silt fence / inlet-protection symbols). For these, the
+    # text-first pass finds nothing, so we run a targeted vision pass on the sheets
+    # whose title text matches `sheet_keywords`. Only triggers when the category is
+    # empty after the text pass — text-first stays the default for everything else.
+    vision_fallback: bool = False
+    sheet_keywords: List[str] = []
 
 
 class PlanTypeSpec(BaseModel):
