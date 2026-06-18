@@ -134,7 +134,7 @@ export default function App() {
   }
 
   const m = buildModel(s, set, {
-    accent: 'blue', data: s.data,
+    accent: 'blue', data: s.data, reload,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
     docLineItems: s.docLineItems, onUpload: uploadDoc,
@@ -310,7 +310,7 @@ function Dashboard({ m }) {
                 <span>Project</span><span>Status</span><span>Procurement</span><span style={css('text-align:center')}>RFQs</span><span style={css('text-align:center')}>Quotes</span><span style={css('text-align:right')}>Risk</span>
               </div>
               {m.projects.map((p, i) => (
-                <Box as="button" key={i} onClick={m.openProject} style={css('display:grid;grid-template-columns:minmax(180px,1.7fr) 116px minmax(120px,1.3fr) 70px 78px 96px;gap:10px;width:100%;padding:13px 18px;border-bottom:1px solid var(--border);align-items:center;text-align:left')} hover="background:var(--panel-2)">
+                <Box as="button" key={i} onClick={() => m.openProject(p)} style={css('display:grid;grid-template-columns:minmax(180px,1.7fr) 116px minmax(120px,1.3fr) 70px 78px 96px;gap:10px;width:100%;padding:13px 18px;border-bottom:1px solid var(--border);align-items:center;text-align:left')} hover="background:var(--panel-2)">
                   <div style={css('min-width:0')}>
                     <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{p.name}</div>
                     <div style={css('font-size:11.5px;color:var(--text-3)')}>{p.loc}</div>
@@ -367,7 +367,7 @@ function Projects({ m }) {
       </div>
       <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px')}>
         {m.projects.map((p, i) => (
-          <Box as="button" key={i} onClick={m.openProject} style={css('text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:14px;transition:box-shadow .15s,transform .15s,border-color .15s')} hover="box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:var(--border-strong)">
+          <Box as="button" key={i} onClick={() => m.openProject(p)} style={css('text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:14px;transition:box-shadow .15s,transform .15s,border-color .15s')} hover="box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:var(--border-strong)">
             <div style={css('display:flex;align-items:flex-start;justify-content:space-between;gap:10px')}>
               <div style={css('min-width:0')}>
                 <div style={css('font-size:15.5px;font-weight:600;letter-spacing:-.01em;line-height:1.25')}>{p.name}</div>
@@ -529,12 +529,12 @@ function ProjectWorkspace({ m }) {
       <div style={css('display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px')}>
         <div style={css('min-width:0')}>
           <div style={css('display:flex;align-items:center;gap:11px;flex-wrap:wrap')}>
-            <h1 style={css('margin:0;font-size:clamp(20px,2.6vw,25px);font-weight:700;letter-spacing:-.02em')}>Riverside Water Treatment Plant</h1>
-            <span style={m.activeProject.stageBadge}>RFQs Out</span>
+            <h1 style={css('margin:0;font-size:clamp(20px,2.6vw,25px);font-weight:700;letter-spacing:-.02em')}>{m.activeProject.name}</h1>
+            <span style={m.activeProject.stageBadge}>{m.activeProject.stage}</span>
           </div>
           <div style={css('display:flex;align-items:center;gap:18px;margin-top:7px;font-size:13px;color:var(--text-2);flex-wrap:wrap')}>
-            <span style={css('display:flex;align-items:center;gap:5px')}><Svg size={14} d={PIN} />Sacramento, CA</span>
-            <span>Value <strong style={css("color:var(--text);font-family:'JetBrains Mono',monospace")}>$4.2M</strong></span>
+            <span style={css('display:flex;align-items:center;gap:5px')}><Svg size={14} d={PIN} />{m.activeProject.loc}</span>
+            <span>Value <strong style={css("color:var(--text);font-family:'JetBrains Mono',monospace")}>{m.activeProject.value}</strong></span>
             <span>Bid date <strong style={css('color:var(--text)')}>Jun 20, 2026</strong></span>
           </div>
         </div>

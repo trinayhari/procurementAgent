@@ -12,5 +12,9 @@ backend/.venv
 __pycache__/
 *.pyc
 
+# local sqlite database (schema is owned by alembic migrations)
+*.db
+backend/procureai.db
+
 # uploaded plan sets
 backend/uploads/

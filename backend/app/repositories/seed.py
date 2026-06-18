@@ -172,50 +172,9 @@ GANTT: List[dict] = [
 GANTT_COLS: List[str] = ["Jun W2", "Jun W3", "Jun W4", "Jul W1", "Jul W2"]
 
 
-import re as _re
-
-# Stage -> badge tone, mirroring the frontend's stageToneMap.
-_STAGE_TONE = {
-    "Plans Review": "gray",
-    "Sourcing": "blue",
-    "RFQs Out": "blue",
-    "Quotes In": "violet",
-    "Complete": "success",
-}
-
-
 # ============================================================== accessor helpers
-def get_project(project_id: str) -> Optional[dict]:
-    return next((p for p in PROJECTS if p["id"] == project_id), None)
-
-
-def create_project(name: str, loc: str = "", value: str = "", stage: str = "Plans Review") -> dict:
-    """Build a new project record, insert it at the top of PROJECTS, and return it."""
-    base = _re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-") or "project"
-    pid = base
-    n = 2
-    while get_project(pid) is not None:
-        pid = f"{base}-{n}"
-        n += 1
-    project = {
-        "id": pid,
-        "name": name.strip(),
-        "loc": loc.strip() or "—",
-        "stage": stage,
-        "stageTone": _STAGE_TONE.get(stage, "gray"),
-        "value": value.strip() or "$0",
-        "progress": 0,
-        "suppliers": 0,
-        "rfqs": 0,
-        "quotes": 0,
-        "risk": "Low",
-        "riskTone": "success",
-        "barColor": "var(--primary)",
-    }
-    PROJECTS.insert(0, project)
-    return project
-
-
+# NB: projects are persisted in SQLite — see app/repositories/projects.py. The
+# PROJECTS list above is only the starter seed loaded into the DB on first run.
 def get_supplier(supplier_id: str) -> Optional[dict]:
     return next((s for s in SUPPLIERS if s["id"] == supplier_id), None)
 

@@ -1,13 +1,15 @@
 # ProcureAI Backend
 
-FastAPI REST/JSON API for the ProcureAI procurement OS. Phase 1 serves the same
-data the React prototype previously hardcoded in `src/model.js`, from an in-memory
-seed (`app/repositories/seed.py`). The API returns **pure domain data** — all
-styling (badges, chips, bars) stays in the frontend.
+FastAPI REST/JSON API for the ProcureAI procurement OS. **Projects are persisted**
+in SQLite via SQLAlchemy (schema owned by Alembic). The remaining workspace data
+(documents, suppliers, quotes, …) still comes from an in-memory seed
+(`app/repositories/seed.py`) while the prototype is fleshed out. The API returns
+**pure domain data** — all styling (badges, chips, bars) stays in the frontend.
 
 ## Stack
 
 - **FastAPI** + **Pydantic v2** + **Uvicorn**
+- **SQLAlchemy 2.0** + **Alembic** (SQLite by default)
 - Python **3.8+**
 
 ## Setup
@@ -20,6 +22,21 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+The server creates the SQLite file and seeds the 5 starter projects on first
+startup, so it works out of the box. Alembic owns the schema for real migrations:
+
+```bash
+alembic upgrade head      # apply migrations (creates the projects table)
+alembic revision --autogenerate -m "describe change"   # after editing models
+```
+
+The database URL defaults to `sqlite:///./procureai.db`; override with
+`PROCUREAI_DATABASE_URL` (e.g. a Postgres DSN). Migrations and the app both read it.
+
+> Note: startup uses `create_all` for zero-config dev. If you start the app first
+> and later want to use Alembic on that same database, run `alembic stamp head`
+> once so Alembic knows the schema is already at the latest revision.
+
 - API root: `http://localhost:8000`
 - Interactive docs (Swagger): `http://localhost:8000/docs`
 - Health check: `http://localhost:8000/health`
@@ -28,12 +45,15 @@ uvicorn app.main:app --reload --port 8000
 
 ```
 app/
-  main.py            FastAPI app, CORS, router mounting
+  main.py            FastAPI app, CORS, router mounting, startup init_db()
   config.py          settings (env vars via PROCUREAI_ prefix / .env)
+  db.py              SQLAlchemy engine, session, get_db dependency, init_db()
+  models/            SQLAlchemy ORM models (project.py)
   api/routes/        thin HTTP route modules (one per resource)
   schemas/           Pydantic request/response models
-  repositories/      data access — seed.py is the phase-1 in-memory store
+  repositories/      data access — projects.py (DB) + seed.py (in-memory rest)
   services/          business logic (reserved for phase 2)
+migrations/          Alembic environment + versioned schema migrations
 ```
 
 ## Endpoints
@@ -92,8 +112,16 @@ app/
   setting `reviewed`). This is the intended path to procurement-grade quantities —
   AI takeoff + human verification — since visual takeoffs are inherently noisy.
 
+## Persistence
+
+Projects live in the `projects` table (`app/models/project.py`), accessed via
+`app/repositories/projects.py`. `app/repositories/seed.py` now only supplies the 5
+starter projects (loaded into the DB on first run) plus the not-yet-persisted
+workspace data. The `POST /api/projects` route writes through to the DB, so new
+projects survive restarts.
+
 ## Phase 2 (later)
 
-Replace `app/repositories/seed.py` with SQLAlchemy models + a real database
-(Alembic migrations). Routes and schemas stay unchanged. Persist uploaded documents
-and their extracted BOMs alongside the rest of the domain data.
+Move the remaining seed entities (documents, suppliers, quotes, RFQs, timeline)
+into SQLAlchemy models + migrations, and persist uploaded documents and their
+extracted BOMs. Routes and schemas stay unchanged.

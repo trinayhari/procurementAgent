@@ -15,6 +15,11 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
+    # ------------------------------------------------------------- persistence
+    # SQLAlchemy connection URL. Defaults to a SQLite file in the backend dir;
+    # override with PROCUREAI_DATABASE_URL (e.g. a Postgres DSN) in production.
+    database_url: str = "sqlite:///./procureai.db"
+
     # ----------------------------------------------------------- file uploads
     # Where uploaded plan sets are stored on disk (created on first upload).
     upload_dir: str = "uploads"

@@ -69,8 +69,12 @@ export function buildModel(s, set, props) {
     barStyle: bar(p.progress, p.barColor), barTrackStyle: {},
   }))
 
-  // ===== PROJECT WORKSPACE DATA (Riverside WTP) =====
-  const activeProject = { name: 'Riverside Water Treatment Plant', loc: 'Sacramento, CA', stage: 'RFQs Out', value: '$4.2M', stageBadge: badge('blue') }
+  // ===== PROJECT WORKSPACE DATA =====
+  // The open project is whichever card/row was clicked (tracked by id); fall back
+  // to the first project so the workspace still renders on a fresh load.
+  const activeProject = projects.find((p) => p.id === s.projectId) || projects[0] || {
+    name: 'Riverside Water Treatment Plant', loc: 'Sacramento, CA', stage: 'RFQs Out', value: '$4.2M', stageBadge: badge('blue'),
+  }
 
   const tabStyleFor = (k) => {
     const active = s.tab === k
@@ -264,7 +268,7 @@ export function buildModel(s, set, props) {
   else if (s.nav === 'suppliers') crumbMain = 'Suppliers'
   else if (s.nav === 'settings') crumbMain = 'Settings'
   else if (s.nav === 'ds') crumbMain = 'Design System'
-  else if (isProject) { crumbMain = 'Projects'; crumbSub = 'Riverside Water Treatment Plant'; hasSub = true }
+  else if (isProject) { crumbMain = 'Projects'; crumbSub = activeProject.name; hasSub = true }
 
   return {
     theme: s.theme, accent: (props && props.accent) || 'blue', isDark: s.theme === 'dark', isLight: s.theme !== 'dark',
@@ -276,25 +280,37 @@ export function buildModel(s, set, props) {
     newProjOpen: !!s.newProjOpen,
     openNewProject: () => set({ newProjOpen: true }),
     closeNewProject: () => set({ newProjOpen: false }),
-    createProject: (form) => {
+    createProject: async (form) => {
       const stageToneMap = {
         'Plans Review': 'gray', Sourcing: 'blue', 'RFQs Out': 'blue',
         'Quotes In': 'violet', Complete: 'success',
       }
       const stage = form.stage || 'Plans Review'
-      const proj = {
+      // Optimistic project so the workspace opens instantly; reconciled with the
+      // persisted record (real id) once the backend responds.
+      const temp = {
         id: 'proj-' + Date.now(), name: form.name.trim(), loc: form.loc.trim() || '—',
         stage, stageTone: stageToneMap[stage] || 'gray', value: form.value.trim() || '$0',
         progress: 0, suppliers: 0, rfqs: 0, quotes: 0, risk: 'Low', riskTone: 'success',
         barColor: 'var(--primary)',
       }
-      set({ customProjects: [proj, ...(s.customProjects || [])], newProjOpen: false, nav: 'projects', mnav: false })
-      // Best-effort persistence; UI already updated optimistically above.
-      post('/api/projects', { name: proj.name, loc: form.loc.trim(), value: form.value.trim(), stage }).catch(() => {})
+      set({
+        customProjects: [temp, ...(s.customProjects || [])], newProjOpen: false,
+        nav: 'project', projectId: temp.id, tab: 'overview', compare: false, supplierId: null, mnav: false,
+      })
+      try {
+        const saved = await post('/api/projects', { name: temp.name, loc: form.loc.trim(), value: form.value.trim(), stage })
+        // Now persisted: refetch the project list and drop the optimistic copy,
+        // keeping the workspace pinned to the saved project's real id.
+        if (props && props.reload) await props.reload()
+        set({ customProjects: (s.customProjects || []).filter((p) => p.id !== temp.id), projectId: saved.id })
+      } catch {
+        // Backend unavailable — keep the optimistic project so the UI still works.
+      }
     },
     goDashboard: () => go('dashboard'), goProjects: () => go('projects'),
     goSuppliers: () => go('suppliers'), goSettings: () => go('settings'), goDS: () => go('ds'),
-    openProject: () => set({ nav: 'project', tab: 'overview', compare: false, supplierId: null, mnav: false }),
+    openProject: (p) => set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }),
     toggleTheme: () => set({ theme: s.theme === 'dark' ? 'light' : 'dark' }),
     toggleMnav: () => set({ mnav: !s.mnav }),
     mnavOpen: s.mnav, closeMnav: () => set({ mnav: false }),
