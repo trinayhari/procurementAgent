@@ -44,7 +44,7 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
 @router.get("/{project_id}/documents", response_model=List[Document])
 def list_documents(project_id: str, db: Session = Depends(get_db)):
     _require_project(project_id, db)
-    return seed.DOCUMENTS
+    return seed.get_documents_for_project(project_id)
 
 
 @router.get("/{project_id}/line-items", response_model=List[LineItemGroup])

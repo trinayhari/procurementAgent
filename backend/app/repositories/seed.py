@@ -68,13 +68,16 @@ SUPPLIER_COMMS: List[dict] = [
 ]
 
 # --------------------------------------------------------------------- documents
+# Documents are scoped to a project via `projectId`. Only Riverside is fleshed out
+# in the prototype seed; every other (and newly created) project starts with an
+# empty document list until plan sets are uploaded to it.
 DOCUMENTS: List[dict] = [
-    {"id": "civil-site-r3", "name": "Civil Site Plan — Rev 3", "type": "Civil Plans", "date": "Jun 12, 2026", "status": "Analyzed", "statusTone": "success", "items": "142", "pages": 24},
-    {"id": "utility-water-sewer", "name": "Utility Plan — Water & Sewer", "type": "Utility Plans", "date": "Jun 11, 2026", "status": "Analyzed", "statusTone": "success", "items": "88", "pages": 12},
-    {"id": "storm-drainage", "name": "Storm Drainage Plan", "type": "Civil Plans", "date": "Jun 11, 2026", "status": "Analyzed", "statusTone": "success", "items": "46", "pages": 8},
-    {"id": "electrical-single-line", "name": "Electrical Single-Line", "type": "Electrical Plans", "date": "Jun 10, 2026", "status": "Processing", "statusTone": "blue", "items": "—", "pages": 6, "processing": True},
-    {"id": "project-specs", "name": "Project Specifications", "type": "Specifications", "date": "Jun 9, 2026", "status": "Analyzed", "statusTone": "success", "items": "—", "pages": 210},
-    {"id": "addendum-02", "name": "Addendum 02", "type": "Addenda", "date": "Jun 14, 2026", "status": "Queued", "statusTone": "gray", "items": "—", "pages": 4},
+    {"id": "civil-site-r3", "projectId": "riverside", "name": "Civil Site Plan — Rev 3", "type": "Civil Plans", "date": "Jun 12, 2026", "status": "Analyzed", "statusTone": "success", "items": "142", "pages": 24},
+    {"id": "utility-water-sewer", "projectId": "riverside", "name": "Utility Plan — Water & Sewer", "type": "Utility Plans", "date": "Jun 11, 2026", "status": "Analyzed", "statusTone": "success", "items": "88", "pages": 12},
+    {"id": "storm-drainage", "projectId": "riverside", "name": "Storm Drainage Plan", "type": "Civil Plans", "date": "Jun 11, 2026", "status": "Analyzed", "statusTone": "success", "items": "46", "pages": 8},
+    {"id": "electrical-single-line", "projectId": "riverside", "name": "Electrical Single-Line", "type": "Electrical Plans", "date": "Jun 10, 2026", "status": "Processing", "statusTone": "blue", "items": "—", "pages": 6, "processing": True},
+    {"id": "project-specs", "projectId": "riverside", "name": "Project Specifications", "type": "Specifications", "date": "Jun 9, 2026", "status": "Analyzed", "statusTone": "success", "items": "—", "pages": 210},
+    {"id": "addendum-02", "projectId": "riverside", "name": "Addendum 02", "type": "Addenda", "date": "Jun 14, 2026", "status": "Queued", "statusTone": "gray", "items": "—", "pages": 4},
 ]
 
 LINE_ITEMS: List[dict] = [
@@ -191,6 +194,11 @@ def get_document(doc_id: str) -> Optional[dict]:
     return next((d for d in DOCUMENTS if d["id"] == doc_id), None)
 
 
+def get_documents_for_project(project_id: str) -> List[dict]:
+    """Documents belonging to one project (newest uploads first, see add_document)."""
+    return [d for d in DOCUMENTS if d.get("projectId") == project_id]
+
+
 # ------------------------------------------------------- uploaded documents
 # Extracted BOM groups keyed by document id (uploaded docs only; the seed docs
 # above share the single LINE_ITEMS list via the project endpoint).
@@ -204,13 +212,15 @@ def add_document(
     pages: int,
     plan_type: str,
     date: str,
+    project_id: str,
     status: str = "Processing",
     status_tone: str = "blue",
 ) -> dict:
-    """Register an uploaded document at the top of the list and return it."""
+    """Register an uploaded document at the top of its project's list and return it."""
     _UPLOAD_SEQ["n"] += 1
     doc = {
         "id": f"upload-{_UPLOAD_SEQ['n']}",
+        "projectId": project_id,
         "name": name,
         "type": doc_type,
         "date": date,

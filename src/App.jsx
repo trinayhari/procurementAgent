@@ -52,9 +52,16 @@ export default function App() {
     return () => window.removeEventListener('resize', f)
   }, [])
 
-  // Hydrate from the backend; on failure the model falls back to its literals.
-  const reload = () => loadModelData().then((data) => set({ data })).catch(() => {})
+  // Hydrate the backend bundle for one project; on failure the model falls back
+  // to its literals. Pass an explicit id (e.g. right after creating a project) to
+  // avoid the stale-closure value of s.projectId.
+  const reload = (pid = s.projectId) =>
+    loadModelData(pid || 'riverside').then((data) => set({ data })).catch(() => {})
   useEffect(() => { reload() }, [])
+
+  // Refetch the workspace bundle whenever the open project changes, so each
+  // project shows its own documents/quotes/etc. instead of the last one's.
+  useEffect(() => { if (s.projectId) reload(s.projectId) }, [s.projectId])
 
   // Plan types the extractor supports (drives the upload selector).
   useEffect(() => {
@@ -65,7 +72,7 @@ export default function App() {
   const uploadDoc = async (file) => {
     set({ uploading: true, uploadError: null })
     try {
-      await uploadDocument(file, s.planType)
+      await uploadDocument(file, s.planType, s.projectId)
       set({ docIdx: 0 }) // newest doc lands at the top
       await reload()
     } catch (e) {

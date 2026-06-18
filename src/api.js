@@ -28,10 +28,11 @@ export function getPlanTypes() {
 
 // Upload a plan set; the backend creates the doc in 'Processing' and runs
 // GPT-4.1 vision extraction in the background. Returns the new Document.
-export function uploadDocument(file, planType) {
+export function uploadDocument(file, planType, projectId) {
   const form = new FormData()
   form.append('file', file)
   if (planType) form.append('plan_type', planType)
+  if (projectId) form.append('project_id', projectId)
   return fetch(`${BASE}/api/documents`, { method: 'POST', body: form }).then((r) => {
     if (!r.ok) throw new Error(`upload -> ${r.status}`)
     return r.json()

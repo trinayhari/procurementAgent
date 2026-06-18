@@ -81,8 +81,10 @@ async def upload_document(
     background: BackgroundTasks,
     file: UploadFile = File(...),
     plan_type: str = Form(default=None),
+    project_id: str = Form(default="riverside"),
 ):
-    """Upload a plan set and kick off background AI extraction."""
+    """Upload a plan set and kick off background AI extraction. The document is
+    attached to `project_id` so each project keeps its own document list."""
     plan_type = plan_type or extraction.registry.default_key()
     spec = extraction.registry.get(plan_type)
     if spec is None or not spec.enabled:
@@ -109,6 +111,7 @@ async def upload_document(
         pages=pages,
         plan_type=plan_type,
         date=datetime.now().strftime("%b %d, %Y"),
+        project_id=project_id,
     )
     doc["sourcePath"] = dest  # retained in the store; stripped from the Document response
     background.add_task(_run_extraction, doc["id"], dest, plan_type)
