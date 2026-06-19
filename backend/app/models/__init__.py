@@ -4,6 +4,41 @@ from app.models.document import Document
 from app.models.found_supplier import FoundSupplier
 from app.models.project import Project
 from app.models.quote import Quote
+from app.models.reference import (
+    ActivityItem,
+    Comparison,
+    DashboardMetric,
+    DemoQuote,
+    DemoRfq,
+    GanttBar,
+    GanttColumn,
+    Milestone,
+    OverviewCard,
+    PackageProgress,
+    RfqFolder,
+    SeedLineItemGroup,
+)
 from app.models.rfq import Rfq
+from app.models.supplier import Supplier, SupplierComm
 
-__all__ = ["Project", "FoundSupplier", "Rfq", "Quote", "Document"]
+__all__ = [
+    "Project",
+    "FoundSupplier",
+    "Rfq",
+    "Quote",
+    "Document",
+    "Supplier",
+    "SupplierComm",
+    "DashboardMetric",
+    "ActivityItem",
+    "OverviewCard",
+    "PackageProgress",
+    "SeedLineItemGroup",
+    "Comparison",
+    "Milestone",
+    "GanttBar",
+    "GanttColumn",
+    "RfqFolder",
+    "DemoRfq",
+    "DemoQuote",
+]

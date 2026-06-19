@@ -520,6 +520,120 @@
         }
       }
     },
+    "/api/projects/{project_id}/packages/{pkg}/line-comparison": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Line Comparison",
+        "description": "Line-by-line quote grid + freight-aware mix-and-match award strategies.",
+        "operationId": "get_line_comparison_api_projects__project_id__packages__pkg__line_comparison_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "pkg",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pkg"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineComparison"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/packages/{pkg}/award": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Award Package",
+        "description": "Submit a (possibly split) award for a package and issue the purchase orders.",
+        "operationId": "award_package_api_projects__project_id__packages__pkg__award_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "pkg",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pkg"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwardRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwardResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/packages/{package}/search-suppliers": {
       "post": {
         "tags": [
@@ -1775,6 +1889,173 @@
         ],
         "title": "Activity"
       },
+      "AwardOption": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "material": {
+            "type": "number",
+            "title": "Material"
+          },
+          "freight": {
+            "type": "number",
+            "title": "Freight"
+          },
+          "leadDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaddays"
+          },
+          "suppliersUsed": {
+            "type": "integer",
+            "title": "Suppliersused"
+          },
+          "deliveries": {
+            "type": "integer",
+            "title": "Deliveries"
+          },
+          "maxDistance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxdistance"
+          },
+          "savings": {
+            "type": "number",
+            "title": "Savings",
+            "default": 0.0
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "selections": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Selections",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "total",
+          "material",
+          "freight",
+          "suppliersUsed",
+          "deliveries"
+        ],
+        "title": "AwardOption"
+      },
+      "AwardRequest": {
+        "properties": {
+          "selections": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Selections"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selections"
+        ],
+        "title": "AwardRequest"
+      },
+      "AwardResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "material": {
+            "type": "number",
+            "title": "Material"
+          },
+          "freight": {
+            "type": "number",
+            "title": "Freight"
+          },
+          "leadDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaddays"
+          },
+          "suppliers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suppliers"
+          },
+          "poCount": {
+            "type": "integer",
+            "title": "Pocount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "total",
+          "material",
+          "freight",
+          "suppliers",
+          "poCount"
+        ],
+        "title": "AwardResult"
+      },
       "Body_upload_document_api_documents_post": {
         "properties": {
           "file": {
@@ -2276,6 +2557,229 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LineCompareCell": {
+        "properties": {
+          "supplierId": {
+            "type": "string",
+            "title": "Supplierid"
+          },
+          "unitPrice": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unitprice"
+          },
+          "extended": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extended"
+          },
+          "leadDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaddays"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available",
+            "default": true
+          },
+          "best": {
+            "type": "boolean",
+            "title": "Best",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "supplierId"
+        ],
+        "title": "LineCompareCell"
+      },
+      "LineCompareRow": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "qty": {
+            "type": "string",
+            "title": "Qty",
+            "default": ""
+          },
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/LineCompareCell"
+            },
+            "type": "array",
+            "title": "Cells"
+          },
+          "bestSupplierId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bestsupplierid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "cells"
+        ],
+        "title": "LineCompareRow"
+      },
+      "LineCompareSupplier": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "logo": {
+            "type": "string",
+            "title": "Logo"
+          },
+          "logoBg": {
+            "type": "string",
+            "title": "Logobg"
+          },
+          "leadDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaddays"
+          },
+          "distanceMiles": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distancemiles"
+          },
+          "freight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freight"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "logo",
+          "logoBg"
+        ],
+        "title": "LineCompareSupplier"
+      },
+      "LineComparison": {
+        "properties": {
+          "pkg": {
+            "type": "string",
+            "title": "Pkg"
+          },
+          "package": {
+            "type": "string",
+            "title": "Package"
+          },
+          "budget": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget"
+          },
+          "suppliers": {
+            "items": {
+              "$ref": "#/components/schemas/LineCompareSupplier"
+            },
+            "type": "array",
+            "title": "Suppliers"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LineCompareRow"
+            },
+            "type": "array",
+            "title": "Lines"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/AwardOption"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "recommendedOption": {
+            "type": "string",
+            "title": "Recommendedoption",
+            "default": "mix"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pkg",
+          "package",
+          "suppliers",
+          "lines",
+          "options"
+        ],
+        "title": "LineComparison"
       },
       "LineItem": {
         "properties": {

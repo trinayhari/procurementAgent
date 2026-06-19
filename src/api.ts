@@ -214,6 +214,35 @@ export function selectQuote(
   return post(`/api/quotes/${quoteId}/select`)
 }
 
+// ----------------------------------------------------- line-by-line comparison
+export type LineComparison = Schemas['LineComparison']
+export type AwardOption = Schemas['AwardOption']
+export type AwardResult = Schemas['AwardResult']
+
+// Line-by-line quote grid for a package + freight-aware mix-and-match strategies.
+// `pkg` may be a package key ("water") or display label ("Water Utilities").
+export function getLineComparison(
+  projectId: string,
+  pkg: string,
+): Promise<LineComparison> {
+  return get<LineComparison>(
+    `/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/line-comparison`,
+  )
+}
+
+// Submit a (possibly split) award — selections map each line name to a supplier id.
+export function awardPackage(
+  projectId: string,
+  pkg: string,
+  selections: Record<string, string>,
+  strategy?: string,
+): Promise<AwardResult> {
+  return post<AwardResult>(
+    `/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/award`,
+    { selections, strategy },
+  )
+}
+
 // The reshaped bundle that buildModel() consumes. Mirrors the keys returned by
 // loadModelData() below.
 export type ModelData = {

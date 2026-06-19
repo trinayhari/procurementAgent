@@ -117,7 +117,9 @@ def save_line_items(db: Session, doc_id: str, groups: List[dict]) -> List[dict]:
 def get_line_items(db: Session, doc_id: str) -> Optional[List[dict]]:
     """Per-document BOM groups: a doc's own extracted/edited items take
     precedence; seed demo docs (no plan type, no own items) fall back to the
-    shared seed.LINE_ITEMS so the prototype still renders."""
+    shared line-item groups so the prototype still renders."""
+    from app.repositories import reference as reference_repo
+
     doc = db.get(Document, doc_id)
     if doc is None:
         return None
@@ -125,7 +127,7 @@ def get_line_items(db: Session, doc_id: str) -> Optional[List[dict]]:
     if own is not None:
         return own
     if not doc.plan_type:  # a seed/demo doc, not an upload
-        return seed.LINE_ITEMS
+        return reference_repo.list_line_item_groups(db)
     return None
 
 

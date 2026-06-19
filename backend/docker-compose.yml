@@ -1,0 +1,29 @@
+# Postgres for the ProcureAI backend — the "proper DB system" that's part of the
+# stack. Start it with `docker compose up -d` from the backend/ directory, then
+# point the app at it by setting (in backend/.env):
+#
+#   PROCUREAI_DATABASE_URL=postgresql+psycopg2://procureai:procureai@localhost:5432/procureai
+#
+# Without this, the app falls back to a zero-config local SQLite file
+# (sqlite:///./procureai.db), so Docker is optional for quick local dev.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: procureai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: procureai
+      POSTGRES_PASSWORD: procureai
+      POSTGRES_DB: procureai
+    ports:
+      - "5432:5432"
+    volumes:
+      - procureai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U procureai -d procureai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  procureai_pgdata:

@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, FormEvent } from 'react'
-import { Box, DcIcon, css } from './lib'
+import { Box, DcIcon, css, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
   saveDocumentLineItems, confirmDocument,
   searchSuppliers, getFoundSuppliers, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  getRfqConversation, ingestQuotes, getIngestStatus, selectQuote,
+  getRfqConversation, ingestQuotes, getIngestStatus,
+  getLineComparison, awardPackage,
 } from './api'
-import type { SupplierSearchResult, FoundSupplier, PersistedRfq, RfqRecipient, RfqConversation } from './api'
+import type {
+  SupplierSearchResult, FoundSupplier, PersistedRfq, RfqRecipient, RfqConversation,
+  LineComparison, AwardOption,
+} from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
 type MProps = { m: Model }
@@ -526,7 +530,7 @@ function DesignSystem({ m }: MProps) {
             <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:26px;font-weight:700;letter-spacing:-.02em')}>Display</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>Figtree 700 · 26</span></div>
             <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:18px;font-weight:600')}>Heading</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>600 · 18</span></div>
             <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:13.5px')}>Body text</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>400 · 13.5</span></div>
-            <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css("font-size:15px;font-weight:600;font-family:'JetBrains Mono',monospace")}>$495,600</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>Mono · data</span></div>
+            <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css("font-size:15px;font-weight:600;font-family:'JetBrains Mono',monospace")}>$145,472</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>Mono · data</span></div>
           </div>
         </div>
         <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
@@ -631,7 +635,7 @@ function TabOverview({ m }: MProps) {
         </div>
         <div style={css('background:var(--primary-softer);border:1px solid var(--primary-soft);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)')}>
           <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:11px')}><span style={css('width:26px;height:26px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={15} fill d={SPARKLE} /></span><span style={css('font-size:13px;font-weight:700;color:var(--primary)')}>ProcureAI suggests</span></div>
-          <p style={css('margin:0 0 14px;font-size:13.5px;line-height:1.5;color:var(--text)')}>The <strong>Water Utilities</strong> package has 3 competitive quotes in. Ferguson offers the best balance of price and a 14-day lead — <strong>$184K below budget</strong>. Ready to compare.</p>
+          <p style={css('margin:0 0 14px;font-size:13.5px;line-height:1.5;color:var(--text)')}>The <strong>Water Utilities</strong> package has 3 competitive quotes in. A mix-and-match split award lands at <strong>$143,852</strong> — $21.1K under the $165K budget and $1,620 below the best single supplier. Ready to compare.</p>
           <Box as="button" onClick={m.setQuotes} style={css('display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:8px;background:var(--primary);color:#fff;font-size:13px;font-weight:600')} hover="background:var(--primary-2)">Review water quotes<Svg size={15} sw={2.2} d={CHEVRON} /></Box>
         </div>
       </div>
@@ -1262,7 +1266,7 @@ function TabRfqs({ m }: MProps) {
 
 /* --------------------------------------------------------------- Quotes tab */
 function TabQuotes({ m }: MProps) {
-  const gridCols = 'minmax(180px,1.6fr) 130px 110px 92px 110px 96px 92px'
+  const gridCols = 'minmax(200px,1.8fr) 120px 110px 116px 96px 110px'
   const projectId = m.activeProject.id
   const [ingesting, setIngesting] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -1289,93 +1293,234 @@ function TabQuotes({ m }: MProps) {
     }
   }
 
+  // Quotes are separated by utility type (package); each group compares on its own.
+  const groups: { pkg: string; rows: typeof m.quotes }[] = []
+  for (const q of m.quotes) {
+    let g = groups.find((x) => x.pkg === q.pkg)
+    if (!g) { g = { pkg: q.pkg, rows: [] }; groups.push(g) }
+    g.rows.push(q)
+  }
+
   return (
     <>
       <div style={css('display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px')}>
-        <h2 style={css('margin:0;font-size:15px;font-weight:600')}>Quotes received <span style={css('color:var(--text-3);font-weight:500')}>· {m.quotes.length}</span></h2>
+        <h2 style={css('margin:0;font-size:15px;font-weight:600')}>Quotes received <span style={css('color:var(--text-3);font-weight:500')}>· {m.quotes.length} across {groups.length} {groups.length === 1 ? 'package' : 'packages'}</span></h2>
         <div style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap')}>
           {note && <span style={css('font-size:12px;color:var(--text-3)')}>{note}</span>}
           <Box as="button" onClick={ingesting ? undefined : checkReplies} style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600;${ingesting ? 'opacity:.6' : ''}`)} hover="background:var(--panel-2)"><Svg size={15} sw={2} d='M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5' />{ingesting ? 'Checking…' : 'Check for replies'}</Box>
-          <Box as="button" onClick={m.openCompare} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} d='M3 6h18M3 12h18M3 18h18' />Compare quotes ({m.quotes.length})</Box>
         </div>
       </div>
-      <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
-        <div style={css('overflow-x:auto')}><div style={css('min-width:720px')}>
-          <div style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase') }}><span>Supplier</span><span>Package</span><span style={css('text-align:right')}>Quote</span><span style={css('text-align:right')}>Freight</span><span style={css('text-align:right')}>Total</span><span style={css('text-align:right')}>Lead</span><span style={css('text-align:right')}>Received</span></div>
-          {m.quotes.map((q, i) => (
-            <Box key={i} onClick={q.onOpen} style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);align-items:center;cursor:pointer') }} hover="background:var(--panel-2)">
-              <div style={css('display:flex;align-items:center;gap:10px;min-width:0')}><div style={q.logoStyle}>{q.logo}</div><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{q.sup}</span></div>
-              <span style={css('font-size:12px;color:var(--text-2)')}>{q.pkg}</span>
-              <span style={css("text-align:right;font-size:13px;font-family:'JetBrains Mono',monospace")}>{q.amount}</span>
-              <span style={css("text-align:right;font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--text-2)")}>{q.freight}</span>
-              <span style={css("text-align:right;font-size:13.5px;font-weight:700;font-family:'JetBrains Mono',monospace")}>{q.total}</span>
-              <span style={css("text-align:right;font-size:12.5px;font-family:'JetBrains Mono',monospace")}>{q.lead}</span>
-              <span style={css('text-align:right;font-size:12px;color:var(--text-3)')}>{q.date}</span>
-            </Box>
-          ))}
-        </div></div>
+      <div style={css('display:flex;flex-direction:column;gap:16px')}>
+        {groups.map((g) => (
+          <div key={g.pkg} style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
+            <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:13px 16px;border-bottom:1px solid var(--border);background:var(--panel-2)')}>
+              <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}>
+                <span style={css('font-size:13.5px;font-weight:700;letter-spacing:-.01em')}>{g.pkg}</span>
+                <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-3);padding:2px 8px;border-radius:999px')}>{g.rows.length} {g.rows.length === 1 ? 'quote' : 'quotes'}</span>
+              </div>
+              <Box as="button" onClick={() => m.comparePackage(g.pkg)} style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;background:var(--primary);color:#fff;font-size:12.5px;font-weight:600;white-space:nowrap')} hover="background:var(--primary-2)"><Svg size={14} d='M3 6h18M3 12h18M3 18h18' />Compare</Box>
+            </div>
+            <div style={css('overflow-x:auto')}><div style={css('min-width:640px')}>
+              <div style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase') }}><span>Supplier</span><span style={css('text-align:right')}>Quote</span><span style={css('text-align:right')}>Freight</span><span style={css('text-align:right')}>Total</span><span style={css('text-align:right')}>Lead</span><span style={css('text-align:right')}>Received</span></div>
+              {g.rows.map((q, i) => (
+                <Box key={i} onClick={q.onOpen} style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);align-items:center;cursor:pointer') }} hover="background:var(--panel-2)">
+                  <div style={css('display:flex;align-items:center;gap:10px;min-width:0')}><div style={q.logoStyle}>{q.logo}</div><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{q.sup}</span>{q.best && <span style={css('display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 7px;border-radius:999px;white-space:nowrap')}><Svg size={10} sw={3} d='m5 12 5 5L20 7' />Best</span>}</div>
+                  <span style={css("text-align:right;font-size:13px;font-family:'JetBrains Mono',monospace")}>{q.amount}</span>
+                  <span style={css("text-align:right;font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--text-2)")}>{q.freight}</span>
+                  <span style={css("text-align:right;font-size:13.5px;font-weight:700;font-family:'JetBrains Mono',monospace")}>{q.total}</span>
+                  <span style={css("text-align:right;font-size:12.5px;font-family:'JetBrains Mono',monospace")}>{q.lead}</span>
+                  <span style={css('text-align:right;font-size:12px;color:var(--text-3)')}>{q.date}</span>
+                </Box>
+              ))}
+            </div></div>
+          </div>
+        ))}
       </div>
     </>
   )
 }
 
 /* ------------------------------------------------------------- Compare tab */
+const money = (v: number | null | undefined) => (v == null ? '—' : '$' + Math.round(v).toLocaleString())
+
+// Live cost/lead/logistics for the current {line: supplierId} basket. Mirrors the
+// backend's _cost_of so manual mix-and-match edits update instantly, while the
+// award endpoint recomputes authoritatively on submit.
+function summarizeAward(lc: LineComparison, sel: Record<string, string>) {
+  const supById: Record<string, LineComparison['suppliers'][number]> = {}
+  lc.suppliers.forEach((s) => { supById[s.id] = s })
+  let material = 0, lead = 0
+  const used = new Set<string>()
+  for (const line of lc.lines) {
+    const cell = line.cells.find((c) => c.supplierId === sel[line.name])
+    if (cell && cell.extended != null) { material += cell.extended; used.add(cell.supplierId) }
+    if (cell && cell.leadDays != null) lead = Math.max(lead, cell.leadDays)
+  }
+  let freight = 0, maxDist = 0
+  used.forEach((sid) => {
+    const s = supById[sid]
+    if (!s) return
+    freight += s.freight || 0
+    if (s.distanceMiles != null) maxDist = Math.max(maxDist, s.distanceMiles)
+  })
+  const total = material + freight
+  const single = lc.options.find((o) => o.key === 'single')
+  return { material, freight, total, lead, deliveries: used.size, maxDist, savings: single ? single.total - total : 0 }
+}
+
 function TabCompare({ m }: MProps) {
-  const [po, setPo] = useState<string | null>(null)
+  const [lc, setLc] = useState<LineComparison | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [sel, setSel] = useState<Record<string, string>>({})
+  const [strategy, setStrategy] = useState<string>('mix')
   const [busy, setBusy] = useState(false)
-  const issuePo = async () => {
-    if (!m.cmp.recQuoteId) { setPo(`Selected ${m.cmp.recommendation}. Connect quotes to issue a PO.`); return }
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true); setErr(null); setMsg(null)
+    getLineComparison(m.projectId, m.comparePkg)
+      .then((data) => {
+        if (!alive) return
+        setLc(data)
+        const rec = data.options.find((o) => o.key === data.recommendedOption) || data.options[0]
+        setSel(rec ? { ...rec.selections } : {})
+        setStrategy(rec ? rec.key : 'custom')
+      })
+      .catch(() => { if (alive) setErr('Could not load comparison. Is the backend running?') })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [m.projectId, m.comparePkg])
+
+  const applyStrategy = (key: string) => {
+    const opt = lc?.options.find((o) => o.key === key)
+    if (opt) { setSel({ ...opt.selections }); setStrategy(key); setMsg(null) }
+  }
+  const pick = (line: string, supId: string) => {
+    setSel((p) => ({ ...p, [line]: supId })); setStrategy('custom'); setMsg(null)
+  }
+
+  const back = (
+    <Box as="button" onClick={m.closeCompare} style={css('display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text-2);margin-bottom:14px')} hover="color:var(--text)"><Svg size={16} d='m15 18-6-6 6-6' />Back to quotes</Box>
+  )
+  if (loading) return <>{back}<div style={css('padding:40px;text-align:center;color:var(--text-3);font-size:13px')}>Loading comparison…</div></>
+  if (err || !lc) return <>{back}<div style={css('padding:40px;text-align:center;color:var(--text-3);font-size:13px')}>{err || 'No quotes to compare yet.'}</div></>
+
+  const sum = summarizeAward(lc, sel)
+  const gridCols = `minmax(150px,1.4fr) repeat(${lc.suppliers.length}, minmax(116px,1fr))`
+  const submit = async () => {
     setBusy(true)
     try {
-      const res = await selectQuote(m.cmp.recQuoteId)
-      setPo(res.message)
+      const res = await awardPackage(m.projectId, lc.package, sel, strategy)
+      setMsg(res.message)
       await m.reload()
     } catch {
-      setPo('Could not issue PO. Is the backend running?')
-    } finally {
-      setBusy(false)
-    }
+      setMsg('Could not submit award. Is the backend running?')
+    } finally { setBusy(false) }
   }
+  const budgetPct = lc.budget ? Math.min(100, (sum.total / lc.budget) * 100) : null
+  const overBudget = lc.budget != null && sum.total > lc.budget
+
   return (
     <>
-      <Box as="button" onClick={m.closeCompare} style={css('display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text-2);margin-bottom:14px')} hover="color:var(--text)"><Svg size={16} d='m15 18-6-6 6-6' />Back to quotes</Box>
-      <div style={css('margin-bottom:16px')}><h2 style={css('margin:0;font-size:19px;font-weight:700;letter-spacing:-.02em')}>Water Utilities — Quote Comparison</h2><p style={css('margin:4px 0 0;font-size:13px;color:var(--text-2)')}>3 suppliers · 42 line items · budget $679,600</p></div>
+      {back}
+      <div style={css('margin-bottom:16px')}>
+        <h2 style={css('margin:0;font-size:19px;font-weight:700;letter-spacing:-.02em')}>{lc.pkg} — Quote Comparison</h2>
+        <p style={css('margin:4px 0 0;font-size:13px;color:var(--text-2)')}>{lc.suppliers.length} suppliers · {lc.lines.length} line items{lc.budget != null ? ` · budget ${money(lc.budget)}` : ''}</p>
+      </div>
+
+      {/* Strategy switcher */}
+      <div style={css('display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px')}>
+        {lc.options.map((o: AwardOption) => {
+          const active = strategy === o.key
+          return (
+            <Box as="button" key={o.key} onClick={() => applyStrategy(o.key)}
+              style={css(`flex:1;min-width:150px;text-align:left;padding:11px 13px;border-radius:12px;border:${active ? '2px solid var(--primary)' : '1px solid var(--border)'};background:${active ? 'var(--primary-softer)' : 'var(--panel)'}`)}
+              hover={active ? '' : 'border-color:var(--border-strong)'}>
+              <div style={css('display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700')}>
+                {o.key === 'mix' && <Svg size={14} fill d={SPARKLE} style={{ color: 'var(--primary)' }} />}{o.label}
+              </div>
+              <div style={css("font-size:15px;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace")}>{money(o.total)}</div>
+              <div style={css('font-size:11px;color:var(--text-3);margin-top:2px')}>{o.leadDays != null ? `${o.leadDays}d lead · ` : ''}{o.suppliersUsed} {o.suppliersUsed === 1 ? 'supplier' : 'suppliers'}{o.savings > 0 ? ` · save ${money(o.savings)}` : ''}</div>
+            </Box>
+          )
+        })}
+        {strategy === 'custom' && (
+          <div style={css('flex:1;min-width:150px;padding:11px 13px;border-radius:12px;border:2px solid var(--primary);background:var(--primary-softer)')}>
+            <div style={css('font-size:12.5px;font-weight:700')}>Custom mix</div>
+            <div style={css("font-size:15px;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace")}>{money(sum.total)}</div>
+            <div style={css('font-size:11px;color:var(--text-3);margin-top:2px')}>your hand-picked award</div>
+          </div>
+        )}
+      </div>
+
       <div style={css('display:grid;grid-template-columns:minmax(0,1.7fr) 320px;gap:16px;align-items:start')}>
+        {/* Line-by-line grid */}
         <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
           <div style={css('overflow-x:auto')}><div style={css('min-width:560px')}>
-            <div style={css('display:flex;align-items:stretch;border-bottom:1px solid var(--border)')}>
-              <div style={css('width:140px;flex:none;padding:16px')}></div>
-              {m.cmp.suppliers.map((su, i) => (
-                <div key={i} style={css('flex:1;padding:16px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;border-left:1px solid var(--border)')}>
-                  <div style={su.logoStyle}>{su.logo}</div>
-                  <div style={css('font-size:12.5px;font-weight:600;line-height:1.2')}>{su.name}</div>
-                  {su.rec && <span style={css('display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 8px;border-radius:999px')}><Svg size={11} sw={3} d='m5 12 5 5L20 7' />Recommended</span>}
+            <div style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('border-bottom:1px solid var(--border)') }}>
+              <div style={css('padding:14px 16px;display:flex;align-items:flex-end;font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase')}>Line item</div>
+              {lc.suppliers.map((su) => (
+                <div key={su.id} style={css('padding:12px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;border-left:1px solid var(--border)')}>
+                  <div style={lb(su.logoBg, 30)}>{su.logo}</div>
+                  <div style={css('font-size:11.5px;font-weight:600;line-height:1.15')}>{su.name}</div>
+                  <div style={css('font-size:10px;color:var(--text-3)')}>{su.leadDays != null ? `${su.leadDays}d` : '—'}{su.distanceMiles != null ? ` · ${Math.round(su.distanceMiles)}mi` : ''}</div>
                 </div>
               ))}
             </div>
-            {m.cmp.rows.map((row, i) => (
-              <div key={i} style={css('display:flex;align-items:stretch;border-bottom:1px solid var(--border)')}>
-                <div style={css('width:140px;flex:none;padding:14px 16px;display:flex;align-items:center;font-size:12.5px;font-weight:600;color:var(--text-2)')}>{row.label}</div>
-                {row.cells.map((cell, j) => (
-                  <div key={j} style={cell.style}>{cell.best && <Svg size={13} sw={3} d='m5 12 5 5L20 7' />}{cell.v}</div>
-                ))}
+            {lc.lines.map((line) => (
+              <div key={line.name} style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('border-bottom:1px solid var(--border)') }}>
+                <div style={css('padding:12px 16px;display:flex;flex-direction:column;justify-content:center;gap:2px')}>
+                  <span style={css('font-size:12.5px;font-weight:600;line-height:1.25')}>{line.name}</span>
+                  <span style={css('font-size:11px;color:var(--text-3)')}>{line.qty}</span>
+                </div>
+                {lc.suppliers.map((su) => {
+                  const cell = line.cells.find((c) => c.supplierId === su.id)
+                  const available = !!(cell && cell.available && cell.extended != null)
+                  const selected = sel[line.name] === su.id
+                  const best = !!(cell && cell.best)
+                  return (
+                    <Box as="button" key={su.id} onClick={available ? () => pick(line.name, su.id) : undefined}
+                      style={{
+                        borderLeft: '1px solid var(--border)',
+                        ...css(`display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 6px;cursor:${available ? 'pointer' : 'default'};position:relative;background:${selected ? 'var(--primary-softer)' : best ? 'var(--success-soft)' : 'transparent'};box-shadow:${selected ? 'inset 0 0 0 2px var(--primary)' : 'none'};opacity:${available ? 1 : 0.4}`),
+                      }}
+                      hover={available && !selected ? 'background:var(--panel-2)' : ''}>
+                      {best && <span style={css('position:absolute;top:5px;right:6px;display:inline-flex;align-items:center;gap:2px;font-size:9px;font-weight:700;color:var(--success)')}><Svg size={10} sw={3} d='m5 12 5 5L20 7' />Best</span>}
+                      <span style={css(`font-size:13.5px;font-weight:${selected || best ? 700 : 500};font-family:'JetBrains Mono',monospace;color:${best ? 'var(--success)' : 'var(--text)'}`)}>{available ? money(cell!.extended) : '—'}</span>
+                      {available && <span style={css('font-size:10px;color:var(--text-3)')}>{cell!.unitPrice != null ? `$${cell!.unitPrice}/unit` : ''}{cell!.leadDays != null ? ` · ${cell!.leadDays}d` : ''}</span>}
+                    </Box>
+                  )
+                })}
               </div>
             ))}
           </div></div>
         </div>
+
+        {/* Award sidebar */}
         <div style={css('display:flex;flex-direction:column;gap:14px;position:sticky;top:72px')}>
           <div style={css('background:var(--primary-softer);border:1px solid var(--primary-soft);border-radius:16px;padding:18px;box-shadow:var(--shadow-md)')}>
-            <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:14px')}><span style={css('width:28px;height:28px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={16} fill d={SPARKLE} /></span><span style={css('font-size:13px;font-weight:700;color:var(--primary)')}>AI Recommendation</span></div>
-            <div style={css('display:flex;align-items:center;gap:11px;padding:12px;background:var(--panel);border-radius:12px;margin-bottom:14px')}><div style={m.cmp.recLogoStyle}>{m.cmp.recLogo}</div><div><div style={css('font-size:11px;color:var(--text-3)')}>Recommended supplier</div><div style={css('font-size:15px;font-weight:700')}>{m.cmp.recommendation}</div></div></div>
-            <div style={css('display:flex;flex-direction:column;gap:9px;margin-bottom:16px')}>
-              {m.cmp.recReasons.map((t, i) => (
-                <div key={i} style={css('display:flex;gap:8px;font-size:12.5px;line-height:1.4')}><Svg size={15} sw={2.4} stroke="var(--success)" d='m5 12 5 5L20 7' style={{ flex: 'none', marginTop: 1 }} /><span>{t}</span></div>
-              ))}
+            <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:14px')}><span style={css('width:28px;height:28px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={16} fill d={SPARKLE} /></span><span style={css('font-size:13px;font-weight:700;color:var(--primary)')}>Award plan</span></div>
+            <div style={css("font-size:11px;color:var(--text-3)")}>Total committed</div>
+            <div style={css("font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1.1")}>{money(sum.total)}</div>
+            {budgetPct != null && (
+              <div style={css('margin-top:8px')}>
+                <div style={css('height:6px;border-radius:999px;background:var(--panel-3);overflow:hidden')}><div style={{ width: `${budgetPct}%`, height: '100%', background: overBudget ? 'var(--danger)' : 'var(--success)' }} /></div>
+                <div style={css(`font-size:11px;margin-top:3px;color:${overBudget ? 'var(--danger)' : 'var(--text-3)'}`)}>{overBudget ? `${money(sum.total - lc.budget!)} over` : `${money(lc.budget! - sum.total)} under`} budget</div>
+              </div>
+            )}
+            <div style={css('display:flex;flex-direction:column;gap:7px;margin:14px 0;font-size:12.5px')}>
+              <div style={css('display:flex;justify-content:space-between')}><span style={css('color:var(--text-2)')}>Materials</span><span style={css("font-family:'JetBrains Mono',monospace")}>{money(sum.material)}</span></div>
+              <div style={css('display:flex;justify-content:space-between')}><span style={css('color:var(--text-2)')}>Freight ({sum.deliveries} {sum.deliveries === 1 ? 'delivery' : 'deliveries'})</span><span style={css("font-family:'JetBrains Mono',monospace")}>{money(sum.freight)}</span></div>
+              <div style={css('display:flex;justify-content:space-between')}><span style={css('color:var(--text-2)')}>Lead time</span><span style={css("font-family:'JetBrains Mono',monospace")}>{sum.lead ? `${sum.lead} days` : '—'}</span></div>
+              <div style={css('display:flex;justify-content:space-between')}><span style={css('color:var(--text-2)')}>Suppliers</span><span style={css("font-family:'JetBrains Mono',monospace")}>{sum.deliveries}</span></div>
+              <div style={css('display:flex;justify-content:space-between')}><span style={css('color:var(--text-2)')}>Max haul</span><span style={css("font-family:'JetBrains Mono',monospace")}>{sum.maxDist ? `${Math.round(sum.maxDist)} mi` : '—'}</span></div>
             </div>
-            {po && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{po}</div>}
-            <button onClick={busy ? undefined : issuePo} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy ? 'opacity:.6' : ''}`)}>{busy ? 'Issuing…' : 'Select supplier & issue PO'}</button>
+            {sum.savings > 0 && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>Saves {money(sum.savings)} vs. the best single supplier.</div>}
+            {msg && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{msg}</div>}
+            <button onClick={busy ? undefined : submit} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy ? 'opacity:.6' : ''}`)}>{busy ? 'Submitting…' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
           </div>
-          <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px 16px')}><div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:3px')}>Projected savings</div><div style={css("font-size:22px;font-weight:700;color:var(--success);font-family:'JetBrains Mono',monospace")}>{m.cmp.savings}</div><div style={css('font-size:11.5px;color:var(--text-3);margin-top:2px')}>{m.cmp.savingsNote}</div></div>
         </div>
       </div>
     </>
@@ -1388,7 +1533,7 @@ function TabTimeline({ m }: MProps) {
     <>
       <div style={css('display:flex;align-items:flex-start;gap:11px;padding:14px 16px;border:1px solid var(--warn-soft);background:var(--warn-soft);border-radius:13px;margin-bottom:16px')}>
         <span style={css('color:var(--warn);flex:none;margin-top:1px')}><Svg size={18} d='M12 4 2.8 19.5h18.4z" /><path d="M12 10v4M12 17.2v.3' /></span>
-        <div style={{ flex: 1 }}><div style={css('font-size:13.5px;font-weight:600')}>Storm Drain quotes delayed</div><div style={css('font-size:12.5px;color:var(--text-2);margin-top:2px')}>Fortiline has been non-responsive for 4 days, putting the Jul 16 delivery at risk. ProcureAI recommends sending an automated follow-up.</div></div>
+        <div style={{ flex: 1 }}><div style={css('font-size:13.5px;font-weight:600')}>Electrical quotes outstanding</div><div style={css('font-size:12.5px;color:var(--text-2);margin-top:2px')}>WESCO has been non-responsive for 2 days on the Electrical package, putting the Jul 4 delivery at risk. ProcureAI recommends sending an automated follow-up.</div></div>
         <button style={css('height:32px;padding:0 12px;border-radius:8px;background:var(--warn);color:#fff;font-size:12px;font-weight:600;white-space:nowrap;flex:none')}>Send follow-up</button>
       </div>
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px;margin-bottom:16px')}>

@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
 from app.repositories import documents as documents_repo
 from app.repositories import projects as projects_repo
+from app.repositories import reference as reference_repo
 from app.repositories import rfqs as rfqs_repo
-from app.repositories import seed
 from app.repositories import sourcing as sourcing_repo
 from app.schemas.quote import QuoteIngestResult
 from app.schemas.rfq import PersistedRfq, RfqConversation, RfqGenerateRequest, RfqUpdate
@@ -213,8 +213,8 @@ def _line_items_for_package(db: Session, project_id: str, package: str) -> List[
     for doc in documents_repo.list_for_project(db, project_id):
         _collect(documents_repo.get_line_items(db, doc.get("id", "")) or [])
 
-    if not items:  # nothing extracted for this project yet → prototype seed BOM
-        _collect(seed.LINE_ITEMS)
+    if not items:  # nothing extracted for this project yet → prototype demo BOM
+        _collect(reference_repo.list_line_item_groups(db))
     return items
 
 

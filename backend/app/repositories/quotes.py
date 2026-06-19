@@ -57,6 +57,51 @@ def list_quote_rows(db: Session, project_id: str) -> List[dict]:
     return [r.to_quote_row(best=r.id in best_ids) for r in rows]
 
 
+def seed_sample_quotes(db: Session, project_id: str) -> int:
+    """Seed priced sample quotes for a project's demo packages (idempotent).
+
+    Skips any package that already has quotes, so real ingested quotes are never
+    overwritten. Returns the number of quotes created.
+    """
+    from app.services.quotes.sample_data import SAMPLE_PACKAGES, build_quote_payloads
+
+    created = 0
+    for package_key in SAMPLE_PACKAGES:
+        existing = db.scalars(
+            select(Quote.id).where(
+                Quote.project_id == project_id, Quote.package == package_key
+            )
+        ).first()
+        if existing is not None:
+            continue
+        for payload in build_quote_payloads(package_key):
+            create_quote(db, project_id=project_id, **payload)
+            created += 1
+    return created
+
+
+def award_package(db: Session, project_id: str, package: str, supplier_ids: set) -> int:
+    """Mark the winning suppliers' quotes as selected for a package (split-award aware).
+
+    Every supplier that won at least one line is 'selected'; the rest revert to
+    'received'. Returns the number of quotes marked selected.
+    """
+    quotes = db.scalars(
+        select(Quote).where(
+            Quote.project_id == project_id, Quote.package == package
+        )
+    ).all()
+    selected = 0
+    for q in quotes:
+        if q.supplier_id in supplier_ids or q.supplier_name in supplier_ids:
+            q.status = "selected"
+            selected += 1
+        else:
+            q.status = "received"
+    db.commit()
+    return selected
+
+
 def message_ids_for_project(db: Session, project_id: str) -> set:
     """Gmail message ids already ingested for this project (for dedupe)."""
     rows = db.scalars(

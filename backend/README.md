@@ -1,10 +1,25 @@
 # ProcureAI Backend
 
-FastAPI REST/JSON API for the ProcureAI procurement OS. **Projects are persisted**
-in SQLite via SQLAlchemy (schema owned by Alembic). The remaining workspace data
-(documents, suppliers, quotes, …) still comes from an in-memory seed
-(`app/repositories/seed.py`) while the prototype is fleshed out. The API returns
-**pure domain data** — all styling (badges, chips, bars) stays in the frontend.
+FastAPI REST/JSON API for the ProcureAI procurement OS. **All data is persisted**
+via SQLAlchemy (schema owned by Alembic) — projects, documents, suppliers, quotes,
+RFQs, plus the dashboard/comparison/timeline/RFQ-inbox reference data. On first run
+each table is seeded from the literals in `app/repositories/seed.py`; after that the
+API reads exclusively from the database. The API returns **pure domain data** — all
+styling (badges, chips, bars) stays in the frontend.
+
+The default database is a zero-config local **SQLite** file. A production-grade
+**PostgreSQL** service is part of the stack via `docker-compose.yml`:
+
+```bash
+cd backend
+docker compose up -d                 # start Postgres
+# then in backend/.env:
+# PROCUREAI_DATABASE_URL=postgresql+psycopg2://procureai:procureai@localhost:5432/procureai
+alembic upgrade head                 # create the schema in Postgres
+```
+
+Leaving `PROCUREAI_DATABASE_URL` unset falls back to `sqlite:///./procureai.db`, so
+the app still runs without Docker.
 
 ## Stack
 
@@ -116,14 +131,20 @@ scripts/             dev scripts — export_openapi.py dumps openapi.json for th
 
 ## Persistence
 
-Projects live in the `projects` table (`app/models/project.py`), accessed via
-`app/repositories/projects.py`. `app/repositories/seed.py` now only supplies the 5
-starter projects (loaded into the DB on first run) plus the not-yet-persisted
-workspace data. The `POST /api/projects` route writes through to the DB, so new
-projects survive restarts.
+Every domain entity has a SQLAlchemy model (`app/models/`) and a repository
+(`app/repositories/`):
 
-## Phase 2 (later)
+| Area | Model(s) | Repository |
+| --- | --- | --- |
+| Projects | `project.py` | `projects.py` |
+| Documents + extracted BOMs | `document.py` | `documents.py` |
+| Supplier directory + comms | `supplier.py` | `suppliers.py` |
+| Quotes (ingested) | `quote.py` | `quotes.py` |
+| Generated RFQs | `rfq.py` | `rfqs.py` |
+| Found suppliers (search) | `found_supplier.py` | `sourcing.py` |
+| Dashboard, overview cards, packages, line-item groups, comparisons, timeline, RFQ folders, demo RFQ inbox, demo quotes | `reference.py` | `reference.py` |
 
-Move the remaining seed entities (documents, suppliers, quotes, RFQs, timeline)
-into SQLAlchemy models + migrations, and persist uploaded documents and their
-extracted BOMs. Routes and schemas stay unchanged.
+`app/repositories/seed.py` is now **only the seeding source**: its literals are
+loaded into the DB once on first run (each repo has a `seed_*` function called from
+`db.init_db()`). Routes read exclusively from the database, so all data survives a
+restart.
