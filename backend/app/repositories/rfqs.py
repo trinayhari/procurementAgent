@@ -67,14 +67,47 @@ def update_rfq(
     return row.to_dict()
 
 
-def mark_rfq_sent(db: Session, rfq_id: str, recipients: List[dict]) -> Optional[dict]:
+def mark_rfq_sent(
+    db: Session, rfq_id: str, recipients: List[dict], status: str = "Sent"
+) -> Optional[dict]:
     """Persist send results (recipients now carry sentMessageId) and flip status."""
     row = db.get(Rfq, rfq_id)
     if row is None:
         return None
     row.recipients = json.dumps(recipients)
-    row.status = "Sent"
+    row.status = status
     row.sent_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(row)
+    return row.to_dict()
+
+
+def delete_rfq(db: Session, rfq_id: str) -> bool:
+    """Delete an RFQ. Returns True if a row was removed."""
+    row = db.get(Rfq, rfq_id)
+    if row is None:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def list_awaiting_rfqs(db: Session, project_id: str) -> List[dict]:
+    """RFQs that have been sent and may have replies to ingest."""
+    rows = db.scalars(
+        select(Rfq).where(
+            Rfq.project_id == project_id,
+            Rfq.status.in_(["Sent", "Awaiting", "Quoted"]),
+        )
+    ).all()
+    return [r.to_dict() for r in rows]
+
+
+def mark_rfq_quoted(db: Session, rfq_id: str) -> Optional[dict]:
+    row = db.get(Rfq, rfq_id)
+    if row is None:
+        return None
+    row.status = "Quoted"
     db.commit()
     db.refresh(row)
     return row.to_dict()

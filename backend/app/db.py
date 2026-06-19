@@ -39,8 +39,10 @@ def init_db() -> None:
     ensures they're registered on Base.metadata before create_all().
     """
     from app import models  # noqa: F401  (registers tables on Base.metadata)
+    from app.repositories import documents as documents_repo
     from app.repositories import projects as projects_repo
 
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         projects_repo.seed_starter_projects(db)
+        documents_repo.seed_starter_documents(db)

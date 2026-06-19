@@ -15,6 +15,7 @@ class Document(BaseModel):
     items: str
     pages: int
     processing: bool = False
+    hasFile: bool = False  # True when the original file is on disk and previewable
     # Extraction metadata (populated for uploaded docs).
     planType: Optional[str] = None
     summary: Optional[str] = None

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -45,3 +45,13 @@ class SelectResult(BaseModel):
     quote_id: str
     status: str
     message: str
+
+
+class QuoteIngestResult(BaseModel):
+    """Status payload for the quote-ingest poller (mirrors the search poller)."""
+
+    status: str  # "ingesting" | "done" | "error" | "idle"
+    mocked: bool = False
+    ingested: int = 0
+    total: int = 0
+    error: Optional[str] = None

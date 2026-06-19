@@ -4,8 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.repositories import documents as documents_repo
 from app.repositories import projects as projects_repo
+from app.repositories import quotes as quotes_repo
 from app.repositories import seed
+from app.services.quotes import comparison as comparison_service
+from app.services.sourcing import packages
 from app.schemas.document import Document, LineItemGroup
 from app.schemas.project import Project, ProjectCreate, ProjectDetail
 from app.schemas.quote import Comparison, Quote
@@ -44,7 +48,7 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
 @router.get("/{project_id}/documents", response_model=List[Document])
 def list_documents(project_id: str, db: Session = Depends(get_db)):
     _require_project(project_id, db)
-    return seed.get_documents_for_project(project_id)
+    return documents_repo.list_for_project(db, project_id)
 
 
 @router.get("/{project_id}/line-items", response_model=List[LineItemGroup])
@@ -62,7 +66,10 @@ def list_project_suppliers(project_id: str, db: Session = Depends(get_db)):
 @router.get("/{project_id}/quotes", response_model=List[Quote])
 def list_quotes(project_id: str, db: Session = Depends(get_db)):
     _require_project(project_id, db)
-    return seed.QUOTES
+    # Prefer real ingested quotes; fall back to the prototype seed when none exist
+    # (keeps the Riverside demo populated before any quotes are ingested).
+    rows = quotes_repo.list_quote_rows(db, project_id)
+    return rows if rows else seed.QUOTES
 
 
 @router.get("/{project_id}/rfqs", response_model=List[Rfq])
@@ -86,7 +93,16 @@ def get_timeline(project_id: str, db: Session = Depends(get_db)):
 @router.get("/{project_id}/packages/{pkg}/comparison", response_model=Comparison)
 def get_comparison(project_id: str, pkg: str, db: Session = Depends(get_db)):
     _require_project(project_id, db)
-    comparison = seed.COMPARISONS.get(pkg)
+    # `pkg` may arrive as a package key ("water") or a display label
+    # ("Water Utilities"); resolve to the canonical key for the quote lookup.
+    key = pkg if packages.is_valid(pkg) else packages.category_for_label(pkg)
+    label = packages.label_for(key) if key else pkg
+    if key:
+        dynamic = comparison_service.build_comparison(db, project_id, key, label)
+        if dynamic is not None:
+            return dynamic
+    # No ingested quotes yet → prototype seed comparison (keyed by label).
+    comparison = seed.COMPARISONS.get(pkg) or (seed.COMPARISONS.get(label) if key else None)
     if comparison is None:
         raise HTTPException(status_code=404, detail="No comparison for package")
     return comparison

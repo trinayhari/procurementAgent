@@ -79,6 +79,12 @@ export function uploadDocument(
   })
 }
 
+// Absolute URL for previewing/downloading a document's original file. Only
+// uploaded docs have a real file on disk; seed docs 404 (UI shows a placeholder).
+export function documentFileUrl(docId: string): string {
+  return `${BASE}/api/documents/${docId}/file`
+}
+
 // BOM groups extracted from a single document.
 export function getDocumentLineItems(docId: string): Promise<LineItemGroup[]> {
   return get<LineItemGroup[]>(`/api/documents/${docId}/line-items`)
@@ -102,6 +108,12 @@ export function saveDocumentLineItems(
 // Human-in-the-loop: mark a document's BOM as reviewed/approved.
 export function confirmDocument(docId: string): Promise<Document> {
   return post<Document>(`/api/documents/${docId}/confirm`)
+}
+
+// Delete a document, its extracted BOM, and any uploaded source file.
+export async function deleteDocument(docId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/documents/${docId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`delete document -> ${res.status}`)
 }
 
 // ------------------------------------------------------- supplier sourcing
@@ -158,10 +170,48 @@ export function saveRfq(
   })
 }
 
+// The full email conversation for an RFQ, read live from Gmail when configured.
+// Read-only: surfaces the original thread (our outbound + any threaded supplier
+// replies) without changing the RFQ's status.
+export type RfqConversation = Schemas['RfqConversation']
+export function getRfqConversation(projectId: string, rfqId: string): Promise<RfqConversation> {
+  return get<RfqConversation>(`/api/projects/${projectId}/rfqs/${rfqId}/conversation`)
+}
+
+// Delete an RFQ (e.g. an unwanted draft).
+export function deleteRfq(projectId: string, rfqId: string): Promise<void> {
+  return fetch(`${BASE}/api/projects/${projectId}/rfqs/${rfqId}`, {
+    method: 'DELETE',
+  }).then((r) => {
+    if (!r.ok) throw new Error(`delete rfq -> ${r.status}`)
+  })
+}
+
 // User-approved send: delivers the RFQ to every recipient via Gmail (or the
-// logging mock when Gmail is unconfigured). Flips the RFQ to 'Sent'.
+// logging mock when Gmail is unconfigured). Attaches a line-item PDF and flips
+// the RFQ to 'Awaiting' (awaiting supplier quotes).
 export function sendRfq(projectId: string, rfqId: string): Promise<PersistedRfq> {
   return post<PersistedRfq>(`/api/projects/${projectId}/rfqs/${rfqId}/send`)
+}
+
+// ------------------------------------------------------------- quote ingest
+export type QuoteIngestResult = Schemas['QuoteIngestResult']
+
+// Kick off reading supplier quote replies (Gmail) for a project. Background
+// task; poll getIngestStatus until it leaves 'ingesting', then reload the model.
+export function ingestQuotes(projectId: string): Promise<QuoteIngestResult> {
+  return post<QuoteIngestResult>(`/api/projects/${projectId}/quotes/ingest`)
+}
+
+export function getIngestStatus(projectId: string): Promise<QuoteIngestResult> {
+  return get<QuoteIngestResult>(`/api/projects/${projectId}/quotes/ingest-status`)
+}
+
+// Select a quote and issue a purchase order.
+export function selectQuote(
+  quoteId: string,
+): Promise<{ quote_id: string; status: string; message: string }> {
+  return post(`/api/quotes/${quoteId}/select`)
 }
 
 // The reshaped bundle that buildModel() consumes. Mirrors the keys returned by
@@ -177,7 +227,14 @@ export type ModelData = {
   docs: Document[]
   lineItems: LineItemGroup[]
   quotes: Quote[]
-  comparison: { suppliers: Comparison['suppliers']; rows: Comparison['rows'] }
+  comparison: {
+    suppliers: Comparison['suppliers']
+    rows: Comparison['rows']
+    recommendation: string
+    reasons: string[]
+    savings: string
+    savingsNote: string
+  }
   rfqs: Rfq[]
   rfqFolders: RfqFolder[]
   milestones: Milestone[]
@@ -216,7 +273,14 @@ export async function loadModelData(projectId = 'riverside'): Promise<ModelData>
     docs,
     lineItems,
     quotes,
-    comparison: { suppliers: comparison.suppliers, rows: comparison.rows },
+    comparison: {
+      suppliers: comparison.suppliers,
+      rows: comparison.rows,
+      recommendation: comparison.recommendation,
+      reasons: comparison.reasons,
+      savings: comparison.savings,
+      savingsNote: comparison.savingsNote,
+    },
     rfqs,
     rfqFolders,
     milestones: timeline.milestones,

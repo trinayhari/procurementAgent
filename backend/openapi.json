@@ -632,6 +632,91 @@
         }
       }
     },
+    "/api/projects/{project_id}/quotes/ingest": {
+      "post": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Ingest Quotes",
+        "description": "Kick off reading supplier quote replies for a project (background task).\n\nThe frontend then polls GET .../quotes/ingest-status until it leaves\n'ingesting', then refreshes the quotes table + comparison.",
+        "operationId": "ingest_quotes_api_projects__project_id__quotes_ingest_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteIngestResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/quotes/ingest-status": {
+      "get": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Get Ingest Status",
+        "operationId": "get_ingest_status_api_projects__project_id__quotes_ingest_status_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteIngestResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
       "post": {
         "tags": [
@@ -789,6 +874,48 @@
           }
         }
       },
+      "delete": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Delete Generated Rfq",
+        "operationId": "delete_generated_rfq_api_projects__project_id__rfqs__rfq_id__delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "rfq_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rfq Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "tags": [
           "sourcing"
@@ -832,6 +959,58 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PersistedRfq"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/rfqs/{rfq_id}/conversation": {
+      "get": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Get Rfq Conversation",
+        "description": "Full email thread for an RFQ, read live from Gmail when configured.\n\nRead-only: we surface the original Gmail thread (our outbound plus any\nthreaded supplier replies) without changing the RFQ's status.",
+        "operationId": "get_rfq_conversation_api_projects__project_id__rfqs__rfq_id__conversation_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "rfq_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rfq Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RfqConversation"
                 }
               }
             }
@@ -1019,6 +1198,81 @@
                 "schema": {
                   "$ref": "#/components/schemas/Document"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Delete Document",
+        "description": "Delete a document, its extracted BOM, and any uploaded source file.",
+        "operationId": "delete_document_api_documents__document_id__delete",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/{document_id}/file": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get Document File",
+        "description": "Serve the original uploaded file inline so the frontend can preview it.\n\nOnly uploaded documents have a `source_path` on disk; seed/demo docs return\n404 and the UI falls back to its placeholder.",
+        "operationId": "get_document_file_api_documents__document_id__file_get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -1426,9 +1680,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Quote"
-                }
+                "schema": {}
               }
             }
           },
@@ -1657,6 +1909,72 @@
         ],
         "title": "ComparisonSupplier"
       },
+      "ConversationMessage": {
+        "properties": {
+          "dir": {
+            "type": "string",
+            "title": "Dir"
+          },
+          "who": {
+            "type": "string",
+            "title": "Who"
+          },
+          "initials": {
+            "type": "string",
+            "title": "Initials"
+          },
+          "time": {
+            "type": "string",
+            "title": "Time"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "attach": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attach"
+          },
+          "logoBg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logobg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dir",
+          "who",
+          "initials",
+          "time",
+          "body"
+        ],
+        "title": "ConversationMessage"
+      },
       "Dashboard": {
         "properties": {
           "metrics": {
@@ -1726,6 +2044,11 @@
           "processing": {
             "type": "boolean",
             "title": "Processing",
+            "default": false
+          },
+          "hasFile": {
+            "type": "boolean",
+            "title": "Hasfile",
             "default": false
           },
           "planType": {
@@ -2566,6 +2889,46 @@
         ],
         "title": "Quote"
       },
+      "QuoteIngestResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked",
+            "default": false
+          },
+          "ingested": {
+            "type": "integer",
+            "title": "Ingested",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "QuoteIngestResult",
+        "description": "Status payload for the quote-ingest poller (mirrors the search poller)."
+      },
       "Rfq": {
         "properties": {
           "id": {
@@ -2626,6 +2989,41 @@
           "logoBg"
         ],
         "title": "Rfq"
+      },
+      "RfqConversation": {
+        "properties": {
+          "rfqId": {
+            "type": "string",
+            "title": "Rfqid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RfqStatus"
+          },
+          "statusTone": {
+            "$ref": "#/components/schemas/Tone"
+          },
+          "gmail": {
+            "type": "boolean",
+            "title": "Gmail"
+          },
+          "thread": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessage"
+            },
+            "type": "array",
+            "title": "Thread"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rfqId",
+          "status",
+          "statusTone",
+          "gmail",
+          "thread"
+        ],
+        "title": "RfqConversation",
+        "description": "The full email thread for an RFQ, plus its (possibly updated) status."
       },
       "RfqDetail": {
         "properties": {
@@ -2779,6 +3177,17 @@
               }
             ],
             "title": "Sentmessageid"
+          },
+          "threadId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threadid"
           }
         },
         "type": "object",

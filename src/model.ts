@@ -73,10 +73,10 @@ interface MetricInput { label: string; value: string; delta: string; sub?: strin
 interface OverviewCardInput { label: string; value: string; sub: string; icon: string; tone: string; ai?: boolean }
 interface DocInput {
   id?: string; name: string; type: string; date: string; status: string; statusTone: string
-  items: string; pages: number; processing?: boolean
+  items: string; pages: number; processing?: boolean; hasFile?: boolean
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
 }
-interface QuoteInput { sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
+interface QuoteInput { id?: string; sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }
 interface ThreadInput { dir: string; who: string; initials: string; time: string; body: string; subject?: string; attach?: string; logoBg?: string }
 interface MilestoneInput { name: string; date: string; status: string; desc: string; tone: string; done?: boolean; active?: boolean }
@@ -278,7 +278,21 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       }
     }),
   }))
-  const cmp = { suppliers: cmpSup, rows: cmpRows }
+  const cmpMeta = D.comparison || ({} as NonNullable<typeof D.comparison>)
+  const recName = cmpMeta.recommendation || (cmpSup.find((c) => c.rec) || {}).name || 'Ferguson Waterworks'
+  const recSup = cmpSup.find((c) => c.name === recName) || cmpSup.find((c) => c.rec) || cmpSup[0]
+  const recQuote = quotes.find((q) => q.sup === recName)
+  const cmp = {
+    suppliers: cmpSup,
+    rows: cmpRows,
+    recommendation: recName,
+    recReasons: (cmpMeta.reasons && cmpMeta.reasons.length ? cmpMeta.reasons : ['Lowest delivery risk (score 94)', 'Fastest lead time at 14 days', 'Within 1% of lowest total bid']),
+    savings: cmpMeta.savings || '$184,000',
+    savingsNote: cmpMeta.savingsNote || '27% under the $679.6K allowance',
+    recLogo: recSup ? recSup.logo : 'FW',
+    recLogoStyle: recSup ? recSup.logoStyle : lb('#0a4d8c', 40),
+    recQuoteId: recQuote ? recQuote.id : undefined,
+  }
 
   const rfqRaw = D.rfqs || [
     { sup: 'Ferguson Waterworks', pkg: 'Water Utilities', folder: 'Completed', status: 'Quoted', statusTone: 'success', preview: 'Quote attached — $495,600 · 14-day lead', time: '12m', unread: false, logo: 'FW', logoBg: '#0a4d8c' },
@@ -426,6 +440,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     saveBom: (props && props.saveBom) || (() => {}),
     confirmBom: (props && props.confirmBom) || (() => {}),
     quotes, cmp, rfqs, rfqSel, rfqFolders, thread, milestones, gantt, ganttCols,
+    reload: (props && props.reload) || (async () => {}),
     setOverview: () => setTab('overview'), setDocuments: () => setTab('documents'), setSuppliers: () => setTab('suppliers'),
     setRfqs: () => setTab('rfqs'), setQuotes: () => setTab('quotes'), setTimeline: () => setTab('timeline'),
     openCompare: () => set({ compare: true }), closeCompare: () => set({ compare: false }),

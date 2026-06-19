@@ -243,6 +243,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/quotes/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest Quotes
+         * @description Kick off reading supplier quote replies for a project (background task).
+         *
+         *     The frontend then polls GET .../quotes/ingest-status until it leaves
+         *     'ingesting', then refreshes the quotes table + comparison.
+         */
+        post: operations["ingest_quotes_api_projects__project_id__quotes_ingest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/quotes/ingest-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ingest Status */
+        get: operations["get_ingest_status_api_projects__project_id__quotes_ingest_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
         parameters: {
             query?: never;
@@ -288,6 +328,30 @@ export interface paths {
         get: operations["get_generated_rfq_api_projects__project_id__rfqs__rfq_id__get"];
         /** Update Generated Rfq */
         put: operations["update_generated_rfq_api_projects__project_id__rfqs__rfq_id__put"];
+        post?: never;
+        /** Delete Generated Rfq */
+        delete: operations["delete_generated_rfq_api_projects__project_id__rfqs__rfq_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rfqs/{rfq_id}/conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Rfq Conversation
+         * @description Full email thread for an RFQ, read live from Gmail when configured.
+         *
+         *     Read-only: we surface the original Gmail thread (our outbound plus any
+         *     threaded supplier replies) without changing the RFQ's status.
+         */
+        get: operations["get_rfq_conversation_api_projects__project_id__rfqs__rfq_id__conversation_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -375,6 +439,33 @@ export interface paths {
         };
         /** Get Document */
         get: operations["get_document_api_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Document
+         * @description Delete a document, its extracted BOM, and any uploaded source file.
+         */
+        delete: operations["delete_document_api_documents__document_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Document File
+         * @description Serve the original uploaded file inline so the frontend can preview it.
+         *
+         *     Only uploaded documents have a `source_path` on disk; seed/demo docs return
+         *     404 and the UI falls back to its placeholder.
+         */
+        get: operations["get_document_file_api_documents__document_id__file_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -642,6 +733,25 @@ export interface components {
              */
             rec: boolean;
         };
+        /** ConversationMessage */
+        ConversationMessage: {
+            /** Dir */
+            dir: string;
+            /** Who */
+            who: string;
+            /** Initials */
+            initials: string;
+            /** Time */
+            time: string;
+            /** Body */
+            body: string;
+            /** Subject */
+            subject?: string | null;
+            /** Attach */
+            attach?: string | null;
+            /** Logobg */
+            logoBg?: string | null;
+        };
         /** Dashboard */
         Dashboard: {
             /** Metrics */
@@ -675,6 +785,11 @@ export interface components {
              * @default false
              */
             processing: boolean;
+            /**
+             * Hasfile
+             * @default false
+             */
+            hasFile: boolean;
             /** Plantype */
             planType?: string | null;
             /** Summary */
@@ -1036,6 +1151,31 @@ export interface components {
              */
             best: boolean;
         };
+        /**
+         * QuoteIngestResult
+         * @description Status payload for the quote-ingest poller (mirrors the search poller).
+         */
+        QuoteIngestResult: {
+            /** Status */
+            status: string;
+            /**
+             * Mocked
+             * @default false
+             */
+            mocked: boolean;
+            /**
+             * Ingested
+             * @default 0
+             */
+            ingested: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /** Error */
+            error?: string | null;
+        };
         /** Rfq */
         Rfq: {
             /** Id */
@@ -1061,6 +1201,20 @@ export interface components {
             logo: string;
             /** Logobg */
             logoBg: string;
+        };
+        /**
+         * RfqConversation
+         * @description The full email thread for an RFQ, plus its (possibly updated) status.
+         */
+        RfqConversation: {
+            /** Rfqid */
+            rfqId: string;
+            status: components["schemas"]["RfqStatus"];
+            statusTone: components["schemas"]["Tone"];
+            /** Gmail */
+            gmail: boolean;
+            /** Thread */
+            thread: components["schemas"]["ConversationMessage"][];
         };
         /** RfqDetail */
         RfqDetail: {
@@ -1122,6 +1276,8 @@ export interface components {
             email: string;
             /** Sentmessageid */
             sentMessageId?: string | null;
+            /** Threadid */
+            threadId?: string | null;
         };
         /**
          * RfqStatus
@@ -1790,6 +1946,68 @@ export interface operations {
             };
         };
     };
+    ingest_quotes_api_projects__project_id__quotes_ingest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuoteIngestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ingest_status_api_projects__project_id__quotes_ingest_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuoteIngestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generate_rfq_api_projects__project_id__packages__package__rfqs_generate_post: {
         parameters: {
             query?: never;
@@ -1925,6 +2143,68 @@ export interface operations {
             };
         };
     };
+    delete_generated_rfq_api_projects__project_id__rfqs__rfq_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                rfq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_rfq_conversation_api_projects__project_id__rfqs__rfq_id__conversation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                rfq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RfqConversation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post: {
         parameters: {
             query?: never;
@@ -2046,6 +2326,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Document"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_document_api_documents__document_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_file_api_documents__document_id__file_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -2334,7 +2674,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Quote"];
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

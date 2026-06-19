@@ -31,17 +31,12 @@ def _format_items(line_items: List[dict]) -> str:
 
 def _template_body(project_name: str, package_label: str, items_text: str) -> str:
     return (
-        f"Project: {project_name}\n\n"
-        f"Please provide pricing and lead times for the following {package_label} "
-        f"materials:\n\n"
+        "We are requesting a quote. Please provide unit pricing, current lead times, "
+        "freight charges, available substitution options, and quote validity for the "
+        "following items:\n\n"
         f"{items_text}\n\n"
-        "Please include:\n"
-        "- Unit pricing\n"
-        "- Lead times\n"
-        "- Freight\n"
-        "- Substitution options\n"
-        "- Quote validity\n\n"
-        "Thank you,\nProcureAI"
+        "Your prompt response is appreciated. Please let us know if you need "
+        "additional information to complete your quote."
     )
 
 
@@ -57,9 +52,20 @@ def _llm_body(project_name: str, package_label: str, items_text: str) -> Optiona
         )
         prompt = (
             "Write a concise, professional construction Request-for-Quote email body "
-            f"for the '{package_label}' package on project '{project_name}'. Ask for "
-            "unit pricing, lead times, freight, substitution options, and quote "
-            "validity. List these line items exactly:\n\n"
+            f"for the '{package_label}' package on project '{project_name}'. "
+            "Open with a single sentence requesting a quote and asking for unit "
+            "pricing, current lead times, freight charges, available substitution "
+            "options, and quote validity. Then list the line items exactly as a "
+            "bullet list (one item per line, '- <description> — <quantity>'). Close "
+            "with a brief sentence inviting follow-up if more information is needed. "
+            "Do not add a greeting, project header, or signature. Match this style:\n\n"
+            "We are requesting a quote. Please provide unit pricing, current lead "
+            "times, freight charges, available substitution options, and quote "
+            "validity for the following items:\n\n"
+            "- <item> — <qty>\n\n"
+            "Your prompt response is appreciated. Please let us know if you need "
+            "additional information to complete your quote.\n\n"
+            "Use exactly these line items:\n\n"
             f"{items_text}\n\n"
             "Return only the email body (no subject line)."
         )

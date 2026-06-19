@@ -4,11 +4,12 @@ import { Box, DcIcon, css } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
 import {
-  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
+  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
   saveDocumentLineItems, confirmDocument,
-  searchSuppliers, getFoundSuppliers, generateRfq, listGeneratedRfqs, saveRfq, sendRfq,
+  searchSuppliers, getFoundSuppliers, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
+  getRfqConversation, ingestQuotes, getIngestStatus, selectQuote,
 } from './api'
-import type { SupplierSearchResult, FoundSupplier, PersistedRfq, RfqRecipient } from './api'
+import type { SupplierSearchResult, FoundSupplier, PersistedRfq, RfqRecipient, RfqConversation } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
 type MProps = { m: Model }
@@ -706,6 +707,19 @@ function Dropzone({ m }: MProps) {
   )
 }
 
+// Derive the preview filename shown on the plan-sheet placeholder from the
+// selected document's name, so the preview reflects the clicked document.
+function previewFileName(name: string): string {
+  const trimmed = (name || '').trim()
+  if (!trimmed) return 'document.pdf'
+  if (/\.[a-z0-9]+$/i.test(trimmed)) return trimmed
+  const slug = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `${slug || 'document'}.pdf`
+}
+
 function TabDocuments({ m }: MProps) {
   return (
     <>
@@ -724,16 +738,28 @@ function TabDocuments({ m }: MProps) {
               </div>
             ))}
           </div>
+          {m.doc ? (
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
               <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.pages} pages</span></div>
               <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><Svg size={12} fill d={SPARKLE_SM} />AI Analysis</span>
             </div>
-            <div style={css('position:relative;height:280px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
-              <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>plan_sheet_preview.pdf</span>
-              <div style={css('position:absolute;left:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:8px 12px;border-radius:10px')}><span style={css('width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={13} fill d={SPARKLE_SM} /></span><span style={css('font-size:12.5px;font-weight:600')}>AI detected <span style={css('color:var(--primary)')}>{m.doc.items}</span> line items</span></div>
+            <div style={css('position:relative;height:560px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
+              {m.doc.hasFile && m.doc.id ? (
+                <iframe
+                  src={documentFileUrl(m.doc.id)}
+                  title={m.doc.name}
+                  style={{ width: '100%', height: '100%', border: 'none', background: 'var(--panel)' }}
+                />
+              ) : (
+                <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
+              )}
+              <div style={css('position:absolute;left:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:8px 12px;border-radius:10px;pointer-events:none')}><span style={css('width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={13} fill d={SPARKLE_SM} /></span><span style={css('font-size:12.5px;font-weight:600')}>AI detected <span style={css('color:var(--primary)')}>{m.doc.items}</span> line items</span></div>
             </div>
           </div>
+          ) : (
+          <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:40px 16px;text-align:center;font-size:12.5px;color:var(--text-3)')}>No document selected — upload a plan set or pick a file above to see its AI analysis.</div>
+          )}
         </div>
         <ExtractedPanel m={m} />
       </div>
@@ -1003,8 +1029,28 @@ function FoundSupplierCard({ sup, checked, onToggle }: { sup: FoundSupplier; che
   )
 }
 
-// Shared RFQ draft review + send modal. Editable subject/body/recipients; send
-// is the user-approval step (Gmail, or the logging mock when unconfigured).
+const STATUS_TONE: Record<string, string> = { Draft: 'gray', Sent: 'blue', Awaiting: 'warn', Quoted: 'success' }
+
+// One message bubble in an RFQ email thread (outbound = us, inbound = supplier).
+function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
+  const out = t.dir === 'out'
+  return (
+    <div style={css('display:flex;gap:11px')}>
+      <div style={css(`width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;background:${out ? 'linear-gradient(135deg,#2563eb,#7c3aed)' : (t.logoBg || '#334155')}`)}>{t.initials}</div>
+      <div style={css('flex:1;min-width:0')}>
+        <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:4px')}><span style={css('font-size:12.5px;font-weight:600')}>{t.who}</span><span style={css('font-size:11px;color:var(--text-3)')}>{t.time}</span></div>
+        {t.subject && <div style={css('font-size:13px;font-weight:600;margin-bottom:3px')}>{t.subject}</div>}
+        <div style={css('font-size:13px;line-height:1.55;color:var(--text);white-space:pre-wrap;word-break:break-word')}>{t.body}</div>
+        {t.attach && <div style={css('display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}><Svg size={14} sw={1.8} stroke="var(--text-3)" d='M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8' />{t.attach}</div>}
+      </div>
+    </div>
+  )
+}
+
+// Shared RFQ modal. A draft is editable and can be sent (the user-approval step,
+// via Gmail or the logging mock). Once sent it becomes the conversation view:
+// the full email thread is read live from Gmail, and "Check for replies" pulls
+// any supplier response — flipping the RFQ to 'Replied' when one has arrived.
 function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: PersistedRfq; onClose: () => void }) {
   const [subject, setSubject] = useState(rfq.subject)
   const [body, setBody] = useState(rfq.body)
@@ -1012,9 +1058,24 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
   const [status, setStatus] = useState(rfq.status)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const sent = status === 'Sent'
+  const [conv, setConv] = useState<RfqConversation | null>(null)
+  const [loadingConv, setLoadingConv] = useState(false)
+  const draft = status === 'Draft'
 
   const dropRecipient = (email: string) => setRecipients((rs) => rs.filter((r) => r.email !== email))
+
+  const loadConversation = async () => {
+    setLoadingConv(true); setErr(null)
+    try {
+      const c = await getRfqConversation(projectId, rfq.id)
+      setConv(c)
+      setStatus(c.status) // server may have flipped Awaiting → Replied
+    } catch { setErr('Could not load the conversation. Is the backend running?') }
+    finally { setLoadingConv(false) }
+  }
+
+  // Pull the thread as soon as a non-draft RFQ opens.
+  useEffect(() => { if (!draft) loadConversation() }, [])
 
   const send = async () => {
     setBusy(true); setErr(null)
@@ -1023,6 +1084,7 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
       const out = await sendRfq(projectId, rfq.id)
       setRecipients(out.recipients || [])
       setStatus(out.status)
+      loadConversation() // surface the just-sent message as the thread
     } catch (e) { setErr('Send failed. Is the backend running?') }
     finally { setBusy(false) }
   }
@@ -1033,15 +1095,17 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
       <div style={css('position:relative;width:min(640px,100%);max-height:90vh;overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);animation:pcUp .2s ease both')}>
         <div style={css('display:flex;align-items:center;gap:9px;padding:16px 18px;border-bottom:1px solid var(--border)')}>
           <span style={css('width:26px;height:26px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} fill d={SPARKLE_SM} /></span>
-          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{sent ? 'RFQ sent' : 'Review RFQ draft'} · {pkgLabel(rfq.package)}</h2>
-          {sent && <span style={DcBadge('success')}>Sent</span>}
+          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? 'Review RFQ draft' : 'RFQ conversation'} · {pkgLabel(rfq.package)}</h2>
+          {!draft && <span style={DcBadge(STATUS_TONE[status] || 'gray')}>{status}</span>}
           <Box as="button" onClick={onClose} style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={17} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
         <div style={css('padding:18px;display:flex;flex-direction:column;gap:16px')}>
-          <div>
-            <label style={fieldLabel}>Subject</label>
-            <input value={subject} disabled={sent} onChange={(e) => setSubject(e.target.value)} style={fieldInput} />
-          </div>
+          {draft && (
+            <div>
+              <label style={fieldLabel}>Subject</label>
+              <input value={subject} onChange={(e) => setSubject(e.target.value)} style={fieldInput} />
+            </div>
+          )}
           <div>
             <label style={fieldLabel}>Recipients ({recipients.length})</label>
             <div style={css('display:flex;flex-direction:column;gap:6px')}>
@@ -1051,22 +1115,39 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
                   <div style={css('flex:1;min-width:0')}><div style={css('font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.name}</div><div style={css('font-size:11.5px;color:var(--text-3)')}>{r.email}</div></div>
                   {r.sentMessageId
                     ? <span style={css(`font-size:11px;font-weight:600;color:${r.sentMessageId.startsWith('error') ? 'var(--danger)' : 'var(--success)'}`)}>{r.sentMessageId.startsWith('error') ? 'Failed' : 'Sent'}</span>
-                    : !sent && <Box as="button" onClick={() => dropRecipient(r.email)} style={css('width:24px;height:24px;border-radius:6px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>}
+                    : draft && <Box as="button" onClick={() => dropRecipient(r.email)} style={css('width:24px;height:24px;border-radius:6px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>}
                 </div>
               ))}
             </div>
           </div>
-          <div>
-            <label style={fieldLabel}>Message</label>
-            <textarea value={body} disabled={sent} onChange={(e) => setBody(e.target.value)} rows={12}
-              style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
-          </div>
+          {draft ? (
+            <div>
+              <label style={fieldLabel}>Message</label>
+              <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12}
+                style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
+            </div>
+          ) : (
+            <div>
+              <div style={css('display:flex;align-items:center;justify-content:space-between;margin-bottom:10px')}>
+                <label style={{ ...fieldLabel, marginBottom: 0 }}>Conversation</label>
+                <Box as="button" onClick={loadingConv ? undefined : loadConversation}
+                  style={css(`display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);${loadingConv ? 'opacity:.6' : ''}`)}
+                  hover="background:var(--panel-2)"><Svg size={13} sw={2} d='M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5' />{loadingConv ? 'Checking…' : 'Check for replies'}</Box>
+              </div>
+              {conv && !conv.gmail && <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>Showing a local preview — set Gmail credentials to read the live thread.</div>}
+              <div style={css('display:flex;flex-direction:column;gap:16px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);max-height:340px;overflow-y:auto')}>
+                {!conv && loadingConv && <div style={css('font-size:12.5px;color:var(--text-3);text-align:center;padding:18px')}>Loading conversation…</div>}
+                {conv && conv.thread.length === 0 && <div style={css('font-size:12.5px;color:var(--text-3);text-align:center;padding:18px')}>No messages yet.</div>}
+                {conv && conv.thread.map((t, i) => <ThreadBubble key={i} t={t} />)}
+              </div>
+            </div>
+          )}
           {err && <div style={css('font-size:12.5px;color:var(--danger)')}>{err}</div>}
         </div>
         <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border)')}>
-          <span style={css('flex:1;font-size:11.5px;color:var(--text-3)')}>{sent ? 'Delivered to recipients above.' : 'Sending delivers to all recipients via Gmail (or a logging mock if unconfigured).'}</span>
-          <Box as="button" onClick={onClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{sent ? 'Close' : 'Cancel'}</Box>
-          {!sent && (
+          <span style={css('flex:1;font-size:11.5px;color:var(--text-3)')}>{draft ? 'Sending delivers to all recipients via Gmail (or a logging mock if unconfigured).' : 'The conversation is read live from Gmail — use Check for replies to refresh.'}</span>
+          <Box as="button" onClick={onClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{draft ? 'Cancel' : 'Close'}</Box>
+          {draft && (
             <Box as="button" onClick={send} disabled={busy || recipients.length === 0}
               style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || recipients.length === 0 ? '.6' : '1'}`)}
               hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send RFQ (${recipients.length})`}</Box>
@@ -1092,104 +1173,131 @@ function TabSuppliers({ m }: MProps) {
 }
 
 /* ----------------------------------------------------------------- RFQs tab */
-// Lists RFQs generated from the supplier search, newest first. Click one to
-// review/send it via the shared modal.
-function GeneratedRfqsPanel({ projectId }: { projectId: string }) {
+// The RFQs page lists the real RFQs generated from supplier search in an
+// email-client layout: a status rail on the left filters the list, and clicking
+// any row opens it in the review/send modal. Drafts can be deleted inline.
+const RFQ_FOLDERS: { key: string; name: string }[] = [
+  { key: 'All', name: 'All RFQs' },
+  { key: 'Draft', name: 'Drafts' },
+  { key: 'Awaiting', name: 'Awaiting Response' },
+  { key: 'Sent', name: 'Sent' },
+  { key: 'Quoted', name: 'Quoted' },
+]
+
+function TabRfqs({ m }: MProps) {
+  const projectId = m.activeProject.id
   const [rfqs, setRfqs] = useState<PersistedRfq[] | null>(null)
   const [open, setOpen] = useState<PersistedRfq | null>(null)
+  const [filter, setFilter] = useState('All')
+  const [busyId, setBusyId] = useState<string | null>(null)
 
   const load = () => listGeneratedRfqs(projectId).then(setRfqs).catch(() => setRfqs([]))
   useEffect(() => { load() }, [projectId])
 
-  if (!rfqs || rfqs.length === 0) return null
+  const all = rfqs || []
+  const count = (key: string) => (key === 'All' ? all.length : all.filter((r) => r.status === key).length)
+  const shown = filter === 'All' ? all : all.filter((r) => r.status === filter)
+
+  const remove = async (rq: PersistedRfq, e: { stopPropagation: () => void }) => {
+    e.stopPropagation()
+    if (!window.confirm(`Delete draft “${rq.subject}”?`)) return
+    setBusyId(rq.id)
+    try { await deleteRfq(projectId, rq.id); await load() }
+    catch { /* leave the row in place if the delete failed */ }
+    finally { setBusyId(null) }
+  }
+
   return (
-    <div style={css('margin-bottom:18px')}>
-      <h2 style={css('margin:0 0 12px;font-size:15px;font-weight:600')}>Generated RFQs <span style={css('color:var(--text-3);font-weight:500')}>· {rfqs.length}</span></h2>
-      <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-sm);overflow:hidden')}>
-        {rfqs.map((rq) => (
-          <Box key={rq.id} onClick={() => setOpen(rq)} style={css('display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border);cursor:pointer')} hover="background:var(--panel-2)">
-            <div style={css('flex:1;min-width:0')}>
-              <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.subject}</div>
-              <div style={css('font-size:11.5px;color:var(--text-3);margin-top:1px')}>{pkgLabel(rq.package)} · {(rq.recipients || []).length} recipient{(rq.recipients || []).length === 1 ? '' : 's'}</div>
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
+      <div style={css('overflow-x:auto')}>
+        <div style={css('display:flex;min-height:560px;min-width:720px')}>
+          <div style={css('width:200px;flex:none;border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:2px')}>
+            {RFQ_FOLDERS.map((f) => (
+              <Box key={f.key} onClick={() => setFilter(f.key)}
+                style={css(`display:flex;align-items:center;justify-content:space-between;padding:8px 11px;border-radius:8px;font-size:13px;cursor:pointer;${filter === f.key ? 'background:var(--primary-softer);color:var(--primary);font-weight:600' : 'color:var(--text-2)'}`)}
+                hover="background:var(--panel-2)">
+                <span>{f.name}</span>
+                <span style={css('font-size:11px;font-weight:600;color:var(--text-3)')}>{count(f.key)}</span>
+              </Box>
+            ))}
+          </div>
+          <div style={css('flex:1;min-width:0;display:flex;flex-direction:column')}>
+            <div style={css('padding:13px 18px;border-bottom:1px solid var(--border)')}>
+              <span style={css('font-size:14px;font-weight:600')}>{RFQ_FOLDERS.find((f) => f.key === filter)?.name}</span>
+              <span style={css('font-size:14px;color:var(--text-3);font-weight:500')}> · {shown.length}</span>
             </div>
-            <span style={DcBadge(rq.status === 'Sent' ? 'success' : rq.status === 'Draft' ? 'gray' : 'blue')}>{rq.status}</span>
-          </Box>
-        ))}
+            <div style={css('flex:1;overflow-y:auto')}>
+              {rfqs === null && <div style={css('padding:44px;text-align:center;font-size:13px;color:var(--text-3)')}>Loading…</div>}
+              {rfqs !== null && shown.length === 0 && (
+                <div style={css('padding:48px 24px;text-align:center')}>
+                  <div style={css('font-size:13.5px;font-weight:600;color:var(--text-2);margin-bottom:4px')}>No RFQs here yet</div>
+                  <div style={css('font-size:12.5px;color:var(--text-3)')}>Generate RFQs from the Suppliers tab to get started.</div>
+                </div>
+              )}
+              {shown.map((rq) => (
+                <Box key={rq.id} onClick={() => setOpen(rq)} style={css('display:flex;align-items:center;gap:12px;padding:13px 18px;border-bottom:1px solid var(--border);cursor:pointer')} hover="background:var(--panel-2)">
+                  <div style={css(`width:34px;height:34px;border-radius:9px;background:${rq.logoBg || '#334155'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none`)}>{rq.logo}</div>
+                  <div style={css('flex:1;min-width:0')}>
+                    <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.subject}</div>
+                    <div style={css('font-size:11.5px;color:var(--text-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{pkgLabel(rq.package)} · {(rq.recipients || []).length} recipient{(rq.recipients || []).length === 1 ? '' : 's'}</div>
+                  </div>
+                  <span style={DcBadge(rq.statusTone)}>{rq.status}</span>
+                  {rq.status === 'Draft' && (
+                    <Box as="button" onClick={(e: { stopPropagation: () => void }) => remove(rq, e)} disabled={busyId === rq.id}
+                      style={css(`width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none;${busyId === rq.id ? 'opacity:.5' : ''}`)}
+                      hover="background:var(--danger-soft);color:var(--danger)" title="Delete draft">
+                      <Svg size={15} sw={1.9} d='M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m1 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6' />
+                    </Box>
+                  )}
+                </Box>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
       {open && <RfqReviewModal projectId={projectId} rfq={open} onClose={() => { setOpen(null); load() }} />}
     </div>
   )
 }
 
-function TabRfqs({ m }: MProps) {
-  const r = m.rfqSel
-  return (
-    <>
-    <GeneratedRfqsPanel projectId={m.activeProject.id} />
-    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
-      <div style={css('overflow-x:auto')}>
-        <div style={css('display:flex;min-height:600px;min-width:940px')}>
-          <div style={css('width:182px;flex:none;border-right:1px solid var(--border);padding:12px 10px;display:flex;flex-direction:column;gap:2px')}>
-            <button style={css('display:flex;align-items:center;gap:7px;height:34px;border-radius:8px;background:var(--primary);color:#fff;font-size:12.5px;font-weight:600;justify-content:center;margin-bottom:10px')}><Svg size={14} sw={2.2} d={PLUS} />New RFQ</button>
-            {m.rfqFolders.map((f, i) => (
-              <Box key={i} style={css('display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;font-size:13px;color:var(--text-2)')} hover="background:var(--panel-2)"><span>{f.name}</span><span style={css('font-size:11px;font-weight:600;color:var(--text-3)')}>{f.count}</span></Box>
-            ))}
-          </div>
-          <div style={css('width:300px;flex:none;border-right:1px solid var(--border);display:flex;flex-direction:column')}>
-            <div style={css('padding:12px 15px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-2)')}>Awaiting Response</div>
-            <div style={css('flex:1;overflow-y:auto')}>
-              {m.rfqs.map((rr, i) => (
-                <div key={i} onClick={rr.onSelect} style={rr.rowStyle}>
-                  <div style={rr.logoStyle}>{rr.logo}</div>
-                  <div style={css('flex:1;min-width:0')}><div style={css('display:flex;align-items:center;justify-content:space-between;gap:6px')}><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rr.sup}</span><span style={css('font-size:11px;color:var(--text-3);white-space:nowrap')}>{rr.time}</span></div><div style={css('font-size:11.5px;color:var(--text-2);font-weight:500;margin:1px 0 3px')}>{rr.pkg}</div><div style={css('font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rr.preview}</div></div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={css('flex:1;min-width:0;display:flex;flex-direction:column')}>
-            <div style={css('padding:14px 18px;border-bottom:1px solid var(--border)')}><div style={css('font-size:15px;font-weight:600')}>RFQ: {r.pkg}</div><div style={css('font-size:12.5px;color:var(--text-3);margin-top:1px')}>{r.sup} · Riverside Water Treatment Plant</div></div>
-            <div style={css('flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:16px')}>
-              {m.thread.map((t, i) => (
-                <div key={i} style={css('display:flex;gap:11px')}>
-                  <div style={t.avatarStyle}>{t.initials}</div>
-                  <div style={css('flex:1;min-width:0')}>
-                    <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:4px')}><span style={css('font-size:12.5px;font-weight:600')}>{t.who}</span><span style={css('font-size:11px;color:var(--text-3)')}>{t.time}</span></div>
-                    {t.hasSubject && <div style={css('font-size:13px;font-weight:600;margin-bottom:3px')}>{t.subject}</div>}
-                    <div style={css('font-size:13px;line-height:1.55;color:var(--text)')}>{t.body}</div>
-                    {t.hasAttach && <div style={css('display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}><Svg size={14} sw={1.8} stroke="var(--danger)" d='M14 3v5h5" /><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z' />{t.attach}</div>}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={css('padding:12px 18px;border-top:1px solid var(--border)')}>
-              <div style={css('display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--primary-soft);background:var(--primary-softer);border-radius:10px;margin-bottom:10px')}><span style={css('color:var(--primary);flex:none')}><Svg size={15} fill d={SPARKLE_SM} /></span><span style={css('font-size:12.5px;color:var(--text);flex:1')}><strong style={css('color:var(--primary)')}>AI follow-up:</strong> "Hi Dana, checking in on our sewer RFQ — any update on timing?"</span><Box as="button" style={css('font-size:12px;font-weight:600;color:var(--primary);white-space:nowrap')} hover="text-decoration:underline">Use</Box></div>
-              <div style={css('display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:10px;padding:8px 8px 8px 14px')}><span style={css('font-size:13px;color:var(--text-3);flex:1')}>Reply to {r.sup}…</span><button style={css('height:32px;padding:0 14px;border-radius:8px;background:var(--primary);color:#fff;font-size:12.5px;font-weight:600')}>Send</button></div>
-            </div>
-          </div>
-          <div style={css('width:240px;flex:none;border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:16px')}>
-            <div style={css('font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--text-3);text-transform:uppercase')}>RFQ Summary</div>
-            <div style={css('display:flex;flex-direction:column;gap:13px')}>
-              <div><div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:2px')}>Supplier</div><div style={css('font-size:13px;font-weight:600')}>{r.sup}</div></div>
-              <div><div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:2px')}>Package</div><div style={css('font-size:13px;font-weight:600')}>{r.pkg}</div></div>
-              <div><div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:2px')}>Due date</div><div style={css('font-size:13px;font-weight:600')}>Jun 20, 2026</div></div>
-              <div><div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:4px')}>Status</div><span style={r.statusBadge}>{r.status}</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    </>
-  )
-}
-
 /* --------------------------------------------------------------- Quotes tab */
 function TabQuotes({ m }: MProps) {
   const gridCols = 'minmax(180px,1.6fr) 130px 110px 92px 110px 96px 92px'
+  const projectId = m.activeProject.id
+  const [ingesting, setIngesting] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+
+  const checkReplies = async () => {
+    setIngesting(true); setNote(null)
+    try {
+      await ingestQuotes(projectId)
+      // Poll the background ingest until it finishes, then reload the model.
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 1500))
+        const st = await getIngestStatus(projectId)
+        if (st.status !== 'ingesting') {
+          if (st.status === 'error') setNote(st.error || 'Ingest failed')
+          else setNote(`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}${st.mocked ? ' (simulated)' : ''}`)
+          break
+        }
+      }
+      await m.reload()
+    } catch {
+      setNote('Could not check for replies. Is the backend running?')
+    } finally {
+      setIngesting(false)
+    }
+  }
+
   return (
     <>
       <div style={css('display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px')}>
-        <h2 style={css('margin:0;font-size:15px;font-weight:600')}>Quotes received <span style={css('color:var(--text-3);font-weight:500')}>· 9</span></h2>
-        <Box as="button" onClick={m.openCompare} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} d='M3 6h18M3 12h18M3 18h18' />Compare Water Utilities (3)</Box>
+        <h2 style={css('margin:0;font-size:15px;font-weight:600')}>Quotes received <span style={css('color:var(--text-3);font-weight:500')}>· {m.quotes.length}</span></h2>
+        <div style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap')}>
+          {note && <span style={css('font-size:12px;color:var(--text-3)')}>{note}</span>}
+          <Box as="button" onClick={ingesting ? undefined : checkReplies} style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600;${ingesting ? 'opacity:.6' : ''}`)} hover="background:var(--panel-2)"><Svg size={15} sw={2} d='M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5' />{ingesting ? 'Checking…' : 'Check for replies'}</Box>
+          <Box as="button" onClick={m.openCompare} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} d='M3 6h18M3 12h18M3 18h18' />Compare quotes ({m.quotes.length})</Box>
+        </div>
       </div>
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
         <div style={css('overflow-x:auto')}><div style={css('min-width:720px')}>
@@ -1213,6 +1321,21 @@ function TabQuotes({ m }: MProps) {
 
 /* ------------------------------------------------------------- Compare tab */
 function TabCompare({ m }: MProps) {
+  const [po, setPo] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const issuePo = async () => {
+    if (!m.cmp.recQuoteId) { setPo(`Selected ${m.cmp.recommendation}. Connect quotes to issue a PO.`); return }
+    setBusy(true)
+    try {
+      const res = await selectQuote(m.cmp.recQuoteId)
+      setPo(res.message)
+      await m.reload()
+    } catch {
+      setPo('Could not issue PO. Is the backend running?')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <>
       <Box as="button" onClick={m.closeCompare} style={css('display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text-2);margin-bottom:14px')} hover="color:var(--text)"><Svg size={16} d='m15 18-6-6 6-6' />Back to quotes</Box>
@@ -1243,15 +1366,16 @@ function TabCompare({ m }: MProps) {
         <div style={css('display:flex;flex-direction:column;gap:14px;position:sticky;top:72px')}>
           <div style={css('background:var(--primary-softer);border:1px solid var(--primary-soft);border-radius:16px;padding:18px;box-shadow:var(--shadow-md)')}>
             <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:14px')}><span style={css('width:28px;height:28px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={16} fill d={SPARKLE} /></span><span style={css('font-size:13px;font-weight:700;color:var(--primary)')}>AI Recommendation</span></div>
-            <div style={css('display:flex;align-items:center;gap:11px;padding:12px;background:var(--panel);border-radius:12px;margin-bottom:14px')}><div style={css('width:40px;height:40px;border-radius:10px;background:#0a4d8c;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px')}>FW</div><div><div style={css('font-size:11px;color:var(--text-3)')}>Recommended supplier</div><div style={css('font-size:15px;font-weight:700')}>Ferguson Waterworks</div></div></div>
+            <div style={css('display:flex;align-items:center;gap:11px;padding:12px;background:var(--panel);border-radius:12px;margin-bottom:14px')}><div style={m.cmp.recLogoStyle}>{m.cmp.recLogo}</div><div><div style={css('font-size:11px;color:var(--text-3)')}>Recommended supplier</div><div style={css('font-size:15px;font-weight:700')}>{m.cmp.recommendation}</div></div></div>
             <div style={css('display:flex;flex-direction:column;gap:9px;margin-bottom:16px')}>
-              {['Lowest delivery risk (score 94)', 'Fastest lead time at 14 days', 'Within 1% of lowest total bid'].map((t, i) => (
+              {m.cmp.recReasons.map((t, i) => (
                 <div key={i} style={css('display:flex;gap:8px;font-size:12.5px;line-height:1.4')}><Svg size={15} sw={2.4} stroke="var(--success)" d='m5 12 5 5L20 7' style={{ flex: 'none', marginTop: 1 }} /><span>{t}</span></div>
               ))}
             </div>
-            <button style={css('width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600')}>Select supplier & issue PO</button>
+            {po && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{po}</div>}
+            <button onClick={busy ? undefined : issuePo} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy ? 'opacity:.6' : ''}`)}>{busy ? 'Issuing…' : 'Select supplier & issue PO'}</button>
           </div>
-          <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px 16px')}><div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:3px')}>Projected savings vs. budget</div><div style={css("font-size:22px;font-weight:700;color:var(--success);font-family:'JetBrains Mono',monospace")}>$184,000</div><div style={css('font-size:11.5px;color:var(--text-3);margin-top:2px')}>27% under the $679.6K allowance</div></div>
+          <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px 16px')}><div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:3px')}>Projected savings</div><div style={css("font-size:22px;font-weight:700;color:var(--success);font-family:'JetBrains Mono',monospace")}>{m.cmp.savings}</div><div style={css('font-size:11.5px;color:var(--text-3);margin-top:2px')}>{m.cmp.savingsNote}</div></div>
         </div>
       </div>
     </>

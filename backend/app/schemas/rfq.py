@@ -53,6 +53,7 @@ class RfqRecipient(BaseModel):
     name: str
     email: str
     sentMessageId: Optional[str] = None
+    threadId: Optional[str] = None  # Gmail thread the send landed in (for conversation fetch)
 
 
 class RfqLineItem(BaseModel):
@@ -69,6 +70,27 @@ class PersistedRfq(Rfq):
     body: str
     lineItems: List[RfqLineItem] = []
     recipients: List[RfqRecipient] = []
+
+
+class ConversationMessage(BaseModel):
+    dir: str  # "in" | "out"
+    who: str
+    initials: str
+    time: str
+    body: str
+    subject: Optional[str] = None
+    attach: Optional[str] = None
+    logoBg: Optional[str] = None
+
+
+class RfqConversation(BaseModel):
+    """The full email thread for an RFQ, plus its (possibly updated) status."""
+
+    rfqId: str
+    status: RfqStatus
+    statusTone: Tone
+    gmail: bool  # True when messages came from a live Gmail thread
+    thread: List[ConversationMessage]
 
 
 class RfqGenerateRequest(BaseModel):

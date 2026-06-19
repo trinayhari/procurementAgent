@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     cors_origins: List[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ]
 
     # ------------------------------------------------------------- persistence
@@ -59,6 +61,8 @@ class Settings(BaseSettings):
     gmail_client_secret: str = ""
     gmail_refresh_token: str = ""
     gmail_sender_address: str = ""  # the "From" address, e.g. you@gmail.com
+    # How far back the quote-ingest poller looks for supplier replies.
+    quote_ingest_lookback_days: int = 30
 
     # ------------------------------------------------ supplier search tuning
     # Tier bounds (miles) for bucketing results; the UI radius slider re-buckets.
