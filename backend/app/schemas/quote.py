@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -39,6 +39,74 @@ class Comparison(BaseModel):
     reasons: List[str]
     savings: str
     savingsNote: str
+
+
+class LineCompareSupplier(BaseModel):
+    id: str
+    name: str
+    logo: str
+    logoBg: str
+    leadDays: Optional[int] = None
+    distanceMiles: Optional[float] = None
+    freight: Optional[float] = None
+    total: Optional[float] = None
+
+
+class LineCompareCell(BaseModel):
+    supplierId: str
+    unitPrice: Optional[float] = None
+    extended: Optional[float] = None
+    leadDays: Optional[int] = None
+    available: bool = True
+    best: bool = False
+
+
+class LineCompareRow(BaseModel):
+    name: str
+    qty: str = ""
+    cells: List[LineCompareCell]
+    bestSupplierId: Optional[str] = None
+
+
+class AwardOption(BaseModel):
+    key: str  # "mix" | "fastest" | "single"
+    label: str
+    total: float
+    material: float
+    freight: float
+    leadDays: Optional[int] = None
+    suppliersUsed: int
+    deliveries: int
+    maxDistance: Optional[float] = None
+    savings: float = 0.0
+    note: str = ""
+    selections: Dict[str, str] = {}  # lineName -> supplierId
+
+
+class LineComparison(BaseModel):
+    pkg: str
+    package: str
+    budget: Optional[float] = None
+    suppliers: List[LineCompareSupplier]
+    lines: List[LineCompareRow]
+    options: List[AwardOption]
+    recommendedOption: str = "mix"
+
+
+class AwardRequest(BaseModel):
+    selections: Dict[str, str]  # lineName -> supplierId
+    strategy: Optional[str] = None
+
+
+class AwardResult(BaseModel):
+    status: str
+    message: str
+    total: float
+    material: float
+    freight: float
+    leadDays: Optional[int] = None
+    suppliers: List[str]
+    poCount: int
 
 
 class SelectResult(BaseModel):

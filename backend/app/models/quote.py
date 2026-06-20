@@ -50,6 +50,9 @@ class Quote(Base):
     lead_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     delivery_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     validity: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Haul distance from the supplier yard to the jobsite (miles) — drives the
+    # delivery/logistics view and split-award tradeoffs.
+    distance_miles: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     line_items: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -95,6 +98,7 @@ class Quote(Base):
             "leadDays": self.lead_days,
             "deliveryDate": self.delivery_date,
             "validity": self.validity,
+            "distanceMiles": self.distance_miles,
             "lineItems": json.loads(self.line_items or "[]"),
             "notes": self.notes,
             "source": self.source,

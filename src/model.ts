@@ -24,6 +24,7 @@ export interface State {
   bomDraft: LineItemGroup[] | null
   bomBusy: boolean
   projectId?: string
+  comparePkg?: string
   newProjOpen?: boolean
   customProjects?: ProjectInput[]
 }
@@ -179,10 +180,10 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
 
   const overviewCards = ((D.overviewCards || [
     { label: 'Documents', value: '6', sub: '4 analyzed', icon: 'file', tone: 'blue' },
-    { label: 'Suppliers Found', value: '12', sub: '6 quoted', icon: 'supplier', tone: 'violet' },
-    { label: 'RFQs Sent', value: '5', sub: '3 awaiting', icon: 'rfq', tone: 'blue' },
-    { label: 'Quotes Received', value: '9', sub: '2 packages', icon: 'quote', tone: 'success' },
-    { label: 'Savings Identified', value: '$184K', sub: 'AI-identified', icon: 'sparkles', tone: 'ai', ai: true },
+    { label: 'Suppliers Found', value: '12', sub: '4 quoted', icon: 'supplier', tone: 'violet' },
+    { label: 'RFQs Sent', value: '6', sub: '5 quoted', icon: 'rfq', tone: 'blue' },
+    { label: 'Quotes Received', value: '5', sub: '2 packages', icon: 'quote', tone: 'success' },
+    { label: 'Savings Identified', value: '$31.8K', sub: 'AI mix & match', icon: 'sparkles', tone: 'ai', ai: true },
   ]) as OverviewCardInput[]).map((c) => ({ ...c, chipStyle: chip(c.tone), iconHtml: ic(c.icon) }))
 
   const packages = (D.packages || [
@@ -193,10 +194,10 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   ]).map((p) => { const { fg } = tone(p.tone); return { ...p, barStyle: bar(p.pct, fg) } })
 
   const supRaw = D.suppliers || [
-    { id: 'ferguson', name: 'Ferguson Waterworks', cats: ['Water', 'Fire'], contact: 'Mark Reyes', phone: '(916) 555-0142', email: 'mreyes@ferguson.com', web: 'ferguson.com', rfq: 'Quoted', rfqTone: 'success', last: '12m ago', quotes: '3', quoteVal: '$495.6K', lead: '14 days', logo: 'FW', logoBg: '#0a4d8c', fin: { submitted: '3', total: '$495,600', avg: '14 days' } },
-    { id: 'coremain', name: 'Core & Main', cats: ['Water', 'Sewer'], contact: 'Dana Whitfield', phone: '(916) 555-0188', email: 'dwhitfield@coreandmain.com', web: 'coreandmain.com', rfq: 'Quoted', rfqTone: 'success', last: '1h ago', quotes: '2', quoteVal: '$727.2K', lead: '16 days', logo: 'C&M', logoBg: '#16a34a', fin: { submitted: '2', total: '$727,200', avg: '14 days' } },
-    { id: 'fortiline', name: 'Fortiline Waterworks', cats: ['Water', 'Storm'], contact: 'Luis Romero', phone: '(775) 555-0119', email: 'lromero@fortiline.com', web: 'fortiline.com', rfq: 'Quoted', rfqTone: 'success', last: '2h ago', quotes: '1', quoteVal: '$490.7K', lead: '26 days', logo: 'FL', logoBg: '#0f766e', fin: { submitted: '1', total: '$490,700', avg: '26 days' } },
-    { id: 'hdsupply', name: 'HD Supply Waterworks', cats: ['Water', 'Sewer'], contact: 'Priya Anand', phone: '(602) 555-0173', email: 'priya.anand@hdsupply.com', web: 'hdsupply.com', rfq: 'Awaiting', rfqTone: 'warn', last: 'Sent 1d ago', quotes: '0', quoteVal: '—', lead: '—', logo: 'HD', logoBg: '#b45309', fin: { submitted: '0', total: '—', avg: '—' } },
+    { id: 'ferguson', name: 'Ferguson Waterworks', cats: ['Water', 'Fire'], contact: 'Mark Reyes', phone: '(916) 555-0142', email: 'mreyes@ferguson.com', web: 'ferguson.com', rfq: 'Quoted', rfqTone: 'success', last: '12m ago', quotes: '1', quoteVal: '$145.7K', lead: '21 days', logo: 'FW', logoBg: '#0a4d8c', fin: { submitted: '1', total: '$145,686', avg: '21 days' } },
+    { id: 'coremain', name: 'Core & Main', cats: ['Water', 'Sewer'], contact: 'Dana Whitfield', phone: '(916) 555-0188', email: 'dwhitfield@coreandmain.com', web: 'coreandmain.com', rfq: 'Quoted', rfqTone: 'success', last: '35m ago', quotes: '2', quoteVal: '$261.6K', lead: '14 days', logo: 'C&M', logoBg: '#16a34a', fin: { submitted: '2', total: '$261,612', avg: '14 days' } },
+    { id: 'fortiline', name: 'Fortiline Waterworks', cats: ['Water', 'Storm'], contact: 'Luis Romero', phone: '(775) 555-0119', email: 'lromero@fortiline.com', web: 'fortiline.com', rfq: 'Quoted', rfqTone: 'success', last: '1h ago', quotes: '1', quoteVal: '$152.2K', lead: '26 days', logo: 'FL', logoBg: '#0f766e', fin: { submitted: '1', total: '$152,190', avg: '26 days' } },
+    { id: 'hdsupply', name: 'HD Supply Waterworks', cats: ['Water', 'Sewer'], contact: 'Priya Anand', phone: '(602) 555-0173', email: 'priya.anand@hdsupply.com', web: 'hdsupply.com', rfq: 'Quoted', rfqTone: 'success', last: '2h ago', quotes: '1', quoteVal: '$115.7K', lead: '10 days', logo: 'HD', logoBg: '#b45309', fin: { submitted: '1', total: '$115,730', avg: '10 days' } },
     { id: 'wesco', name: 'WESCO Distribution', cats: ['Electrical'], contact: 'Greg Tan', phone: '(916) 555-0150', email: 'gtan@wesco.com', web: 'wesco.com', rfq: 'Sent', rfqTone: 'blue', last: 'Sent 2d ago', quotes: '0', quoteVal: '—', lead: '—', logo: 'WE', logoBg: '#334155', fin: { submitted: '0', total: '—', avg: '—' } },
     { id: 'graybar', name: 'Graybar Electric', cats: ['Electrical'], contact: 'Sara Lin', phone: '(775) 555-0166', email: 'slin@graybar.com', web: 'graybar.com', rfq: 'Draft', rfqTone: 'gray', last: '—', quotes: '0', quoteVal: '—', lead: '—', logo: 'GB', logoBg: '#7c3aed', fin: { submitted: '0', total: '—', avg: '—' } },
   ]
@@ -204,7 +205,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const supplierOpen = !!s.supplierId
   const activeSupplier = suppliers.find((x) => x.id === s.supplierId) || suppliers[0]
   const supComms = (D.supplierComms || [
-    { tone: 'success', title: 'Quote submitted — Water Utilities', body: '$495,600 total · 14-day lead · Quote-RV-Water.pdf', time: 'Today · 9:42 AM', icon: 'quote' },
+    { tone: 'success', title: 'Quote submitted — Water Utilities', body: '$145,686 total · 21-day lead · Quote-RV-Water.pdf', time: 'Today · 9:42 AM', icon: 'quote' },
     { tone: 'blue', title: 'Follow-up email sent', body: 'Requested confirmation on DI pipe class and hydrant lead times.', time: 'Yesterday · 4:10 PM', icon: 'rfq' },
     { tone: 'success', title: 'Email received', body: '"We can confirm Class 350 DI. Hydrants ship in ~2 weeks." — Mark Reyes', time: 'Yesterday · 2:30 PM', icon: 'rfq' },
     { tone: 'violet', title: 'RFQ sent — Water Utilities package', body: '42 line items · due Jun 20', time: 'Jun 12 · 11:05 AM', icon: 'sparkles' },
@@ -243,25 +244,24 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   })
 
   const quotes = ((D.quotes || [
-    { sup: 'Ferguson Waterworks', pkg: 'Water Utilities', amount: '$487,200', freight: '$8,400', total: '$495,600', lead: '14 days', date: 'Jun 14', logo: 'FW', logoBg: '#0a4d8c', best: true },
-    { sup: 'Core & Main', pkg: 'Water Utilities', amount: '$502,800', freight: '$6,200', total: '$509,000', lead: '16 days', date: 'Jun 13', logo: 'C&M', logoBg: '#16a34a' },
-    { sup: 'Fortiline Waterworks', pkg: 'Water Utilities', amount: '$478,900', freight: '$11,800', total: '$490,700', lead: '26 days', date: 'Jun 15', logo: 'FL', logoBg: '#0f766e' },
-    { sup: 'Core & Main', pkg: 'Sanitary Sewer', amount: '$214,300', freight: '$3,900', total: '$218,200', lead: '12 days', date: 'Jun 13', logo: 'C&M', logoBg: '#16a34a' },
-    { sup: 'HD Supply Waterworks', pkg: 'Sanitary Sewer', amount: '$221,750', freight: '$2,800', total: '$224,550', lead: '10 days', date: 'Jun 16', logo: 'HD', logoBg: '#b45309' },
-  ]) as QuoteInput[]).map((q) => ({ ...q, onOpen: () => set({ compare: true }), logoStyle: lb(q.logoBg, 30) }))
+    { sup: 'Core & Main', pkg: 'Water Utilities', amount: '$143,972', freight: '$1,500', total: '$145,472', lead: '16 days', date: 'Jun 18', logo: 'C&M', logoBg: '#16a34a', best: true },
+    { sup: 'Ferguson Waterworks', pkg: 'Water Utilities', amount: '$143,886', freight: '$1,800', total: '$145,686', lead: '21 days', date: 'Jun 19', logo: 'FW', logoBg: '#0a4d8c' },
+    { sup: 'Fortiline Waterworks', pkg: 'Water Utilities', amount: '$149,790', freight: '$2,400', total: '$152,190', lead: '26 days', date: 'Jun 17', logo: 'FL', logoBg: '#0f766e' },
+    { sup: 'HD Supply Waterworks', pkg: 'Sanitary Sewer', amount: '$114,530', freight: '$1,200', total: '$115,730', lead: '10 days', date: 'Jun 19', logo: 'HD', logoBg: '#b45309', best: true },
+    { sup: 'Core & Main', pkg: 'Sanitary Sewer', amount: '$114,640', freight: '$1,500', total: '$116,140', lead: '12 days', date: 'Jun 18', logo: 'C&M', logoBg: '#16a34a' },
+  ]) as QuoteInput[]).map((q) => ({ ...q, onOpen: () => set({ compare: true, comparePkg: q.pkg }), logoStyle: lb(q.logoBg, 30) }))
 
   const cmpSup = ((D.comparison && D.comparison.suppliers) || [
-    { name: 'Ferguson Waterworks', logo: 'FW', logoBg: '#0a4d8c', rec: true },
-    { name: 'Core & Main', logo: 'C&M', logoBg: '#16a34a', rec: false },
+    { name: 'Core & Main', logo: 'C&M', logoBg: '#16a34a', rec: true },
+    { name: 'Ferguson Waterworks', logo: 'FW', logoBg: '#0a4d8c', rec: false },
     { name: 'Fortiline Waterworks', logo: 'FL', logoBg: '#0f766e', rec: false },
   ]).map((c) => ({ ...c, logoStyle: lb(c.logoBg, 40) }))
   const cmpRowsRaw: CmpRowInput[] = (D.comparison && D.comparison.rows) || [
-    { label: 'Material Cost', vals: ['$487,200', '$502,800', '$478,900'], best: 2 },
-    { label: 'Freight', vals: ['$8,400', '$6,200', '$11,800'], best: 1 },
-    { label: 'Total Cost', vals: ['$495,600', '$509,000', '$490,700'], best: 2, emph: true },
-    { label: 'Lead Time', vals: ['14 days', '16 days', '26 days'], best: 0 },
-    { label: 'Delivery Date', vals: ['Jul 4', 'Jul 6', 'Jul 16'], best: 0 },
-    { label: 'Risk Score', vals: ['94 · Low', '88 · Low', '69 · Med'], best: 0 },
+    { label: 'Material Cost', vals: ['$143,972', '$143,886', '$149,790'], best: 1 },
+    { label: 'Freight', vals: ['$1,500', '$1,800', '$2,400'], best: 0 },
+    { label: 'Total Cost', vals: ['$145,472', '$145,686', '$152,190'], best: 0, emph: true },
+    { label: 'Lead Time', vals: ['16 days', '21 days', '26 days'], best: 0 },
+    { label: 'Risk Score', vals: ['84 · Med', '79 · Med', '74 · Med'], best: 0 },
   ]
   const cmpRows = cmpRowsRaw.map((r) => ({
     ...r, emph: !!r.emph,
@@ -279,25 +279,27 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     }),
   }))
   const cmpMeta = D.comparison || ({} as NonNullable<typeof D.comparison>)
-  const recName = cmpMeta.recommendation || (cmpSup.find((c) => c.rec) || {}).name || 'Ferguson Waterworks'
+  const recName = cmpMeta.recommendation || (cmpSup.find((c) => c.rec) || {}).name || 'Core & Main'
   const recSup = cmpSup.find((c) => c.name === recName) || cmpSup.find((c) => c.rec) || cmpSup[0]
   const recQuote = quotes.find((q) => q.sup === recName)
   const cmp = {
     suppliers: cmpSup,
     rows: cmpRows,
     recommendation: recName,
-    recReasons: (cmpMeta.reasons && cmpMeta.reasons.length ? cmpMeta.reasons : ['Lowest delivery risk (score 94)', 'Fastest lead time at 14 days', 'Within 1% of lowest total bid']),
-    savings: cmpMeta.savings || '$184,000',
-    savingsNote: cmpMeta.savingsNote || '27% under the $679.6K allowance',
-    recLogo: recSup ? recSup.logo : 'FW',
-    recLogoStyle: recSup ? recSup.logoStyle : lb('#0a4d8c', 40),
+    recReasons: (cmpMeta.reasons && cmpMeta.reasons.length ? cmpMeta.reasons : ['Lowest total bid', 'Strong 16-day lead time', 'Best risk score (84)']),
+    savings: cmpMeta.savings || '$6,718',
+    savingsNote: cmpMeta.savingsNote || '4% below the highest competing bid',
+    recLogo: recSup ? recSup.logo : 'C&M',
+    recLogoStyle: recSup ? recSup.logoStyle : lb('#16a34a', 40),
     recQuoteId: recQuote ? recQuote.id : undefined,
   }
 
   const rfqRaw = D.rfqs || [
-    { sup: 'Ferguson Waterworks', pkg: 'Water Utilities', folder: 'Completed', status: 'Quoted', statusTone: 'success', preview: 'Quote attached — $495,600 · 14-day lead', time: '12m', unread: false, logo: 'FW', logoBg: '#0a4d8c' },
-    { sup: 'Core & Main', pkg: 'Sanitary Sewer', folder: 'Awaiting', status: 'Awaiting', statusTone: 'warn', preview: 'RFQ sent — awaiting response', time: '1h', unread: true, logo: 'C&M', logoBg: '#16a34a' },
-    { sup: 'Fortiline Waterworks', pkg: 'Storm Drain', folder: 'Awaiting', status: 'Awaiting', statusTone: 'warn', preview: 'Follow-up scheduled for Jun 18', time: '2h', unread: false, logo: 'FL', logoBg: '#0f766e' },
+    { sup: 'Core & Main', pkg: 'Water Utilities', folder: 'Completed', status: 'Quoted', statusTone: 'success', preview: 'Quote attached — $145,472 · 16-day lead', time: '35m', unread: true, logo: 'C&M', logoBg: '#16a34a' },
+    { sup: 'Ferguson Waterworks', pkg: 'Water Utilities', folder: 'Completed', status: 'Quoted', statusTone: 'success', preview: 'Quote attached — $145,686 · 21-day lead', time: '12m', unread: false, logo: 'FW', logoBg: '#0a4d8c' },
+    { sup: 'Fortiline Waterworks', pkg: 'Water Utilities', folder: 'Completed', status: 'Quoted', statusTone: 'success', preview: 'Quote attached — $152,190 · 26-day lead', time: '1h', unread: false, logo: 'FL', logoBg: '#0f766e' },
+    { sup: 'HD Supply Waterworks', pkg: 'Sanitary Sewer', folder: 'Completed', status: 'Quoted', statusTone: 'success', preview: 'Quote attached — $115,730 · 10-day lead', time: '2h', unread: true, logo: 'HD', logoBg: '#b45309' },
+    { sup: 'Core & Main', pkg: 'Sanitary Sewer', folder: 'Completed', status: 'Quoted', statusTone: 'success', preview: 'Quote attached — $116,140 · 12-day lead', time: '1h', unread: false, logo: 'C&M', logoBg: '#16a34a' },
     { sup: 'WESCO Distribution', pkg: 'Electrical', folder: 'Sent', status: 'Sent', statusTone: 'blue', preview: 'RFQ sent — 23 line items', time: '2d', unread: false, logo: 'WE', logoBg: '#334155' },
     { sup: 'Graybar Electric', pkg: 'Electrical', folder: 'Draft', status: 'Draft', statusTone: 'gray', preview: 'Draft — not yet sent', time: '—', unread: false, logo: 'GB', logoBg: '#7c3aed' },
   ]
@@ -311,12 +313,12 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     logoStyle: lb(r.logoBg, 34),
   }))
   const rfqSel = rfqs[s.rfqIdx]
-  const rfqFolders = D.rfqFolders || [{ name: 'Draft', count: '1' }, { name: 'Sent', count: '1' }, { name: 'Awaiting Response', count: '2' }, { name: 'Completed', count: '1' }]
+  const rfqFolders = D.rfqFolders || [{ name: 'Draft', count: '1' }, { name: 'Sent', count: '1' }, { name: 'Awaiting Response', count: '0' }, { name: 'Completed', count: '5' }]
   const thread = ([
-    { dir: 'out', who: 'You · ProcureAI', initials: 'JM', time: 'Jun 12 · 11:05 AM', subject: 'RFQ: ' + rfqSel.pkg + ' — Riverside WTP', body: 'Please find attached our request for quote covering the ' + rfqSel.pkg + ' package for the Riverside Water Treatment Plant. 42 line items, quotes due Jun 20. Let us know if any specs need clarification.', attach: 'RFQ-Riverside-Water.pdf' },
-    { dir: 'in', who: rfqSel.sup, initials: rfqSel.logo, logoBg: rfqSel.logoBg, time: 'Jun 13 · 2:30 PM', body: 'Thanks — reviewing now. Can you confirm the DI pipe class on line item 4?' },
-    { dir: 'out', who: 'You · ProcureAI', initials: 'JM', time: 'Jun 13 · 3:10 PM', body: 'Class 350 per spec section 02510. Appreciate the quick turnaround.' },
-    { dir: 'in', who: rfqSel.sup, initials: rfqSel.logo, logoBg: rfqSel.logoBg, time: 'Today · 9:42 AM', body: 'Quote attached. Total comes to $495,600 with a 14-day lead time. Hydrant assemblies ship in ~2 weeks.', attach: 'Quote-RV-Water.pdf' },
+    { dir: 'out', who: 'You · ProcureAI', initials: 'JM', time: 'Jun 12 · 11:05 AM', subject: 'RFQ: ' + rfqSel.pkg + ' — Riverside WTP', body: 'Please find attached our request for quote covering the ' + rfqSel.pkg + ' package for the Riverside Water Treatment Plant. Quotes due Jun 20. Let us know if any specs need clarification.', attach: 'RFQ-Riverside-' + rfqSel.pkg.split(' ')[0] + '.pdf' },
+    { dir: 'in', who: rfqSel.sup, initials: rfqSel.logo, logoBg: rfqSel.logoBg, time: 'Jun 13 · 2:30 PM', body: 'Thanks — reviewing now. Can you confirm specs on the priced line items?' },
+    { dir: 'out', who: 'You · ProcureAI', initials: 'JM', time: 'Jun 13 · 3:10 PM', body: 'Confirmed per spec section 02510. Appreciate the quick turnaround.' },
+    { dir: 'in', who: rfqSel.sup, initials: rfqSel.logo, logoBg: rfqSel.logoBg, time: 'Today · 9:42 AM', body: 'Quote attached — ' + rfqSel.preview.replace('Quote attached — ', '') + '.', attach: 'Quote-RV-' + rfqSel.pkg.split(' ')[0] + '.pdf' },
   ] as ThreadInput[]).map((t) => ({
     ...t, isOut: t.dir === 'out', isIn: t.dir === 'in', hasAttach: !!t.attach, hasSubject: !!t.subject,
     avatarStyle: sx({
@@ -329,11 +331,11 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const milestones = ((D.milestones || [
     { name: 'Documents Uploaded', date: 'Jun 9', status: 'Done', desc: '6 plan sets ingested', tone: 'success', done: true },
     { name: 'AI Extraction Complete', date: 'Jun 12', status: 'Done', desc: '307 line items · 4 packages', tone: 'success', done: true },
-    { name: 'RFQs Generated', date: 'Jun 13', status: 'Done', desc: '5 packages → 12 suppliers', tone: 'success', done: true },
-    { name: 'Quotes Received', date: 'Due Jun 20', status: 'In Progress', desc: '9 of 14 received', tone: 'blue', active: true },
-    { name: 'Supplier Selected', date: 'Jun 24', status: 'Upcoming', desc: 'Water decision ready', tone: 'gray' },
-    { name: 'Purchase Order Issued', date: 'Jun 27', status: 'Upcoming', desc: 'Pending selection', tone: 'gray' },
-    { name: 'Delivery Scheduled', date: 'Jul 4', status: 'Upcoming', desc: 'Water materials on-site', tone: 'gray' },
+    { name: 'RFQs Generated', date: 'Jun 13', status: 'Done', desc: '2 packages → 5 suppliers', tone: 'success', done: true },
+    { name: 'Quotes Received', date: 'Jun 19', status: 'Done', desc: '5 of 5 received · Water + Sewer', tone: 'success', done: true },
+    { name: 'Supplier Selected', date: 'Due Jun 24', status: 'In Progress', desc: 'Water + Sewer awards ready', tone: 'blue', active: true },
+    { name: 'Purchase Order Issued', date: 'Jun 27', status: 'Upcoming', desc: 'Pending award', tone: 'gray' },
+    { name: 'Delivery Scheduled', date: 'Jul 4', status: 'Upcoming', desc: 'Materials on-site', tone: 'gray' },
   ]) as MilestoneInput[]).map((m) => ({
     ...m, statusBadge: badge(m.tone),
     dotStyle: sx({
@@ -346,8 +348,8 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const gantt = ((D.gantt || [
     { name: 'Documents & Extraction', start: 0, len: 18, tone: 'success', label: 'Done' },
     { name: 'Water Utilities RFQ', start: 14, len: 26, tone: 'success', label: 'Quoted' },
-    { name: 'Sanitary Sewer RFQ', start: 22, len: 30, tone: 'blue', label: 'In progress' },
-    { name: 'Storm Drain RFQ', start: 26, len: 36, tone: 'warn', label: 'Delayed', warn: true },
+    { name: 'Sanitary Sewer RFQ', start: 22, len: 30, tone: 'success', label: 'Quoted' },
+    { name: 'Storm Drain RFQ', start: 26, len: 36, tone: 'blue', label: 'Sent' },
     { name: 'Electrical RFQ', start: 36, len: 30, tone: 'gray', label: 'Sent' },
     { name: 'Water Delivery', start: 64, len: 14, tone: 'violet', label: 'Jul 4' },
   ]) as GanttInput[]).map((g) => {
@@ -444,6 +446,8 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     setOverview: () => setTab('overview'), setDocuments: () => setTab('documents'), setSuppliers: () => setTab('suppliers'),
     setRfqs: () => setTab('rfqs'), setQuotes: () => setTab('quotes'), setTimeline: () => setTab('timeline'),
     openCompare: () => set({ compare: true }), closeCompare: () => set({ compare: false }),
+    comparePackage: (pkg: string) => set({ compare: true, comparePkg: pkg }),
+    projectId: s.projectId || 'riverside', comparePkg: s.comparePkg || 'Water Utilities',
     closeSupplier: () => set({ supplierId: null }),
     badgeBlue: badge('blue'), badgeSuccess: badge('success'), badgeWarn: badge('warn'),
     badgeDanger: badge('danger'), badgeViolet: badge('violet'), badgeGray: badge('gray'),

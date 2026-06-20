@@ -3,9 +3,12 @@ uvicorn[standard]==0.30.6
 pydantic==2.8.2
 pydantic-settings==2.4.0
 python-multipart==0.0.9
-# Persistence (projects are stored in SQLite via SQLAlchemy; Alembic owns the schema).
+# Persistence — all domain data is stored via SQLAlchemy; Alembic owns the schema.
+# Defaults to SQLite (zero-config); set PROCUREAI_DATABASE_URL to a Postgres DSN
+# (see docker-compose.yml) for the production-grade DB. psycopg2 is the Postgres driver.
 SQLAlchemy>=2.0,<2.1
 alembic>=1.13,<1.14
+psycopg2-binary>=2.9,<3.0
 # AI document extraction (GPT-4.1 vision + PDF rasterisation).
 openai>=1.40.0,<2.0.0
 PyMuPDF>=1.24.0

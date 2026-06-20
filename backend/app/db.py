@@ -6,7 +6,7 @@ app works on a fresh checkout without manually running migrations first.
 """
 from typing import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
@@ -41,8 +41,35 @@ def init_db() -> None:
     from app import models  # noqa: F401  (registers tables on Base.metadata)
     from app.repositories import documents as documents_repo
     from app.repositories import projects as projects_repo
+    from app.repositories import quotes as quotes_repo
+    from app.repositories import reference as reference_repo
+    from app.repositories import suppliers as suppliers_repo
 
     Base.metadata.create_all(bind=engine)
+    _ensure_dev_columns()
     with SessionLocal() as db:
         projects_repo.seed_starter_projects(db)
         documents_repo.seed_starter_documents(db)
+        # Reference/display data (dashboard, suppliers, comparison, timeline, the
+        # demo RFQ inbox + quote list) — seeded once so the app renders fully.
+        suppliers_repo.seed_suppliers(db)
+        reference_repo.seed_reference_data(db)
+        # Seed priced sample quotes for the demo project so the line-by-line
+        # comparison + award flow works on a fresh checkout (idempotent).
+        quotes_repo.seed_sample_quotes(db, "riverside")
+
+
+def _ensure_dev_columns() -> None:
+    """Add columns introduced after a table was first create_all()'d.
+
+    `create_all` never ALTERs existing tables, so a dev DB created before a new
+    column won't have it. Alembic owns real migrations; this only keeps the
+    zero-config dev DB usable without a manual `alembic upgrade`.
+    """
+    inspector = inspect(engine)
+    if "quotes" not in inspector.get_table_names():
+        return
+    cols = {c["name"] for c in inspector.get_columns("quotes")}
+    if "distance_miles" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE quotes ADD COLUMN distance_miles FLOAT"))

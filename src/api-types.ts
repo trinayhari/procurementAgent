@@ -209,6 +209,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/packages/{pkg}/line-comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Line Comparison
+         * @description Line-by-line quote grid + freight-aware mix-and-match award strategies.
+         */
+        get: operations["get_line_comparison_api_projects__project_id__packages__pkg__line_comparison_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/packages/{pkg}/award": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Award Package
+         * @description Submit a (possibly split) award for a package and issue the purchase orders.
+         */
+        post: operations["award_package_api_projects__project_id__packages__pkg__award_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/packages/{package}/search-suppliers": {
         parameters: {
             query?: never;
@@ -673,6 +713,72 @@ export interface components {
             /** Time */
             time: string;
         };
+        /** AwardOption */
+        AwardOption: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Total */
+            total: number;
+            /** Material */
+            material: number;
+            /** Freight */
+            freight: number;
+            /** Leaddays */
+            leadDays?: number | null;
+            /** Suppliersused */
+            suppliersUsed: number;
+            /** Deliveries */
+            deliveries: number;
+            /** Maxdistance */
+            maxDistance?: number | null;
+            /**
+             * Savings
+             * @default 0
+             */
+            savings: number;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Selections
+             * @default {}
+             */
+            selections: {
+                [key: string]: string;
+            };
+        };
+        /** AwardRequest */
+        AwardRequest: {
+            /** Selections */
+            selections: {
+                [key: string]: string;
+            };
+            /** Strategy */
+            strategy?: string | null;
+        };
+        /** AwardResult */
+        AwardResult: {
+            /** Status */
+            status: string;
+            /** Message */
+            message: string;
+            /** Total */
+            total: number;
+            /** Material */
+            material: number;
+            /** Freight */
+            freight: number;
+            /** Leaddays */
+            leadDays?: number | null;
+            /** Suppliers */
+            suppliers: string[];
+            /** Pocount */
+            poCount: number;
+        };
         /** Body_upload_document_api_documents_post */
         Body_upload_document_api_documents_post: {
             /**
@@ -871,6 +977,80 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** LineCompareCell */
+        LineCompareCell: {
+            /** Supplierid */
+            supplierId: string;
+            /** Unitprice */
+            unitPrice?: number | null;
+            /** Extended */
+            extended?: number | null;
+            /** Leaddays */
+            leadDays?: number | null;
+            /**
+             * Available
+             * @default true
+             */
+            available: boolean;
+            /**
+             * Best
+             * @default false
+             */
+            best: boolean;
+        };
+        /** LineCompareRow */
+        LineCompareRow: {
+            /** Name */
+            name: string;
+            /**
+             * Qty
+             * @default
+             */
+            qty: string;
+            /** Cells */
+            cells: components["schemas"]["LineCompareCell"][];
+            /** Bestsupplierid */
+            bestSupplierId?: string | null;
+        };
+        /** LineCompareSupplier */
+        LineCompareSupplier: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Logo */
+            logo: string;
+            /** Logobg */
+            logoBg: string;
+            /** Leaddays */
+            leadDays?: number | null;
+            /** Distancemiles */
+            distanceMiles?: number | null;
+            /** Freight */
+            freight?: number | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** LineComparison */
+        LineComparison: {
+            /** Pkg */
+            pkg: string;
+            /** Package */
+            package: string;
+            /** Budget */
+            budget?: number | null;
+            /** Suppliers */
+            suppliers: components["schemas"]["LineCompareSupplier"][];
+            /** Lines */
+            lines: components["schemas"]["LineCompareRow"][];
+            /** Options */
+            options: components["schemas"]["AwardOption"][];
+            /**
+             * Recommendedoption
+             * @default mix
+             */
+            recommendedOption: string;
         };
         /** LineItem */
         LineItem: {
@@ -1864,6 +2044,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Comparison"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_line_comparison_api_projects__project_id__packages__pkg__line_comparison_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                pkg: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineComparison"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    award_package_api_projects__project_id__packages__pkg__award_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                pkg: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AwardRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AwardResult"];
                 };
             };
             /** @description Validation Error */
