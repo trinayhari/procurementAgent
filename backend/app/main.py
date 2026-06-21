@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
+    auth,
     dashboard,
     documents,
     projects,
@@ -43,5 +44,5 @@ def health():
     return {"status": "ok"}
 
 
-for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline):
+for module in (auth, dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline):
     app.include_router(module.router)

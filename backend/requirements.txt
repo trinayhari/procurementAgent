@@ -3,6 +3,10 @@ uvicorn[standard]==0.30.6
 pydantic==2.8.2
 pydantic-settings==2.4.0
 python-multipart==0.0.9
+# Auth — JWT access tokens + bcrypt password hashing, EmailStr validation.
+PyJWT>=2.8,<3.0
+bcrypt>=4.1,<5.0
+email-validator>=2.1,<3.0
 # Persistence — all domain data is stored via SQLAlchemy; Alembic owns the schema.
 # Defaults to SQLite (zero-config); set PROCUREAI_DATABASE_URL to a Postgres DSN
 # (see docker-compose.yml) for the production-grade DB. psycopg2 is the Postgres driver.

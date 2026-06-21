@@ -3,16 +3,18 @@ import type { CSSProperties, DragEvent, FormEvent } from 'react'
 import { Box, DcIcon, css, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
+import Login from './Login'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
   saveDocumentLineItems, confirmDocument,
   searchSuppliers, getFoundSuppliers, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
+  getToken, getMe, logout as apiLogout, onAuthChange,
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PersistedRfq, RfqRecipient, RfqConversation,
-  LineComparison, AwardOption,
+  LineComparison, AwardOption, AuthUser,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -81,6 +83,28 @@ export default function App() {
     editBom: false, bomDraft: null, bomBusy: false,
   })
   const set = (patch: Partial<State>) => setS((prev) => ({ ...prev, ...patch }))
+
+  // ---- Auth session ----
+  // `user` is the signed-in account; `authReady` flips true once we've decided
+  // whether an existing token still resolves to a valid session.
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [authReady, setAuthReady] = useState(false)
+
+  // On load, restore the session from a stored token (if any). A 401 clears it.
+  useEffect(() => {
+    if (!getToken()) { setAuthReady(true); return }
+    let alive = true
+    getMe()
+      .then((u) => { if (alive) setUser(u) })
+      .catch(() => { if (alive) setUser(null) })
+      .finally(() => { if (alive) setAuthReady(true) })
+    return () => { alive = false }
+  }, [])
+
+  // Keep React state in sync if the token is cleared elsewhere (e.g. a 401 mid-session).
+  useEffect(() => onAuthChange(() => { if (!getToken()) setUser(null) }), [])
+
+  const handleLogout = () => { apiLogout(); setUser(null) }
 
   useEffect(() => {
     const f = () => set({ vw: window.innerWidth })
@@ -178,12 +202,22 @@ export default function App() {
 
   const m = buildModel(s, set, {
     accent: 'blue', data: s.data, reload,
+    user, onLogout: handleLogout,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
     docLineItems: s.docLineItems, onUpload: uploadDoc,
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
   })
+
+  // Until the stored token is validated, render nothing (avoids a login flash).
+  if (!authReady) {
+    return <div data-theme={s.theme} style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  }
+  // Gate the whole app behind authentication.
+  if (!user) {
+    return <Login theme={s.theme} onAuthed={(u) => setUser(u)} />
+  }
 
   return (
     <div
@@ -260,11 +294,14 @@ function Sidebar({ m }: MProps) {
         <span style={css('flex:1;text-align:left')}>Design System</span>
       </Box>
       <div style={css('display:flex;align-items:center;gap:10px;margin-top:8px;padding:9px 8px;border-top:1px solid var(--border)')}>
-        <div style={css('width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none')}>JM</div>
+        <div style={css('width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none')}>{m.userInitials}</div>
         <div style={css('display:flex;flex-direction:column;line-height:1.2;min-width:0;flex:1')}>
-          <span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>Jordan Mills</span>
-          <span style={css('font-size:11px;color:var(--text-3)')}>Meridian Civil Co.</span>
+          <span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.userName}</span>
+          <span style={css('font-size:11px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.userCompany || m.userEmail}</span>
         </div>
+        <Box as="button" onClick={m.logout} title="Sign out" style={css('width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none')} hover="background:var(--panel-2);color:var(--text)">
+          <Svg size={16} d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9' />
+        </Box>
       </div>
     </aside>
   )
@@ -312,7 +349,7 @@ function Dashboard({ m }: MProps) {
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px')}>
         <div>
-          <h1 style={css('margin:0;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>Good afternoon, Jordan</h1>
+          <h1 style={css('margin:0;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>{m.greeting}, {m.firstName}</h1>
           <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>Portfolio snapshot across 5 active projects · Tuesday, Jun 17</p>
         </div>
         <Box as="button" onClick={m.openNewProject} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)">
@@ -480,9 +517,9 @@ function Settings({ m }: MProps) {
       <p style={css('margin:0 0 22px;font-size:14px;color:var(--text-2)')}>Manage your workspace and procurement defaults</p>
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
         <div style={css('display:flex;align-items:center;gap:14px;padding:18px;border-bottom:1px solid var(--border)')}>
-          <div style={css('width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600')}>JM</div>
-          <div style={{ flex: 1 }}><div style={css('font-size:15px;font-weight:600')}>Jordan Mills</div><div style={css('font-size:12.5px;color:var(--text-3)')}>jordan@meridiancivil.com</div></div>
-          <Box as="button" style={css('height:34px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600')} hover="background:var(--panel-2)">Edit profile</Box>
+          <div style={css('width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600')}>{m.userInitials}</div>
+          <div style={{ flex: 1 }}><div style={css('font-size:15px;font-weight:600')}>{m.userName}</div><div style={css('font-size:12.5px;color:var(--text-3)')}>{m.userEmail}{m.userCompany ? ` · ${m.userCompany}` : ''}</div></div>
+          <Box as="button" onClick={m.logout} style={css('height:34px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600')} hover="background:var(--panel-2)">Sign out</Box>
         </div>
         <div style={css('padding:8px 0')}>
           <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px')}>

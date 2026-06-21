@@ -20,6 +20,7 @@ from app.models.reference import (
 )
 from app.models.rfq import Rfq
 from app.models.supplier import Supplier, SupplierComm
+from app.models.user import User
 
 __all__ = [
     "Project",
@@ -41,4 +42,5 @@ __all__ = [
     "RfqFolder",
     "DemoRfq",
     "DemoQuote",
+    "User",
 ]

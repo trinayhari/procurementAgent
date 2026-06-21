@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     # override with PROCUREAI_DATABASE_URL (e.g. a Postgres DSN) in production.
     database_url: str = "sqlite:///./procureai.db"
 
+    # ----------------------------------------------------------------- auth
+    # Secret used to sign JWT access tokens. CHANGE THIS in production via
+    # PROCUREAI_JWT_SECRET — the default is only safe for local development.
+    jwt_secret: str = "dev-insecure-change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60 * 24 * 7  # one week
+
     # ----------------------------------------------------------- file uploads
     # Where uploaded plan sets are stored on disk (created on first upload).
     upload_dir: str = "uploads"

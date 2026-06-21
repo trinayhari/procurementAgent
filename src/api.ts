@@ -39,21 +39,114 @@ export type RfqRecipient = Schemas['RfqRecipient']
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// ----------------------------------------------------------------- auth token
+// The JWT minted by /api/auth/login is kept in localStorage and attached as a
+// Bearer header to every request. Components subscribe to changes via onAuthChange.
+const TOKEN_KEY = 'procureai_token'
+const authListeners = new Set<() => void>()
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    /* storage unavailable (private mode) — token stays in-memory only this session */
+  }
+  authListeners.forEach((fn) => fn())
+}
+
+// Subscribe to login/logout; returns an unsubscribe fn.
+export function onAuthChange(fn: () => void): () => void {
+  authListeners.add(fn)
+  return () => authListeners.delete(fn)
+}
+
+// Bearer header for the current token (empty when logged out).
+export function authHeaders(): Record<string, string> {
+  const t = getToken()
+  return t ? { Authorization: `Bearer ${t}` } : {}
+}
+
+// A 401 means the token is missing/expired — drop it so the app falls back to login.
+function onUnauthorized(status: number): void {
+  if (status === 401) setToken(null)
+}
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`)
+  const res = await fetch(`${BASE}${path}`, { headers: { ...authHeaders() } })
+  if (!res.ok) {
+    onUnauthorized(res.status)
+    throw new Error(`${path} -> ${res.status}`)
+  }
   return res.json() as Promise<T>
 }
 
 export function post<T = unknown>(path: string, body?: unknown): Promise<T> {
   return fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   }).then((r) => {
-    if (!r.ok) throw new Error(`${path} -> ${r.status}`)
+    if (!r.ok) {
+      onUnauthorized(r.status)
+      throw new Error(`${path} -> ${r.status}`)
+    }
     return r.json() as Promise<T>
   })
+}
+
+// ------------------------------------------------------------------ auth API
+export type AuthUser = Schemas['User']
+type TokenResponse = Schemas['TokenResponse']
+
+// Surface a friendly message for the auth screen rather than a bare status code.
+async function authRequest(path: string, body: unknown): Promise<TokenResponse> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data && data.detail) || `Request failed (${res.status})`)
+  }
+  return data as TokenResponse
+}
+
+// Log in with email + password; persists the token and returns the user.
+export async function login(email: string, password: string): Promise<AuthUser> {
+  const data = await authRequest('/api/auth/login', { email, password })
+  setToken(data.accessToken)
+  return data.user
+}
+
+// Register a new account; logs in (persists token) on success.
+export async function register(input: {
+  email: string
+  password: string
+  name?: string
+  company?: string
+}): Promise<AuthUser> {
+  const data = await authRequest('/api/auth/register', input)
+  setToken(data.accessToken)
+  return data.user
+}
+
+// Resolve the current token to a user (used to restore the session on load).
+export function getMe(): Promise<AuthUser> {
+  return get<AuthUser>('/api/auth/me')
+}
+
+export function logout(): void {
+  setToken(null)
 }
 
 // ------------------------------------------------------- document extraction
@@ -73,7 +166,7 @@ export function uploadDocument(
   form.append('file', file)
   if (planType) form.append('plan_type', planType)
   if (projectId) form.append('project_id', projectId)
-  return fetch(`${BASE}/api/documents`, { method: 'POST', body: form }).then((r) => {
+  return fetch(`${BASE}/api/documents`, { method: 'POST', headers: { ...authHeaders() }, body: form }).then((r) => {
     if (!r.ok) throw new Error(`upload -> ${r.status}`)
     return r.json() as Promise<Document>
   })
@@ -97,7 +190,7 @@ export function saveDocumentLineItems(
 ): Promise<LineItemGroup[]> {
   return fetch(`${BASE}/api/documents/${docId}/line-items`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ groups }),
   }).then((r) => {
     if (!r.ok) throw new Error(`save line-items -> ${r.status}`)
@@ -112,7 +205,7 @@ export function confirmDocument(docId: string): Promise<Document> {
 
 // Delete a document, its extracted BOM, and any uploaded source file.
 export async function deleteDocument(docId: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/documents/${docId}`, { method: 'DELETE' })
+  const res = await fetch(`${BASE}/api/documents/${docId}`, { method: 'DELETE', headers: { ...authHeaders() } })
   if (!res.ok) throw new Error(`delete document -> ${res.status}`)
 }
 
@@ -162,7 +255,7 @@ export function saveRfq(
 ): Promise<PersistedRfq> {
   return fetch(`${BASE}/api/projects/${projectId}/rfqs/${rfqId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(patch),
   }).then((r) => {
     if (!r.ok) throw new Error(`save rfq -> ${r.status}`)
@@ -182,6 +275,7 @@ export function getRfqConversation(projectId: string, rfqId: string): Promise<Rf
 export function deleteRfq(projectId: string, rfqId: string): Promise<void> {
   return fetch(`${BASE}/api/projects/${projectId}/rfqs/${rfqId}`, {
     method: 'DELETE',
+    headers: { ...authHeaders() },
   }).then((r) => {
     if (!r.ok) throw new Error(`delete rfq -> ${r.status}`)
   })

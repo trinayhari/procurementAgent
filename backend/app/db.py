@@ -44,6 +44,7 @@ def init_db() -> None:
     from app.repositories import quotes as quotes_repo
     from app.repositories import reference as reference_repo
     from app.repositories import suppliers as suppliers_repo
+    from app.repositories import users as users_repo
 
     Base.metadata.create_all(bind=engine)
     _ensure_dev_columns()
@@ -57,6 +58,9 @@ def init_db() -> None:
         # Seed priced sample quotes for the demo project so the line-by-line
         # comparison + award flow works on a fresh checkout (idempotent).
         quotes_repo.seed_sample_quotes(db, "riverside")
+        # Demo login account (jordan@meridiancivil.com / procureai) so the
+        # auth-gated UI is usable on a fresh checkout.
+        users_repo.seed_demo_user(db)
 
 
 def _ensure_dev_columns() -> None:

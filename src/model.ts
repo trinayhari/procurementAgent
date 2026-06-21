@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 import { tone, badge, chip, bar, ic, lb } from './lib'
 import { post } from './api'
-import type { ModelData, PlanType, LineItemGroup } from './api'
+import type { ModelData, PlanType, LineItemGroup, AuthUser } from './api'
 
 // ---- App state threaded through buildModel (held in App.tsx's useState) ----
 export interface State {
@@ -43,6 +43,8 @@ export interface ProjectForm {
 export interface ModelProps {
   accent?: string
   data?: ModelData | null
+  user?: AuthUser | null
+  onLogout?: () => void
   reload?: (pid?: string) => Promise<void> | void
   planTypes?: PlanType[] | null
   planType?: string
@@ -101,6 +103,24 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
 
   const desktop = s.vw > 860
   const isProject = s.nav === 'project'
+
+  // ---- Signed-in user (from /api/auth/me; falls back to a friendly default) ----
+  const authUser = (props && props.user) || null
+  const userName = (authUser && authUser.name) || 'there'
+  const userCompany = (authUser && authUser.company) || ''
+  const userEmail = (authUser && authUser.email) || ''
+  const firstName = userName.split(' ')[0]
+  const userInitials =
+    userName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || 'U'
+  // Time-of-day greeting (the prototype hard-coded "Good afternoon").
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
 
   const navStyleFor = (key: string): CSSProperties => {
     const active = s.nav === key || (key === 'projects' && isProject)
@@ -376,6 +396,9 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   return {
     theme: s.theme, accent: (props && props.accent) || 'blue', isDark: s.theme === 'dark', isLight: s.theme !== 'dark',
     desktop, mobile: !desktop, navStyle,
+    // Signed-in user identity + sign-out (see App.tsx Sidebar/Settings/Dashboard).
+    userName, userCompany, userEmail, userInitials, firstName, greeting,
+    logout: (props && props.onLogout) || (() => {}),
     isDashboard: s.nav === 'dashboard', isProjects: s.nav === 'projects', isSuppliers: s.nav === 'suppliers',
     isSettings: s.nav === 'settings', isDS: s.nav === 'ds', isProject,
     crumbMain, crumbSub, hasSub,
