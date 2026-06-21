@@ -4,13 +4,18 @@ Projects are the one entity persisted to SQLite (via SQLAlchemy). The rest of th
 workspace data (documents, suppliers, quotes, …) still comes from `seed.py` while
 the prototype is fleshed out — those routes just validate the project exists here.
 """
+import os
 import re
 from typing import List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.orm import Session
 
+from app.models.document import Document
+from app.models.found_supplier import FoundSupplier
 from app.models.project import Project
+from app.models.quote import Quote
+from app.models.rfq import Rfq
 from app.repositories import seed
 
 # Stage -> badge tone, mirroring the frontend's stageToneMap.
@@ -78,6 +83,37 @@ def create_project(
     db.commit()
     db.refresh(project)
     return project.to_dict()
+
+
+def delete_project(db: Session, project_id: str) -> bool:
+    """Delete a project and every row scoped to it.
+
+    Removes the project's documents, quotes, RFQs and found-supplier records, and
+    best-effort unlinks any uploaded files on disk. Returns False if no project
+    with that id exists (so the route can 404).
+    """
+    project = db.get(Project, project_id)
+    if project is None:
+        return False
+    # Grab uploaded file paths before the document rows are deleted.
+    paths = [
+        p
+        for p in db.scalars(
+            select(Document.source_path).where(Document.project_id == project_id)
+        ).all()
+        if p
+    ]
+    for model in (Document, Quote, Rfq, FoundSupplier):
+        db.execute(sa_delete(model).where(model.project_id == project_id))
+    db.delete(project)
+    db.commit()
+    for path in paths:
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass  # the records are already gone; leave the orphaned file
+    return True
 
 
 def seed_starter_projects(db: Session) -> None:

@@ -47,6 +47,14 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     )
 
 
+@router.delete("/{project_id}", status_code=204)
+def delete_project(project_id: str, db: Session = Depends(get_db)):
+    """Delete a project and all of its documents, quotes, RFQs and suppliers."""
+    if not projects_repo.delete_project(db, project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return None
+
+
 @router.get("/{project_id}", response_model=ProjectDetail)
 def get_project(project_id: str, db: Session = Depends(get_db)):
     project = _require_project(project_id, db)

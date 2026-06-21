@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties, DragEvent, FormEvent } from 'react'
+import type { CSSProperties, DragEvent, FormEvent, MouseEvent } from 'react'
 import { Box, DcIcon, css, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
@@ -71,6 +71,7 @@ function IconHtml({ html, size = 15, sw = 2 }: { html: { __html: string }; size?
 const SPARKLE = 'M12 2l1.7 4.6L18 8l-4.3 1.4L12 14l-1.7-4.6L6 8l4.3-1.4z'
 const SPARKLE_SM = 'M12 2l1.6 4.6L18 8l-4.4 1.4L12 14l-1.6-4.6L6 8l4.4-1.4z'
 const PLUS = 'M12 5v14M5 12h14'
+const TRASH = 'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m1 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6'
 const CHEVRON = 'm9 6 6 6-6 6'
 const PIN = 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="2.6'
 
@@ -116,7 +117,7 @@ export default function App() {
   // to its literals. Pass an explicit id (e.g. right after creating a project) to
   // avoid the stale-closure value of s.projectId.
   const reload = (pid = s.projectId) =>
-    loadModelData(pid || 'riverside').then((data) => set({ data })).catch(() => {})
+    loadModelData(pid || undefined).then((data) => set({ data })).catch(() => {})
   useEffect(() => { reload() }, [])
 
   // Refetch the workspace bundle whenever the open project changes, so each
@@ -238,7 +239,7 @@ export default function App() {
         </main>
       </div>
 
-      {m.supplierOpen && <SupplierDrawer m={m} />}
+      {m.supplierOpen && m.activeSupplier && <SupplierDrawer m={m} />}
       {m.mnavOpen && <MobileNav m={m} />}
       {m.newProjOpen && <NewProjectModal m={m} />}
     </div>
@@ -350,13 +351,14 @@ function Dashboard({ m }: MProps) {
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px')}>
         <div>
           <h1 style={css('margin:0;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>{m.greeting}, {m.firstName}</h1>
-          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>Portfolio snapshot across 5 active projects · Tuesday, Jun 17</p>
+          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>{m.projectCount > 0 ? `Portfolio snapshot across ${m.projectCount} active project${m.projectCount === 1 ? '' : 's'}` : 'No projects yet — create one to get started'}</p>
         </div>
         <Box as="button" onClick={m.openNewProject} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)">
           <Svg size={16} sw={2.2} d={PLUS} />New project
         </Box>
       </div>
 
+      {m.metrics.length > 0 && (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(186px,1fr));gap:13px;margin-bottom:26px')}>
         {m.metrics.map((mm, i) => (
           <div key={i} style={css('background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:15px 17px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:11px')}>
@@ -377,6 +379,7 @@ function Dashboard({ m }: MProps) {
           </div>
         ))}
       </div>
+      )}
 
       <div style={css('display:grid;grid-template-columns:minmax(0,1.9fr) minmax(0,1fr);gap:18px;align-items:start')}>
         <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
@@ -404,6 +407,9 @@ function Dashboard({ m }: MProps) {
                   <span style={css('display:flex;justify-content:flex-end')}><span style={p.riskBadge}>{p.risk}</span></span>
                 </Box>
               ))}
+              {m.projects.length === 0 && (
+                <div style={css('padding:36px 18px;text-align:center;font-size:13px;color:var(--text-3)')}>No projects yet — create one to get started.</div>
+              )}
             </div>
           </div>
         </div>
@@ -424,6 +430,9 @@ function Dashboard({ m }: MProps) {
                 <span style={css('font-size:11px;color:var(--text-3);white-space:nowrap')}>{a.time}</span>
               </Box>
             ))}
+            {m.activity.length === 0 && (
+              <div style={css('padding:28px 12px;text-align:center;font-size:12.5px;color:var(--text-3)')}>No activity yet.</div>
+            )}
           </div>
         </div>
       </div>
@@ -444,6 +453,21 @@ function Projects({ m }: MProps) {
           <Svg size={16} sw={2.2} d={PLUS} />New project
         </Box>
       </div>
+      {m.projError && (
+        <div style={css('display:flex;align-items:center;gap:11px;margin-bottom:16px;padding:12px 14px;border-radius:11px;background:var(--danger-soft,rgba(220,38,38,.1));border:1px solid var(--danger);color:var(--danger)')}>
+          <Svg size={17} d='<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>' />
+          <span style={css('flex:1;font-size:13px;font-weight:500')}>{m.projError}</span>
+          <Box as="button" onClick={m.dismissProjError} title="Dismiss" style={css('width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--danger);flex:none')} hover="background:var(--danger-soft,rgba(220,38,38,.16))">
+            <Svg size={15} d='M6 6l12 12M18 6 6 18' />
+          </Box>
+        </div>
+      )}
+      {m.projects.length === 0 ? (
+        <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center')}>
+          <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No projects yet</div>
+          <div style={css('font-size:13px;color:var(--text-3)')}>Create a project to start uploading plans and sourcing materials.</div>
+        </div>
+      ) : (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px')}>
         {m.projects.map((p, i) => (
           <Box as="button" key={i} onClick={() => m.openProject(p)} style={css('text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:14px;transition:box-shadow .15s,transform .15s,border-color .15s')} hover="box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:var(--border-strong)">
@@ -452,6 +476,17 @@ function Projects({ m }: MProps) {
                 <div style={css('font-size:15.5px;font-weight:600;letter-spacing:-.01em;line-height:1.25')}>{p.name}</div>
                 <div style={css('display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-3);margin-top:3px')}><Svg size={13} d={PIN} />{p.loc}</div>
               </div>
+              <Box
+                onClick={(e: MouseEvent) => {
+                  e.stopPropagation()
+                  if (window.confirm(`Delete “${p.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(p.id)
+                }}
+                title="Delete project"
+                style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none')}
+                hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger)"
+              >
+                <Svg size={15} sw={1.9} d={TRASH} />
+              </Box>
             </div>
             <div>
               <div style={css('display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-bottom:6px')}><span style={css('color:var(--text-2);font-weight:500')}>Procurement progress</span><span style={css("font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.progress}%</span></div>
@@ -465,6 +500,7 @@ function Projects({ m }: MProps) {
           </Box>
         ))}
       </div>
+      )}
     </div>
   )
 }
@@ -495,15 +531,22 @@ function Suppliers({ m }: MProps) {
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
         <div>
           <h1 style={css('margin:0;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>Suppliers</h1>
-          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>Your network across all projects · 6 shown</p>
+          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>Your network across all projects · {m.suppliers.length} shown</p>
         </div>
         <Box as="button" style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)">
           <Svg size={16} sw={2.2} d={PLUS} />Add supplier
         </Box>
       </div>
+      {m.suppliers.length === 0 ? (
+        <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center')}>
+          <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No suppliers yet</div>
+          <div style={css('font-size:13px;color:var(--text-3)')}>Suppliers appear here once you search and add them from a project.</div>
+        </div>
+      ) : (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px')}>
         {m.suppliers.map((x, i) => <SupplierCard key={i} x={x} />)}
       </div>
+      )}
     </div>
   )
 }
@@ -610,15 +653,15 @@ function ProjectWorkspace({ m }: MProps) {
             <h1 style={css('margin:0;font-size:clamp(20px,2.6vw,25px);font-weight:700;letter-spacing:-.02em')}>{m.activeProject.name}</h1>
           </div>
           <div style={css('display:flex;align-items:center;gap:18px;margin-top:7px;font-size:13px;color:var(--text-2);flex-wrap:wrap')}>
-            <span style={css('display:flex;align-items:center;gap:5px')}><Svg size={14} d={PIN} />{m.activeProject.loc}</span>
-            <span>Value <strong style={css("color:var(--text);font-family:'JetBrains Mono',monospace")}>{m.activeProject.value}</strong></span>
-            <span>Bid date <strong style={css('color:var(--text)')}>Jun 20, 2026</strong></span>
+            {m.activeProject.loc && <span style={css('display:flex;align-items:center;gap:5px')}><Svg size={14} d={PIN} />{m.activeProject.loc}</span>}
+            {m.activeProject.value && <span>Value <strong style={css("color:var(--text);font-family:'JetBrains Mono',monospace")}>{m.activeProject.value}</strong></span>}
           </div>
         </div>
         <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
           <Box as="button" onClick={m.setDocuments} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)"><Svg size={15} d='M12 16V4M7 9l5-5 5 5" /><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2' />Upload</Box>
           <Box as="button" onClick={m.setSuppliers} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)"><Svg size={15} sw={2.2} d={PLUS} />Add Supplier</Box>
           <Box as="button" onClick={m.setRfqs} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />Generate RFQs</Box>
+          <Box as="button" onClick={() => { if (window.confirm(`Delete “${m.activeProject.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(m.projectId) }} title="Delete project" style={css('display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3)')} hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)"><Svg size={15} sw={1.9} d={TRASH} /></Box>
         </div>
       </div>
 
@@ -646,6 +689,7 @@ function ProjectWorkspace({ m }: MProps) {
 function TabOverview({ m }: MProps) {
   return (
     <>
+      {m.overviewCards.length > 0 && (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(162px,1fr));gap:13px;margin-bottom:18px')}>
         {m.overviewCards.map((c, i) => (
           <div key={i} style={css('background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:10px')}>
@@ -658,7 +702,9 @@ function TabOverview({ m }: MProps) {
           </div>
         ))}
       </div>
-      <div style={css('display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:start;margin-bottom:16px')}>
+      )}
+      {m.packages.length > 0 && (
+      <div style={css('margin-bottom:16px')}>
         <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
           <h2 style={css('margin:0 0 16px;font-size:15px;font-weight:600')}>Procurement progress by package</h2>
           <div style={css('display:flex;flex-direction:column;gap:15px')}>
@@ -670,12 +716,8 @@ function TabOverview({ m }: MProps) {
             ))}
           </div>
         </div>
-        <div style={css('background:var(--primary-softer);border:1px solid var(--primary-soft);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)')}>
-          <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:11px')}><span style={css('width:26px;height:26px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={15} fill d={SPARKLE} /></span><span style={css('font-size:13px;font-weight:700;color:var(--primary)')}>ProcureAI suggests</span></div>
-          <p style={css('margin:0 0 14px;font-size:13.5px;line-height:1.5;color:var(--text)')}>The <strong>Water Utilities</strong> package has 3 competitive quotes in. A mix-and-match split award lands at <strong>$143,852</strong> — $21.1K under the $165K budget and $1,620 below the best single supplier. Ready to compare.</p>
-          <Box as="button" onClick={m.setQuotes} style={css('display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:8px;background:var(--primary);color:#fff;font-size:13px;font-weight:600')} hover="background:var(--primary-2)">Review water quotes<Svg size={15} sw={2.2} d={CHEVRON} /></Box>
-        </div>
       </div>
+      )}
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
         <div style={css('padding:15px 18px;border-bottom:1px solid var(--border)')}><h2 style={css('margin:0;font-size:15px;font-weight:600')}>Recent project activity</h2></div>
         <div style={css('padding:6px 8px')}>
@@ -686,6 +728,9 @@ function TabOverview({ m }: MProps) {
               <span style={css('font-size:11px;color:var(--text-3);white-space:nowrap')}>{a.time}</span>
             </Box>
           ))}
+          {m.activity.length === 0 && (
+            <div style={css('padding:28px 12px;text-align:center;font-size:12.5px;color:var(--text-3)')}>No activity yet — upload plans and send RFQs to see updates here.</div>
+          )}
         </div>
       </div>
     </>
@@ -1347,6 +1392,12 @@ function TabQuotes({ m }: MProps) {
           <Box as="button" onClick={ingesting ? undefined : checkReplies} style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600;${ingesting ? 'opacity:.6' : ''}`)} hover="background:var(--panel-2)"><Svg size={15} sw={2} d='M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5' />{ingesting ? 'Checking…' : 'Check for replies'}</Box>
         </div>
       </div>
+      {groups.length === 0 && (
+        <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center')}>
+          <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No quotes received yet</div>
+          <div style={css('font-size:13px;color:var(--text-3)')}>Send RFQs to suppliers, then use “Check for replies” to pull in quotes.</div>
+        </div>
+      )}
       <div style={css('display:flex;flex-direction:column;gap:16px')}>
         {groups.map((g) => (
           <div key={g.pkg} style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
@@ -1566,13 +1617,17 @@ function TabCompare({ m }: MProps) {
 
 /* ------------------------------------------------------------- Timeline tab */
 function TabTimeline({ m }: MProps) {
+  if (m.gantt.length === 0 && m.milestones.length === 0) {
+    return (
+      <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center')}>
+        <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No timeline yet</div>
+        <div style={css('font-size:13px;color:var(--text-3)')}>Milestones and the procurement schedule populate as the project progresses.</div>
+      </div>
+    )
+  }
   return (
     <>
-      <div style={css('display:flex;align-items:flex-start;gap:11px;padding:14px 16px;border:1px solid var(--warn-soft);background:var(--warn-soft);border-radius:13px;margin-bottom:16px')}>
-        <span style={css('color:var(--warn);flex:none;margin-top:1px')}><Svg size={18} d='M12 4 2.8 19.5h18.4z" /><path d="M12 10v4M12 17.2v.3' /></span>
-        <div style={{ flex: 1 }}><div style={css('font-size:13.5px;font-weight:600')}>Electrical quotes outstanding</div><div style={css('font-size:12.5px;color:var(--text-2);margin-top:2px')}>WESCO has been non-responsive for 2 days on the Electrical package, putting the Jul 4 delivery at risk. ProcureAI recommends sending an automated follow-up.</div></div>
-        <button style={css('height:32px;padding:0 12px;border-radius:8px;background:var(--warn);color:#fff;font-size:12px;font-weight:600;white-space:nowrap;flex:none')}>Send follow-up</button>
-      </div>
+      {m.gantt.length > 0 && (
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px;margin-bottom:16px')}>
         <h2 style={css('margin:0 0 16px;font-size:15px;font-weight:600')}>Procurement schedule</h2>
         <div style={css('overflow-x:auto')}><div style={css('min-width:620px')}>
@@ -1584,6 +1639,8 @@ function TabTimeline({ m }: MProps) {
           </div>
         </div></div>
       </div>
+      )}
+      {m.milestones.length > 0 && (
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:20px')}>
         <h2 style={css('margin:0 0 18px;font-size:15px;font-weight:600')}>Milestones</h2>
         <div style={css('display:flex;flex-direction:column')}>
@@ -1595,6 +1652,7 @@ function TabTimeline({ m }: MProps) {
           ))}
         </div>
       </div>
+      )}
     </>
   )
 }
@@ -1634,6 +1692,9 @@ function SupplierDrawer({ m }: MProps) {
                   <div style={css('flex:1;padding-bottom:16px')}><div style={css('font-size:13px;font-weight:600')}>{c.title}</div><div style={css('font-size:12px;color:var(--text-2);margin-top:2px;line-height:1.45')}>{c.body}</div><div style={css('font-size:11px;color:var(--text-3);margin-top:4px')}>{c.time}</div></div>
                 </div>
               ))}
+              {m.supComms.length === 0 && (
+                <div style={css('font-size:12.5px;color:var(--text-3)')}>No communication yet.</div>
+              )}
             </div>
           </div>
         </div>

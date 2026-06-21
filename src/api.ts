@@ -209,6 +209,12 @@ export async function deleteDocument(docId: string): Promise<void> {
   if (!res.ok) throw new Error(`delete document -> ${res.status}`)
 }
 
+// Delete a project and everything scoped to it (documents, quotes, RFQs, suppliers).
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/projects/${projectId}`, { method: 'DELETE', headers: { ...authHeaders() } })
+  if (!res.ok) throw new Error(`delete project -> ${res.status}`)
+}
+
 // ------------------------------------------------------- supplier sourcing
 // Kick off a background Places search for one project + buy-package. The
 // frontend then polls getFoundSuppliers until status leaves 'searching'.
@@ -365,24 +371,47 @@ export type ModelData = {
   ganttCols: string[]
 }
 
-// Fetches everything the current single-project prototype renders, in parallel,
-// and reshapes it into the keys buildModel() expects.
-export async function loadModelData(projectId = 'riverside'): Promise<ModelData> {
+// Fetches everything the current workspace renders, in parallel, and reshapes it
+// into the keys buildModel() expects.
+//
+// Resilient by design: the global lists (dashboard, projects, suppliers) load
+// first, then the per-project bundle is hydrated for whichever real project
+// applies — the requested id if it still exists, else the first project, else
+// none (a brand-new/empty account). Each fetch falls back to an empty value on
+// error so a single missing sub-resource (or zero projects) can never blank the
+// whole UI.
+export async function loadModelData(projectId?: string): Promise<ModelData> {
   const pkg = encodeURIComponent('Water Utilities')
-  const [dashboard, projects, detail, suppliers, supplierDetail, docs, lineItems, quotes, comparison, rfqs, rfqFolders, timeline] =
+  const safe = <T>(p: Promise<T>, fb: T): Promise<T> => p.catch(() => fb)
+
+  const [dashboard, projects, suppliers] = await Promise.all([
+    safe(get<Dashboard>('/api/dashboard'), { metrics: [], activity: [] } as Dashboard),
+    safe(get<Project[]>('/api/projects'), [] as Project[]),
+    safe(get<Supplier[]>('/api/suppliers'), [] as Supplier[]),
+  ])
+
+  // Pick a real project/supplier to hydrate; null when the account is empty.
+  const pid =
+    (projectId && projects.some((p) => p.id === projectId) ? projectId : null) ||
+    (projects[0] ? projects[0].id : null)
+  const supId = suppliers[0] ? suppliers[0].id : null
+
+  // Per-project fetch that short-circuits to its fallback when there's no project.
+  const proj = <T>(path: string, fb: T): Promise<T> => (pid ? safe(get<T>(path), fb) : Promise.resolve(fb))
+  const emptyComparison = { suppliers: [], rows: [], recommendation: '', reasons: [], savings: '', savingsNote: '' } as unknown as Comparison
+  const emptyTimeline = { milestones: [], gantt: [], ganttCols: [] } as unknown as Timeline
+
+  const [detail, supplierDetail, docs, lineItems, quotes, comparison, rfqs, rfqFolders, timeline] =
     await Promise.all([
-      get<Dashboard>('/api/dashboard'),
-      get<Project[]>('/api/projects'),
-      get<ProjectDetail>(`/api/projects/${projectId}`),
-      get<Supplier[]>('/api/suppliers'),
-      get<SupplierDetail>('/api/suppliers/ferguson'),
-      get<Document[]>(`/api/projects/${projectId}/documents`),
-      get<LineItemGroup[]>(`/api/projects/${projectId}/line-items`),
-      get<Quote[]>(`/api/projects/${projectId}/quotes`),
-      get<Comparison>(`/api/projects/${projectId}/packages/${pkg}/comparison`),
-      get<Rfq[]>(`/api/projects/${projectId}/rfqs`),
-      get<RfqFolder[]>(`/api/projects/${projectId}/rfq-folders`),
-      get<Timeline>(`/api/projects/${projectId}/timeline`),
+      proj(`/api/projects/${pid}`, { overviewCards: [], packages: [] } as unknown as ProjectDetail),
+      supId ? safe(get<SupplierDetail>(`/api/suppliers/${supId}`), { comms: [] } as unknown as SupplierDetail) : Promise.resolve({ comms: [] } as unknown as SupplierDetail),
+      proj(`/api/projects/${pid}/documents`, [] as Document[]),
+      proj(`/api/projects/${pid}/line-items`, [] as LineItemGroup[]),
+      proj(`/api/projects/${pid}/quotes`, [] as Quote[]),
+      proj(`/api/projects/${pid}/packages/${pkg}/comparison`, emptyComparison),
+      proj(`/api/projects/${pid}/rfqs`, [] as Rfq[]),
+      proj(`/api/projects/${pid}/rfq-folders`, [] as RfqFolder[]),
+      proj(`/api/projects/${pid}/timeline`, emptyTimeline),
     ])
 
   return {

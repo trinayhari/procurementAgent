@@ -49,6 +49,14 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_dev_columns()
     with SessionLocal() as db:
+        # Demo login account (jordan@meridiancivil.com / procureai) so the
+        # auth-gated UI is usable on a fresh checkout. Kept regardless of the
+        # demo-data flag so there's always a way in before registering.
+        users_repo.seed_demo_user(db)
+        if not settings.seed_demo_data:
+            # Production default: no prototype/demo data. The app shows only
+            # real, user-generated content (empty states until data exists).
+            return
         projects_repo.seed_starter_projects(db)
         documents_repo.seed_starter_documents(db)
         # Reference/display data (dashboard, suppliers, comparison, timeline, the
@@ -58,9 +66,6 @@ def init_db() -> None:
         # Seed priced sample quotes for the demo project so the line-by-line
         # comparison + award flow works on a fresh checkout (idempotent).
         quotes_repo.seed_sample_quotes(db, "riverside")
-        # Demo login account (jordan@meridiancivil.com / procureai) so the
-        # auth-gated UI is usable on a fresh checkout.
-        users_repo.seed_demo_user(db)
 
 
 def _ensure_dev_columns() -> None:

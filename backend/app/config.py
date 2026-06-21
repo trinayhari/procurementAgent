@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # override with PROCUREAI_DATABASE_URL (e.g. a Postgres DSN) in production.
     database_url: str = "sqlite:///./procureai.db"
 
+    # Seed the prototype/demo dataset (sample projects, suppliers, quotes,
+    # dashboard metrics, timeline, etc.) on startup. OFF by default so the app
+    # only ever shows real, user-generated data; set PROCUREAI_SEED_DEMO_DATA=true
+    # for a populated demo environment.
+    seed_demo_data: bool = False
+
     # ----------------------------------------------------------------- auth
     # Secret used to sign JWT access tokens. CHANGE THIS in production via
     # PROCUREAI_JWT_SECRET — the default is only safe for local development.
