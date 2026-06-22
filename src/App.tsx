@@ -278,17 +278,6 @@ function Sidebar({ m }: MProps) {
           <span style={css('flex:1;text-align:left')}>Settings</span>
         </Box>
       </nav>
-      <div style={css('margin-top:18px;padding:0 8px 8px;font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--text-3)')}>SAVED VIEWS</div>
-      <div style={css('display:flex;flex-direction:column;gap:2px')}>
-        <Box as="button" onClick={m.openProject} style={css('display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;font-size:13px;color:var(--text-2)')} hover="background:var(--panel-2)">
-          <span style={css('width:7px;height:7px;border-radius:2px;background:var(--primary);flex:none')}></span>
-          <span style={css('flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>Riverside WTP</span>
-        </Box>
-        <Box as="button" onClick={m.openProject} style={css('display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;font-size:13px;color:var(--text-2)')} hover="background:var(--panel-2)">
-          <span style={css('width:7px;height:7px;border-radius:2px;background:var(--violet);flex:none')}></span>
-          <span style={css('flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>Eastgate Mixed-Use</span>
-        </Box>
-      </div>
       <div style={{ flex: 1 }}></div>
       <Box as="button" onClick={m.goDS} style={m.navStyle.ds} hover="background:var(--panel-2)">
         <Svg sw={1.9} d='<circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="13" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="14.5" r="2.5"/><path d="M12 22a5 5 0 0 1-3-9"/>' />
