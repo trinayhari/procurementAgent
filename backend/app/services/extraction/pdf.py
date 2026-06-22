@@ -81,6 +81,13 @@ def extract_text_pages(path: str, max_pages: int = 30) -> List[dict]:
 
     Whitespace is collapsed to keep the prompt compact; CAD text has no meaningful
     line structure anyway. Empty pages are skipped.
+
+    CAD/plot exports frequently stack identical copies of the drawing's text on top
+    of itself (a screen layer + a plot layer, etc.), so the same callout appears 2-3x
+    at the exact same coordinates. Left in, that inflates every quantity the model
+    sums. We drop words that repeat at the same position (rounded to whole points),
+    which removes the stacked copies but keeps genuinely repeated callouts (they sit
+    at different coordinates).
     """
     import fitz  # PyMuPDF
 
@@ -88,10 +95,33 @@ def extract_text_pages(path: str, max_pages: int = 30) -> List[dict]:
     with fitz.open(path) as doc:
         total = min(doc.page_count, max_pages)
         for i in range(total):
-            text = " ".join(doc[i].get_text().split())
+            text = _dedup_page_text(doc[i])
             if text:
                 pages.append({"sheet": f"Sheet {i + 1} of {total}", "text": text})
     return pages
+
+
+def _dedup_page_text(page) -> str:
+    """Embedded page text with position-stacked duplicate words removed.
+
+    Words are returned as (x0, y0, x1, y1, text, block, line, word_no). We keep the
+    first occurrence of each (text, round(x0), round(y0)) and re-emit in reading
+    order (top-to-bottom, left-to-right). For ordinary single-layer PDFs nothing is
+    stacked, so this is a no-op beyond the whitespace collapse.
+    """
+    words = page.get_text("words")
+    if not words:
+        return ""
+    seen, kept = set(), []
+    for w in words:
+        x0, y0, _x1, _y1, text = w[0], w[1], w[2], w[3], w[4]
+        key = (text, round(x0), round(y0))
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append((round(y0 / 3), x0, text))  # ~3pt rows to group a line together
+    kept.sort(key=lambda k: (k[0], k[1]))
+    return " ".join(t for _, _, t in kept)
 
 
 def to_page_tiles(

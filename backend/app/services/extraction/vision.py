@@ -74,7 +74,7 @@ def _parse(client, messages) -> VisionExtraction:
 def extract(spec: PlanTypeSpec, images_b64: List[str], sheet: str = None) -> VisionExtraction:
     """Extract a BOM from one or more page images. Pass `sheet` for a single-sheet pass."""
     messages = [
-        {"role": "system", "content": build_system_prompt()},
+        {"role": "system", "content": build_system_prompt(spec)},
         {
             "role": "user",
             "content": [
@@ -93,7 +93,7 @@ def extract_text(spec: PlanTypeSpec, sheets: List[dict]) -> VisionExtraction:
     callouts, quantities, and schedules are already exact text.
     """
     messages = [
-        {"role": "system", "content": build_system_prompt()},
+        {"role": "system", "content": build_system_prompt(spec)},
         {"role": "user", "content": build_text_prompt(spec, sheets)},
     ]
     return _parse(_client(), messages)
