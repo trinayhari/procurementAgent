@@ -36,6 +36,13 @@ class SupplierSearchRequest(BaseModel):
     radius_mi: int = Field(default=75, ge=1, le=250)
 
 
+class AdHocSupplierSearchRequest(BaseModel):
+    """Free-text supplier search for an ad-hoc RFQ (no fixed buy-package)."""
+
+    query: str
+    radius_mi: int = Field(default=75, ge=1, le=250)
+
+
 class SupplierSearchAccepted(BaseModel):
     status: str
     package: str

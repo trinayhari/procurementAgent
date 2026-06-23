@@ -101,3 +101,15 @@ class RfqUpdate(BaseModel):
     subject: str
     body: str
     recipients: List[RfqRecipient]
+
+
+class AdHocRfqGenerateRequest(BaseModel):
+    """Generate an ad-hoc RFQ from suppliers found via a free-text search.
+
+    ``description`` is what the user typed they need (drives the subject and is
+    the default line item); ``supplier_ids`` are the chosen found-suppliers.
+    """
+
+    supplier_ids: List[str]
+    description: str
+    lineItems: List[RfqLineItem] = []

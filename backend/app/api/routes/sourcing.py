@@ -17,8 +17,15 @@ from app.repositories import reference as reference_repo
 from app.repositories import rfqs as rfqs_repo
 from app.repositories import sourcing as sourcing_repo
 from app.schemas.quote import QuoteIngestResult
-from app.schemas.rfq import PersistedRfq, RfqConversation, RfqGenerateRequest, RfqUpdate
+from app.schemas.rfq import (
+    AdHocRfqGenerateRequest,
+    PersistedRfq,
+    RfqConversation,
+    RfqGenerateRequest,
+    RfqUpdate,
+)
 from app.schemas.sourcing import (
+    AdHocSupplierSearchRequest,
     SupplierSearchAccepted,
     SupplierSearchRequest,
     SupplierSearchResult,
@@ -74,14 +81,25 @@ def search_suppliers(
     return {"status": "searching", "package": package}
 
 
-def _run_search(project_id: str, loc: str, package: str, radius_mi: int) -> None:
-    """Background worker: search + persist. Opens its own DB session."""
+def _run_search(
+    project_id: str,
+    loc: str,
+    package: str,
+    radius_mi: int,
+    keywords: Optional[List[str]] = None,
+    label: Optional[str] = None,
+) -> None:
+    """Background worker: search + persist. Opens its own DB session.
+
+    ``keywords``/``label`` are set for ad-hoc searches (free-text query);
+    otherwise the package presets are used.
+    """
     key = (project_id, package)
     db = SessionLocal()
     try:
         cached = sourcing_repo.get_cached_latlng(db, project_id, loc)
         results, latlng, mocked = sourcing_service.search_suppliers(
-            loc, package, radius_mi, cached_latlng=cached
+            loc, package, radius_mi, cached_latlng=cached, keywords=keywords, label=label
         )
         if latlng is not None and cached is None:
             sourcing_repo.cache_latlng(db, project_id, loc, latlng[0], latlng[1])
@@ -93,7 +111,7 @@ def _run_search(project_id: str, loc: str, package: str, radius_mi: int) -> None
                 db, project_id,
                 title=f"{len(results)} suppliers found",
                 icon="supplier", tone="blue",
-                meta=f"{packages.label_for(package)} · within {radius_mi} mi",
+                meta=f"{label or packages.label_for(package)} · within {radius_mi} mi",
             )
         _SEARCH_STATUS[key] = {"status": "done", "radiusMi": radius_mi, "mocked": mocked}
     except Exception as exc:  # surface the failure to the poller
@@ -102,17 +120,8 @@ def _run_search(project_id: str, loc: str, package: str, radius_mi: int) -> None
         db.close()
 
 
-@router.get(
-    "/{project_id}/suppliers/found",
-    response_model=SupplierSearchResult,
-)
-def get_found_suppliers(
-    project_id: str,
-    package: str,
-    db: Session = Depends(get_db),
-):
-    _require_project(project_id, db)
-    _require_package(package)
+def _found_suppliers_payload(db: Session, project_id: str, package: str) -> dict:
+    """Bucket a project's found suppliers (for one package) into tiers + status."""
     status_info = _SEARCH_STATUS.get((project_id, package), {})
     rows = sourcing_repo.list_found_suppliers(db, project_id, package)
 
@@ -138,6 +147,20 @@ def get_found_suppliers(
         "error": status_info.get("error"),
         "tiers": tiers,
     }
+
+
+@router.get(
+    "/{project_id}/suppliers/found",
+    response_model=SupplierSearchResult,
+)
+def get_found_suppliers(
+    project_id: str,
+    package: str,
+    db: Session = Depends(get_db),
+):
+    _require_project(project_id, db)
+    _require_package(package)
+    return _found_suppliers_payload(db, project_id, package)
 
 
 # --------------------------------------------------------------- quote ingest
@@ -273,6 +296,100 @@ def generate_rfq(
     events_repo.log(
         db, project_id,
         title=f"RFQ drafted — {packages.label_for(package)}",
+        icon="rfq", tone="ai",
+        meta=f"{len(draft.recipients)} supplier{'s' if len(draft.recipients) != 1 else ''}",
+    )
+    return rfq
+
+
+# --------------------------------------------------------------- ad-hoc RFQs
+# An ad-hoc RFQ runs the same find-suppliers → select → generate flow as a buy
+# package, but driven by a free-text description instead of a fixed package. Its
+# found suppliers are stored under this reserved package key.
+_ADHOC_PACKAGE = "adhoc"
+
+
+@router.post(
+    "/{project_id}/rfqs/adhoc/search-suppliers",
+    response_model=SupplierSearchAccepted,
+    status_code=202,
+)
+def search_adhoc_suppliers(
+    project_id: str,
+    payload: AdHocSupplierSearchRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Kick off a free-text supplier search for an ad-hoc RFQ. The frontend then
+    polls GET .../rfqs/adhoc/suppliers/found, exactly like the package flow.
+    """
+    project = _require_project(project_id, db)
+    query = payload.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Describe what you need to search for")
+
+    # Fan a single description into a few search variants for better recall.
+    keywords = [query, f"{query} supplier", f"{query} distributor"]
+    _SEARCH_STATUS[(project_id, _ADHOC_PACKAGE)] = {
+        "status": "searching", "radiusMi": payload.radius_mi
+    }
+    background.add_task(
+        _run_search, project_id, project["loc"], _ADHOC_PACKAGE,
+        payload.radius_mi, keywords, query,
+    )
+    return {"status": "searching", "package": _ADHOC_PACKAGE}
+
+
+@router.get(
+    "/{project_id}/rfqs/adhoc/suppliers/found",
+    response_model=SupplierSearchResult,
+)
+def get_adhoc_found_suppliers(project_id: str, db: Session = Depends(get_db)):
+    _require_project(project_id, db)
+    return _found_suppliers_payload(db, project_id, _ADHOC_PACKAGE)
+
+
+@router.post(
+    "/{project_id}/rfqs/adhoc/generate",
+    response_model=PersistedRfq,
+    status_code=201,
+)
+def generate_adhoc_rfq(
+    project_id: str,
+    payload: AdHocRfqGenerateRequest,
+    db: Session = Depends(get_db),
+):
+    """Generate a draft RFQ from the chosen ad-hoc found-suppliers. The draft
+    lands in the same list as package RFQs and is reviewed/sent the same way.
+    """
+    project = _require_project(project_id, db)
+    description = payload.description.strip() or "Ad-hoc RFQ"
+
+    suppliers = sourcing_repo.get_found_suppliers_by_ids(db, payload.supplier_ids)
+    if not suppliers:
+        raise HTTPException(status_code=400, detail="No matching found suppliers")
+
+    # Use the user's line items, or fall back to the description as a single item.
+    line_items = [li.model_dump() for li in payload.lineItems] or [{"n": description, "q": ""}]
+    draft = rfq_generator.generate_rfq_draft(project, description, line_items, suppliers)
+    if not draft.recipients:
+        raise HTTPException(
+            status_code=400,
+            detail="None of the selected suppliers have a discovered email",
+        )
+    rfq = rfqs_repo.create_rfq_draft(
+        db,
+        project_id=project_id,
+        package=_ADHOC_PACKAGE,
+        package_label=description,
+        subject=draft.subject,
+        body=draft.body,
+        line_items=draft.line_items,
+        recipients=draft.recipients,
+    )
+    events_repo.log(
+        db, project_id,
+        title=f"Ad-hoc RFQ drafted — {description[:40]}",
         icon="rfq", tone="ai",
         meta=f"{len(draft.recipients)} supplier{'s' if len(draft.recipients) != 1 else ''}",
     )

@@ -18,3 +18,4 @@ backend/procureai.db
 
 # uploaded plan sets
 backend/uploads/
+.vercel

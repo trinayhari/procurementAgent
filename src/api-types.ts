@@ -395,6 +395,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/rfqs/adhoc/search-suppliers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search Adhoc Suppliers
+         * @description Kick off a free-text supplier search for an ad-hoc RFQ. The frontend then
+         *     polls GET .../rfqs/adhoc/suppliers/found, exactly like the package flow.
+         */
+        post: operations["search_adhoc_suppliers_api_projects__project_id__rfqs_adhoc_search_suppliers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rfqs/adhoc/suppliers/found": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Adhoc Found Suppliers */
+        get: operations["get_adhoc_found_suppliers_api_projects__project_id__rfqs_adhoc_suppliers_found_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rfqs/adhoc/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Adhoc Rfq
+         * @description Generate a draft RFQ from the chosen ad-hoc found-suppliers. The draft
+         *     lands in the same list as package RFQs and is reviewed/sent the same way.
+         */
+        post: operations["generate_adhoc_rfq_api_projects__project_id__rfqs_adhoc_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/rfqs/generated": {
         parameters: {
             query?: never;
@@ -767,6 +826,37 @@ export interface components {
             meta: string;
             /** Time */
             time: string;
+        };
+        /**
+         * AdHocRfqGenerateRequest
+         * @description Generate an ad-hoc RFQ from suppliers found via a free-text search.
+         *
+         *     ``description`` is what the user typed they need (drives the subject and is
+         *     the default line item); ``supplier_ids`` are the chosen found-suppliers.
+         */
+        AdHocRfqGenerateRequest: {
+            /** Supplier Ids */
+            supplier_ids: string[];
+            /** Description */
+            description: string;
+            /**
+             * Lineitems
+             * @default []
+             */
+            lineItems: components["schemas"]["RfqLineItem"][];
+        };
+        /**
+         * AdHocSupplierSearchRequest
+         * @description Free-text supplier search for an ad-hoc RFQ (no fixed buy-package).
+         */
+        AdHocSupplierSearchRequest: {
+            /** Query */
+            query: string;
+            /**
+             * Radius Mi
+             * @default 75
+             */
+            radius_mi: number;
         };
         /** AwardOption */
         AwardOption: {
@@ -2501,6 +2591,107 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RfqGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersistedRfq"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_adhoc_suppliers_api_projects__project_id__rfqs_adhoc_search_suppliers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdHocSupplierSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierSearchAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_adhoc_found_suppliers_api_projects__project_id__rfqs_adhoc_suppliers_found_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierSearchResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_adhoc_rfq_api_projects__project_id__rfqs_adhoc_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdHocRfqGenerateRequest"];
             };
         };
         responses: {
