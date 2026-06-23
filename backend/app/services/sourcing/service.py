@@ -41,13 +41,21 @@ def search_suppliers(
     category_key: str,
     radius_mi: int,
     cached_latlng: Optional[LatLng] = None,
+    keywords: Optional[List[str]] = None,
+    label: Optional[str] = None,
 ) -> Tuple[List[FoundSupplierResult], Optional[LatLng], bool]:
     """Return (results, latlng_used, mocked).
 
     results are sorted by distance and capped at search_max_results_per_package.
     latlng_used is returned so the caller can cache the project geocode.
+
+    ``keywords``/``label`` override the buy-package presets — this is how an
+    ad-hoc RFQ searches on a free-text description instead of a fixed package.
     """
+    ad_hoc = keywords is not None
     if not places.is_configured():
+        if ad_hoc:
+            return _mock_adhoc_suppliers(label or category_key, radius_mi), None, True
         return _mock_suppliers(category_key, radius_mi), None, True
 
     # 1. Geocode (or reuse cached project coordinates).
@@ -56,11 +64,12 @@ def search_suppliers(
         origin = places.geocode(project_loc)
 
     radius_m = int(min(radius_mi, settings.search_tier3_max_mi) * 1609.34)
-    label = packages.label_for(category_key)
+    label = label or packages.label_for(category_key)
+    search_keywords = keywords if ad_hoc else packages.keywords_for(category_key)
 
-    # 2. Text Search across the package's keywords; dedupe by place_id.
+    # 2. Text Search across the keywords; dedupe by place_id.
     raw: dict = {}
-    for keyword in packages.keywords_for(category_key):
+    for keyword in search_keywords:
         for place in places.text_search(f"{keyword} {project_loc}", origin[0], origin[1], radius_m):
             pid = place.get("place_id")
             if pid and pid not in raw:
@@ -142,6 +151,44 @@ _MOCK = {
         ("Landscape Supply Yard", 54.0, None),
     ],
 }
+
+
+# Category-agnostic mock used for ad-hoc searches (any free-text description),
+# so the select → generate flow is exercisable offline without a Google key.
+_MOCK_ADHOC = [
+    ("Regional Building Supply", 11.0, "sales@regionalbuilding.example.com"),
+    ("Metro Materials Co.", 27.0, "quotes@metromaterials.example.com"),
+    ("Statewide Industrial Supply", 52.0, "estimating@statewideind.example.com"),
+    ("National Manufacturing Group", 121.0, None),
+]
+
+
+def _mock_adhoc_suppliers(label: str, radius_mi: int) -> List[FoundSupplierResult]:
+    out: List[FoundSupplierResult] = []
+    for i, (name, dist, email) in enumerate(_MOCK_ADHOC):
+        if dist > radius_mi:
+            continue
+        tier = distance.tier_for(dist)
+        if tier == 0:
+            continue
+        slug = name.lower().split()[0]
+        out.append(
+            FoundSupplierResult(
+                name=name,
+                address=f"{200 + i * 30} Commerce Dr",
+                distance_miles=dist,
+                tier=tier,
+                contact_name=None,
+                email=email,
+                phone=f"(555) 555-0{200 + i:03d}",
+                website=f"https://{slug}.example.com",
+                material_categories=[label] if label else [],
+                email_source="mock" if email else "none",
+                place_id=f"mock-adhoc-{i}",
+            )
+        )
+    out.sort(key=lambda r: r.distance_miles)
+    return out
 
 
 def _mock_suppliers(category_key: str, radius_mi: int) -> List[FoundSupplierResult]:

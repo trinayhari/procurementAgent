@@ -8,12 +8,13 @@ import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
   saveDocumentLineItems, confirmDocument,
   searchSuppliers, getFoundSuppliers, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
+  searchAdHocSuppliers, getAdHocFoundSuppliers, generateAdHocRfq,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
   getToken, getMe, logout as apiLogout, onAuthChange,
 } from './api'
 import type {
-  SupplierSearchResult, FoundSupplier, PersistedRfq, RfqRecipient, RfqConversation,
+  SupplierSearchResult, FoundSupplier, PersistedRfq, RfqRecipient, RfqLineItem, RfqConversation,
   LineComparison, AwardOption, AuthUser,
 } from './api'
 
@@ -988,28 +989,39 @@ const BUY_PACKAGES = [
 const TIER_TONE: Record<number, string> = { 1: 'success', 2: 'blue', 3: 'violet' }
 
 function pkgLabel(key: string): string {
+  if (key === 'adhoc') return 'Ad-hoc RFQ'
   const p = BUY_PACKAGES.find((x) => x.key === key)
   return p ? p.label : key
 }
 
-// Self-contained supplier search: pick a package, set a radius, search Google
-// Places (mock when no key), review tiered results, select recipients, and
-// generate an RFQ draft. Manages its own state + polling.
+// Self-contained supplier search: pick a buy-package (or "Ad-hoc" to search a
+// free-text description), set a radius, search Google Places (mock when no key),
+// review tiered results, select recipients, and generate an RFQ draft. Manages
+// its own state + polling.
+const ADHOC_KEY = 'adhoc'
+
 function SupplierSearch({ projectId }: { projectId: string }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
+  const [query, setQuery] = useState('')                       // ad-hoc description
+  const [lineItems, setLineItems] = useState<RfqLineItem[]>([]) // optional ad-hoc items
   const [result, setResult] = useState<SupplierSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [draft, setDraft] = useState<PersistedRfq | null>(null)
   const [generating, setGenerating] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const isAdhoc = pkg === ADHOC_KEY
+
+  // What we're searching/RFQ-ing for, as a display label.
+  const subjectLabel = isAdhoc ? (query.trim() || 'ad-hoc RFQ') : pkgLabel(pkg)
+  const fetchFound = () => (isAdhoc ? getAdHocFoundSuppliers(projectId) : getFoundSuppliers(projectId, pkg))
 
   // Load any prior results when the package changes.
   useEffect(() => {
     let alive = true
     setResult(null); setSelected({}); setErr(null)
-    getFoundSuppliers(projectId, pkg)
+    fetchFound()
       .then((r) => { if (!alive) return; setResult(r); if (r.status === 'searching') setSearching(true) })
       .catch(() => {})
     return () => { alive = false }
@@ -1019,7 +1031,7 @@ function SupplierSearch({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (!searching) return
     const t = setInterval(() => {
-      getFoundSuppliers(projectId, pkg)
+      fetchFound()
         .then((r) => { setResult(r); if (r.status !== 'searching') setSearching(false) })
         .catch(() => {})
     }, 2500)
@@ -1028,8 +1040,10 @@ function SupplierSearch({ projectId }: { projectId: string }) {
 
   const runSearch = async () => {
     setErr(null); setSelected({})
+    if (isAdhoc && !query.trim()) { setErr('Describe what you need before searching.'); return }
     try {
-      await searchSuppliers(projectId, pkg, radius)
+      if (isAdhoc) await searchAdHocSuppliers(projectId, query.trim(), radius)
+      else await searchSuppliers(projectId, pkg, radius)
       setSearching(true)
       setResult({ status: 'searching', mocked: false, radiusMi: radius, package: pkg, error: null, tiers: [] })
     } catch (e) { setErr('Search failed. Is the backend running?') }
@@ -1038,10 +1052,21 @@ function SupplierSearch({ projectId }: { projectId: string }) {
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }))
   const selectedIds = Object.keys(selected).filter((k) => selected[k])
 
+  const addItem = () => setLineItems((xs) => [...xs, { n: '', q: '' }])
+  const setItem = (i: number, patch: Partial<RfqLineItem>) =>
+    setLineItems((xs) => xs.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+  const dropItem = (i: number) => setLineItems((xs) => xs.filter((_, j) => j !== i))
+
   const generate = async () => {
     setGenerating(true); setErr(null)
     try {
-      const rfq = await generateRfq(projectId, pkg, selectedIds)
+      const rfq = isAdhoc
+        ? await generateAdHocRfq(projectId, {
+            supplierIds: selectedIds,
+            description: query.trim(),
+            lineItems: lineItems.filter((li) => (li.n || '').trim()),
+          })
+        : await generateRfq(projectId, pkg, selectedIds)
       setDraft(rfq)
     } catch (e) {
       setErr('Could not generate RFQ — selected suppliers may not have a discovered email.')
@@ -1050,6 +1075,8 @@ function SupplierSearch({ projectId }: { projectId: string }) {
 
   const tiers = (result && result.tiers) || []
   const total = tiers.reduce((n, t) => n + t.suppliers.length, 0)
+  const chip = (active: boolean) =>
+    css(`height:32px;padding:0 13px;border-radius:8px;font-size:12.5px;font-weight:600;border:1px solid ${active ? 'var(--primary)' : 'var(--border)'};background:${active ? 'var(--primary-soft)' : 'var(--panel)'};color:${active ? 'var(--primary)' : 'var(--text-2)'}`)
 
   return (
     <>
@@ -1061,11 +1088,41 @@ function SupplierSearch({ projectId }: { projectId: string }) {
         </div>
         <div style={css('display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px')}>
           {BUY_PACKAGES.map((p) => (
-            <Box as="button" key={p.key} onClick={() => setPkg(p.key)}
-              style={css(`height:32px;padding:0 13px;border-radius:8px;font-size:12.5px;font-weight:600;border:1px solid ${pkg === p.key ? 'var(--primary)' : 'var(--border)'};background:${pkg === p.key ? 'var(--primary-soft)' : 'var(--panel)'};color:${pkg === p.key ? 'var(--primary)' : 'var(--text-2)'}`)}
+            <Box as="button" key={p.key} onClick={() => setPkg(p.key)} style={chip(pkg === p.key)}
               hover="background:var(--panel-2)">{p.label}</Box>
           ))}
+          <Box as="button" key={ADHOC_KEY} onClick={() => setPkg(ADHOC_KEY)} style={chip(isAdhoc)}
+            hover="background:var(--panel-2)"><Svg size={13} sw={2.2} d='M12 5v14M5 12h14' />Ad-hoc</Box>
         </div>
+
+        {/* Ad-hoc: describe what you need + optional line items */}
+        {isAdhoc && (
+          <div style={css('margin-bottom:14px;display:flex;flex-direction:column;gap:10px')}>
+            <div>
+              <label style={fieldLabel}>What do you need a quote for?</label>
+              <input value={query} onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !searching) { e.preventDefault(); runSearch() } }}
+                placeholder="e.g. ready-mix concrete, #5 rebar, W-beam guardrail" style={fieldInput} />
+            </div>
+            <div>
+              <div style={css('display:flex;align-items:center;justify-content:space-between;margin-bottom:8px')}>
+                <label style={{ ...fieldLabel, marginBottom: 0 }}>Line items ({lineItems.length}) <span style={css('font-weight:500;color:var(--text-3)')}>· optional</span></label>
+                <Box as="button" onClick={addItem} style={css('display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={13} sw={2.2} d='M12 5v14M5 12h14' />Add item</Box>
+              </div>
+              {lineItems.length === 0 && <div style={css('font-size:12px;color:var(--text-3)')}>Leave empty to quote “{subjectLabel}”, or list specific items below.</div>}
+              <div style={css('display:flex;flex-direction:column;gap:6px')}>
+                {lineItems.map((li, i) => (
+                  <div key={i} style={css('display:flex;gap:6px;align-items:center')}>
+                    <input value={li.n} onChange={(e) => setItem(i, { n: e.target.value })} placeholder="Item" style={{ ...fieldInput, flex: '1 1 0', marginBottom: 0 }} />
+                    <input value={li.q} onChange={(e) => setItem(i, { q: e.target.value })} placeholder="Qty" style={{ ...fieldInput, flex: '0 0 110px', marginBottom: 0 }} />
+                    <Box as="button" onClick={() => dropItem(i)} style={css('width:30px;height:30px;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center;flex:none')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={css('display:flex;align-items:center;gap:16px;flex-wrap:wrap')}>
           <div style={css('display:flex;align-items:center;gap:11px;flex:1;min-width:240px')}>
             <span style={css('font-size:12.5px;font-weight:600;color:var(--text-2);white-space:nowrap')}>Search radius</span>
@@ -1095,7 +1152,9 @@ function SupplierSearch({ projectId }: { projectId: string }) {
         <div style={css('padding:30px;text-align:center;font-size:13px;color:var(--text-3)')}>Searching Google Places & discovering supplier emails…</div>
       )}
       {!searching && result && total === 0 && (
-        <div style={css('padding:30px;text-align:center;font-size:13px;color:var(--text-3)')}>No suppliers found yet — run a search for {pkgLabel(pkg)}.</div>
+        <div style={css('padding:30px;text-align:center;font-size:13px;color:var(--text-3)')}>
+          {isAdhoc ? 'Describe what you need and run a search to find suppliers.' : `No suppliers found yet — run a search for ${pkgLabel(pkg)}.`}
+        </div>
       )}
 
       {tiers.map((t) => (
@@ -1116,7 +1175,7 @@ function SupplierSearch({ projectId }: { projectId: string }) {
       {/* Action bar */}
       {selectedIds.length > 0 && (
         <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--primary-soft);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
-          <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} supplier{selectedIds.length > 1 ? 's' : ''} selected for {pkgLabel(pkg)}</span>
+          <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} supplier{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</span>
           <Box as="button" onClick={generate} disabled={generating}
             style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating ? '.6' : '1'}`)}
             hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />{generating ? 'Generating…' : 'Generate RFQ draft'}</Box>
@@ -1370,7 +1429,7 @@ function TabRfqs({ m }: MProps) {
               {rfqs !== null && shown.length === 0 && (
                 <div style={css('padding:48px 24px;text-align:center')}>
                   <div style={css('font-size:13.5px;font-weight:600;color:var(--text-2);margin-bottom:4px')}>No RFQs here yet</div>
-                  <div style={css('font-size:12.5px;color:var(--text-3)')}>Generate RFQs from the Suppliers tab to get started.</div>
+                  <div style={css('font-size:12.5px;color:var(--text-3)')}>Generate RFQs from the Suppliers tab — by buy-package or an ad-hoc search.</div>
                 </div>
               )}
               {shown.map((rq) => (
