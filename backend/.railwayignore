@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+procureai.db
+uploads/
+.pytest_cache/
