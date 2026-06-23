@@ -1,0 +1,70 @@
+# Render Blueprint — provisions the ProcureAI backend as a long-running uvicorn
+# service plus a managed Postgres database. Render reads this file from the repo
+# root; the `rootDir` below scopes the build/start to the backend/ folder.
+#
+# Deploy: https://dashboard.render.com → New → Blueprint → pick this repo.
+# After the first deploy, set the secret env vars marked `sync: false` in the
+# Render dashboard (see DEPLOYMENT.md).
+
+databases:
+  - name: procureai-db
+    databaseName: procureai
+    user: procureai
+    plan: free # 90-day free Postgres; switch to `basic-256mb`+ for production
+
+services:
+  - type: web
+    name: procureai-api
+    runtime: python
+    rootDir: backend
+    plan: free # free web services sleep after inactivity; `starter` to keep warm
+    buildCommand: pip install -r requirements.txt
+    # Apply migrations, then serve. Running alembic before uvicorn starts means
+    # the schema is ready before the app's startup create_all (a no-op once
+    # migrated) runs. $PORT is provided by Render.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Postgres DSN, injected from the managed database above. SQLAlchemy maps
+      # the `postgresql://` URL to psycopg2 (already in requirements.txt).
+      - key: PROCUREAI_DATABASE_URL
+        fromDatabase:
+          name: procureai-db
+          property: connectionString
+      # JWT signing secret — generated once and kept by Render.
+      - key: PROCUREAI_JWT_SECRET
+        generateValue: true
+      # Browser origins allowed to call the API. MUST be a JSON array string,
+      # e.g. ["https://your-app.vercel.app"]. Set after the Vercel URL exists.
+      - key: PROCUREAI_CORS_ORIGINS
+        sync: false
+      # ---- Optional integrations (empty → clearly-flagged mock behaviour) ----
+      - key: PROCUREAI_OPENAI_API_KEY # AI plan extraction; empty = mock
+        sync: false
+      - key: PROCUREAI_GOOGLE_MAPS_API_KEY # supplier search; empty = mock
+        sync: false
+      - key: PROCUREAI_GMAIL_CLIENT_ID # RFQ email send; empty = log-only
+        sync: false
+      - key: PROCUREAI_GMAIL_CLIENT_SECRET
+        sync: false
+      - key: PROCUREAI_GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: PROCUREAI_GMAIL_SENDER_ADDRESS
+        sync: false
+
+    # ---- Persistent uploads (optional, requires a paid instance) -------------
+    # Uploaded plan PDFs are written to disk. Extracted BOM data lives in
+    # Postgres and always persists, but the raw files (preview / re-analyze)
+    # are lost on redeploy UNLESS a persistent disk is attached. To enable:
+    #   1. change `plan: free` above to `plan: starter` (disks need a paid plan)
+    #   2. uncomment the disk block and the PROCUREAI_UPLOAD_DIR env var below
+    #
+    # disk:
+    #   name: uploads
+    #   mountPath: /data
+    #   sizeGB: 1
+    # and add to envVars:
+    #   - key: PROCUREAI_UPLOAD_DIR
+    #     value: /data/uploads

@@ -1,0 +1,4 @@
+# The Vercel build only needs the Vite frontend; keep the Python backend,
+# its virtualenv, the local SQLite DB and uploads out of the build context.
+backend/
+*.db
