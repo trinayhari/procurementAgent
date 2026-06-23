@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.repositories import documents as documents_repo
+from app.repositories import events as events_repo
 from app.repositories import projects as projects_repo
 from app.repositories import quotes as quotes_repo
 from app.repositories import reference as reference_repo
@@ -38,13 +39,22 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("", response_model=Project, status_code=201)
 def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
-    return projects_repo.create_project(
+    project = projects_repo.create_project(
         db,
         name=payload.name,
         loc=payload.loc,
         value=payload.value,
         stage=payload.stage.value,
     )
+    events_repo.log(
+        db,
+        project["id"],
+        title="Project created",
+        icon="sparkles",
+        tone="ai",
+        meta=project["name"],
+    )
+    return project
 
 
 @router.delete("/{project_id}", status_code=204)
@@ -62,6 +72,7 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
         **project,
         "overviewCards": reference_repo.list_overview_cards(db),
         "packages": reference_repo.list_packages(db),
+        "activity": events_repo.list_for_project(db, project_id),
     }
 
 
@@ -162,9 +173,18 @@ def award_package(
     n = summary["poCount"]
     sup_list = ", ".join(summary["suppliers"])
     po_word = "PO" if n == 1 else "POs"
+    pkg_label = packages.label_for(key) if key else pkg
     message = (
-        f"Awarded {packages.label_for(key) if key else pkg} for "
+        f"Awarded {pkg_label} for "
         f"${summary['total']:,.0f} — {n} {po_word} to {sup_list}."
+    )
+    events_repo.log(
+        db,
+        project_id,
+        title=f"{pkg_label} awarded to {sup_list}",
+        icon="check",
+        tone="success",
+        meta=f"${summary['total']:,.0f} · {n} {po_word}",
     )
     return {
         "status": "awarded",

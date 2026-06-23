@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.repositories import documents as documents_repo
+from app.repositories import events as events_repo
 from app.schemas.document import Document, LineItemGroup, LineItemsUpdate, PlanType
 from app.services import extraction
 from app.services.extraction import pdf
@@ -154,6 +155,14 @@ async def upload_document(
         has_file=True,
     )
     payload = doc.to_dict()
+    events_repo.log(
+        db,
+        project_id,
+        title=f"Plans uploaded — {payload['name']}",
+        icon="file",
+        tone="blue",
+        meta=f"{spec.label}{f' · {pages} pages' if pages else ''}",
+    )
     background.add_task(_run_extraction, doc.id, dest, plan_type)
     return payload
 
@@ -181,7 +190,8 @@ def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
     """
     result = extraction.extract_document(path, plan_type)
     with SessionLocal() as db:
-        if documents_repo.get(db, document_id) is None:
+        doc = documents_repo.get(db, document_id)
+        if doc is None:
             return
         documents_repo.set_line_items(db, document_id, result.groups)
         if result.error:
@@ -190,9 +200,19 @@ def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
                 status="Failed", status_tone="danger", processing=False,
                 items="—", error=result.error,
             )
+            events_repo.log(
+                db, doc.project_id,
+                title=f"Extraction failed — {doc.name}",
+                icon="alert", tone="danger", meta=result.error[:80],
+            )
         else:
             documents_repo.update_status(
                 db, document_id,
                 status="Analyzed", status_tone="success", processing=False,
                 items=str(result.total_items), summary=result.summary, mocked=result.mocked,
+            )
+            events_repo.log(
+                db, doc.project_id,
+                title=f"BOM extracted — {result.total_items} line items",
+                icon="sparkles", tone="ai", meta=doc.name,
             )

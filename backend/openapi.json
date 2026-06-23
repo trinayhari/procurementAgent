@@ -218,6 +218,40 @@
       }
     },
     "/api/projects/{project_id}": {
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Delete Project",
+        "description": "Delete a project and all of its documents, quotes, RFQs and suppliers.",
+        "operationId": "delete_project_api_projects__project_id__delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "tags": [
           "projects"
@@ -3434,6 +3468,13 @@
             },
             "type": "array",
             "title": "Packages"
+          },
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/Activity"
+            },
+            "type": "array",
+            "title": "Activity"
           }
         },
         "type": "object",
@@ -3452,7 +3493,8 @@
           "riskTone",
           "barColor",
           "overviewCards",
-          "packages"
+          "packages",
+          "activity"
         ],
         "title": "ProjectDetail",
         "description": "Full project workspace payload."

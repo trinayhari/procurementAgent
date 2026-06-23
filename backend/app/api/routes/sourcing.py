@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, get_db
 from app.repositories import documents as documents_repo
+from app.repositories import events as events_repo
 from app.repositories import projects as projects_repo
 from app.repositories import reference as reference_repo
 from app.repositories import rfqs as rfqs_repo
@@ -87,6 +88,13 @@ def _run_search(project_id: str, loc: str, package: str, radius_mi: int) -> None
         sourcing_repo.replace_found_suppliers(
             db, project_id, package, [r.to_dict() for r in results]
         )
+        if results:
+            events_repo.log(
+                db, project_id,
+                title=f"{len(results)} suppliers found",
+                icon="supplier", tone="blue",
+                meta=f"{packages.label_for(package)} · within {radius_mi} mi",
+            )
         _SEARCH_STATUS[key] = {"status": "done", "radiusMi": radius_mi, "mocked": mocked}
     except Exception as exc:  # surface the failure to the poller
         _SEARCH_STATUS[key] = {"status": "error", "radiusMi": radius_mi, "error": str(exc)}
@@ -158,6 +166,13 @@ def _run_ingest(project_id: str) -> None:
     db = SessionLocal()
     try:
         ingested, total, mocked = quotes_ingest.ingest_quotes(db, project_id)
+        if ingested:
+            events_repo.log(
+                db, project_id,
+                title=f"{ingested} quote{'s' if ingested != 1 else ''} received",
+                icon="quote", tone="violet",
+                meta="Parsed from supplier replies",
+            )
         _INGEST_STATUS[project_id] = {
             "status": "done",
             "mocked": mocked,
@@ -245,7 +260,7 @@ def generate_rfq(
             status_code=400,
             detail="None of the selected suppliers have a discovered email",
         )
-    return rfqs_repo.create_rfq_draft(
+    rfq = rfqs_repo.create_rfq_draft(
         db,
         project_id=project_id,
         package=package,
@@ -255,6 +270,13 @@ def generate_rfq(
         line_items=draft.line_items,
         recipients=draft.recipients,
     )
+    events_repo.log(
+        db, project_id,
+        title=f"RFQ drafted — {packages.label_for(package)}",
+        icon="rfq", tone="ai",
+        meta=f"{len(draft.recipients)} supplier{'s' if len(draft.recipients) != 1 else ''}",
+    )
+    return rfq
 
 
 @router.get("/{project_id}/rfqs/generated", response_model=List[PersistedRfq])
@@ -336,4 +358,14 @@ def send_generated_rfq(project_id: str, rfq_id: str, db: Session = Depends(get_d
             r["sentMessageId"] = f"error: {exc}"
 
     # Sent → Awaiting (awaiting supplier quotes); the ingest poller flips to Quoted.
-    return rfqs_repo.mark_rfq_sent(db, rfq_id, recipients, status="Awaiting")
+    sent_rfq = rfqs_repo.mark_rfq_sent(db, rfq_id, recipients, status="Awaiting")
+    delivered = sum(
+        1 for r in recipients if not str(r.get("sentMessageId", "")).startswith("error:")
+    )
+    events_repo.log(
+        db, project_id,
+        title=f"RFQ sent to {delivered} supplier{'s' if delivered != 1 else ''}",
+        icon="rfq", tone="success",
+        meta=rfq.get("pkg") or rfq.get("subject", ""),
+    )
+    return sent_rfq
