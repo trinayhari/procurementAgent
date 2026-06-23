@@ -148,6 +148,11 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const actRaw = D.activity || []
   const activity = actRaw.map((a) => ({ ...a, chipStyle: chip(a.tone), iconHtml: ic(a.icon) }))
 
+  // Per-project event stream (real activity logged as the user works a project),
+  // distinct from the global dashboard `activity` feed above.
+  const projActRaw = D.projectActivity || []
+  const projectActivity = projActRaw.map((a) => ({ ...a, chipStyle: chip(a.tone), iconHtml: ic(a.icon) }))
+
   const baseProjects: ProjectInput[] = D.projects || []
   // Locally-created projects (from the New project modal) overlay the seed/API
   // list so they appear instantly; they're also POSTed to the backend.
@@ -309,7 +314,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     isDashboard: s.nav === 'dashboard', isProjects: s.nav === 'projects', isSuppliers: s.nav === 'suppliers',
     isSettings: s.nav === 'settings', isDS: s.nav === 'ds', isProject,
     crumbMain, crumbSub, hasSub,
-    metrics, activity, projects, projectCount,
+    metrics, activity, projectActivity, projects, projectCount,
     newProjOpen: !!s.newProjOpen,
     projError: s.projError || null,
     dismissProjError: () => set({ projError: null }),

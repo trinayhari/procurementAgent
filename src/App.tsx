@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, FormEvent, MouseEvent } from 'react'
-import { Box, DcIcon, css, lb } from './lib'
+import { Box, DcIcon, css, ic, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
@@ -75,6 +75,37 @@ const TRASH = 'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m1 0v14a2 2 0 0 1-2 
 const CHEVRON = 'm9 6 6 6-6 6'
 const PIN = 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="2.6'
 
+// ---- URL <-> navigation state ----
+// We mirror the active page in the URL hash so a full reload (or a shared link,
+// or back/forward) lands back where the user was, instead of resetting to the
+// dashboard. Only the navigation slice is encoded; transient UI (open drawers,
+// modals) is intentionally left out.
+function hashFor(s: Pick<State, 'nav' | 'projectId' | 'tab' | 'compare' | 'comparePkg'>): string {
+  if (s.nav === 'project' && s.projectId) {
+    if (s.tab === 'quotes' && s.compare) {
+      return `#/project/${s.projectId}/quotes/compare${s.comparePkg ? `/${s.comparePkg}` : ''}`
+    }
+    return `#/project/${s.projectId}/${s.tab || 'overview'}`
+  }
+  if (s.nav === 'dashboard') return '#/dashboard'
+  return `#/${s.nav}`
+}
+
+function parseHash(): Partial<State> {
+  const raw = (typeof window !== 'undefined' ? window.location.hash : '').replace(/^#\/?/, '')
+  const seg = raw.split('/').filter(Boolean)
+  if (seg[0] === 'project' && seg[1]) {
+    if (seg[2] === 'quotes' && seg[3] === 'compare') {
+      return { nav: 'project', projectId: seg[1], tab: 'quotes', compare: true, comparePkg: seg[4] || undefined }
+    }
+    return { nav: 'project', projectId: seg[1], tab: seg[2] || 'overview' }
+  }
+  if (['projects', 'suppliers', 'settings', 'ds', 'dashboard'].includes(seg[0])) {
+    return { nav: seg[0] }
+  }
+  return {}
+}
+
 export default function App() {
   const [s, setS] = useState<State>({
     nav: 'dashboard', tab: 'overview', compare: false, docIdx: 0, rfqIdx: 0,
@@ -82,6 +113,8 @@ export default function App() {
     data: null,
     planTypes: null, planType: 'site_plan', uploading: false, uploadError: null, docLineItems: null,
     editBom: false, bomDraft: null, bomBusy: false,
+    // Restore the page from the URL hash so a reload stays put (see parseHash).
+    ...parseHash(),
   })
   const set = (patch: Partial<State>) => setS((prev) => ({ ...prev, ...patch }))
 
@@ -123,6 +156,23 @@ export default function App() {
   // Refetch the workspace bundle whenever the open project changes, so each
   // project shows its own documents/quotes/etc. instead of the last one's.
   useEffect(() => { if (s.projectId) reload(s.projectId) }, [s.projectId])
+
+  // Mirror the active page into the URL hash so a reload restores it. replaceState
+  // (not pushState) keeps tab/page switches out of history so Back still leaves the
+  // app rather than stepping through every internal navigation.
+  useEffect(() => {
+    const h = hashFor(s)
+    if (typeof window !== 'undefined' && window.location.hash !== h) {
+      window.history.replaceState(null, '', h)
+    }
+  }, [s.nav, s.projectId, s.tab, s.compare, s.comparePkg])
+
+  // Honour manual hash edits and browser back/forward by re-syncing state.
+  useEffect(() => {
+    const onHash = () => set(parseHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   // Plan types the extractor supports (drives the upload selector).
   useEffect(() => {
@@ -676,6 +726,14 @@ function ProjectWorkspace({ m }: MProps) {
 
 /* ------------------------------------------------------------ Overview tab */
 function TabOverview({ m }: MProps) {
+  // In-place refresh of the activity stream (re-fetches the workspace bundle and
+  // re-renders — no full page reload). Spins the icon while the fetch is in flight.
+  const [refreshing, setRefreshing] = useState(false)
+  const refresh = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try { await m.reload() } finally { setRefreshing(false) }
+  }
   return (
     <>
       {m.overviewCards.length > 0 && (
@@ -708,16 +766,22 @@ function TabOverview({ m }: MProps) {
       </div>
       )}
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
-        <div style={css('padding:15px 18px;border-bottom:1px solid var(--border)')}><h2 style={css('margin:0;font-size:15px;font-weight:600')}>Recent project activity</h2></div>
+        <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;padding:15px 18px;border-bottom:1px solid var(--border)')}>
+          <h2 style={css('margin:0;font-size:15px;font-weight:600')}>Recent project activity</h2>
+          <Box as="button" onClick={refresh} title="Refresh activity" style={css('display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:8px;background:var(--panel);border:1px solid var(--border);color:var(--text-2);font-size:12.5px;font-weight:600;cursor:pointer')} hover="background:var(--panel-2)">
+            <span style={css(refreshing ? 'display:inline-flex;animation:pcSpin .7s linear infinite' : 'display:inline-flex')}><IconHtml html={ic('refresh')} /></span>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </Box>
+        </div>
         <div style={css('padding:6px 8px')}>
-          {m.activity.map((a, i) => (
+          {m.projectActivity.map((a, i) => (
             <Box key={i} style={css('display:flex;gap:11px;padding:10px;border-radius:10px')} hover="background:var(--panel-2)">
               <div style={a.chipStyle}><IconHtml html={a.iconHtml} /></div>
               <div style={css('flex:1;min-width:0')}><div style={css('font-size:13px;font-weight:500')}>{a.title}</div><div style={css('font-size:11.5px;color:var(--text-3);margin-top:1px')}>{a.meta}</div></div>
               <span style={css('font-size:11px;color:var(--text-3);white-space:nowrap')}>{a.time}</span>
             </Box>
           ))}
-          {m.activity.length === 0 && (
+          {m.projectActivity.length === 0 && (
             <div style={css('padding:28px 12px;text-align:center;font-size:12.5px;color:var(--text-3)')}>No activity yet — upload plans and send RFQs to see updates here.</div>
           )}
         </div>

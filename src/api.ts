@@ -348,6 +348,7 @@ export function awardPackage(
 export type ModelData = {
   metrics: Metric[]
   activity: Activity[]
+  projectActivity: Activity[]
   projects: Project[]
   overviewCards: OverviewCard[]
   packages: Package[]
@@ -403,7 +404,7 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
 
   const [detail, supplierDetail, docs, lineItems, quotes, comparison, rfqs, rfqFolders, timeline] =
     await Promise.all([
-      proj(`/api/projects/${pid}`, { overviewCards: [], packages: [] } as unknown as ProjectDetail),
+      proj(`/api/projects/${pid}`, { overviewCards: [], packages: [], activity: [] } as unknown as ProjectDetail),
       supId ? safe(get<SupplierDetail>(`/api/suppliers/${supId}`), { comms: [] } as unknown as SupplierDetail) : Promise.resolve({ comms: [] } as unknown as SupplierDetail),
       proj(`/api/projects/${pid}/documents`, [] as Document[]),
       proj(`/api/projects/${pid}/line-items`, [] as LineItemGroup[]),
@@ -417,6 +418,7 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
   return {
     metrics: dashboard.metrics,
     activity: dashboard.activity,
+    projectActivity: detail.activity || [],
     projects,
     overviewCards: detail.overviewCards,
     packages: detail.packages,

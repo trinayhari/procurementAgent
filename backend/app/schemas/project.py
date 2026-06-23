@@ -3,6 +3,7 @@ from typing import List
 from pydantic import BaseModel
 
 from app.schemas.common import Risk, Stage, Tone
+from app.schemas.dashboard import Activity
 
 
 class Project(BaseModel):
@@ -50,3 +51,4 @@ class ProjectDetail(Project):
 
     overviewCards: List[OverviewCard]
     packages: List[Package]
+    activity: List[Activity]

@@ -12,6 +12,7 @@ from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
+from app.models.event import ProjectEvent
 from app.models.found_supplier import FoundSupplier
 from app.models.project import Project
 from app.models.quote import Quote
@@ -103,7 +104,7 @@ def delete_project(db: Session, project_id: str) -> bool:
         ).all()
         if p
     ]
-    for model in (Document, Quote, Rfq, FoundSupplier):
+    for model in (Document, Quote, Rfq, FoundSupplier, ProjectEvent):
         db.execute(sa_delete(model).where(model.project_id == project_id))
     db.delete(project)
     db.commit()

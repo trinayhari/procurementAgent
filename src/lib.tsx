@@ -61,6 +61,7 @@ export const ICONS: Record<string, string> = {
   alert: '<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4M12 17.2v.3"/>',
   calendar: '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9.5h16M8.5 3v3.5M15.5 3v3.5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-.5 4"/><path d="M20 4v5h-5"/>',
 }
 export function ic(n: string): { __html: string } {
   return { __html: ICONS[n] || '' }
