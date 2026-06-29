@@ -15,7 +15,9 @@ alembic>=1.13,<1.14
 psycopg2-binary>=2.9,<3.0
 # AI document extraction (GPT-4.1 vision + PDF rasterisation).
 openai>=1.40.0,<2.0.0
-PyMuPDF>=1.24.0
+# Pinned: newer PyMuPDF builds segfault natively on some large plan-set PDFs.
+# 1.24.11 is verified to parse our sample plans cleanly.
+PyMuPDF==1.24.11
 # Supplier sourcing: Google Geocoding/Places REST + supplier-website email scrape.
 httpx>=0.27,<0.29
 # RFQ email send via Gmail API (single-user OAuth2 refresh-token flow).

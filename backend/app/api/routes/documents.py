@@ -26,6 +26,7 @@ from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
 from app.schemas.document import Document, LineItemGroup, LineItemsUpdate, PlanType
 from app.services import extraction
+from app.services.extraction import isolated as extraction_isolated
 from app.services.extraction import pdf
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -209,7 +210,10 @@ def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
     """
     logger.info("Extraction started: doc=%s plan=%s path=%s", document_id, plan_type, path)
     try:
-        result = extraction.extract_document(path, plan_type)
+        # Run in a child process: PyMuPDF can segfault on some PDFs, which would
+        # otherwise take down the whole API. Isolation turns that into a normal
+        # exception we record as 'Failed' below.
+        result = extraction_isolated.run(path, plan_type)
     except Exception as exc:  # noqa: BLE001 — last-resort guard for the background task
         logger.exception("Extraction crashed: doc=%s", document_id)
         with SessionLocal() as db:
