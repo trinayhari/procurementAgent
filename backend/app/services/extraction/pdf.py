@@ -8,6 +8,7 @@ Output is a list of base64-encoded PNG strings (no data-URL prefix); `vision.py`
 wraps them as data URLs.
 """
 import base64
+import gc
 import os
 from typing import List
 
@@ -53,6 +54,8 @@ def to_base64_images(path: str, *, dpi: int = 150, max_pages: int = 12) -> List[
                     break
                 pix = page.get_pixmap(dpi=dpi)
                 images.append(base64.b64encode(pix.tobytes("png")).decode("ascii"))
+                pix = None  # release the raw pixmap immediately — it dwarfs the PNG
+        gc.collect()
         return images
 
     raise UnsupportedDocument(f"Unsupported document type '{ext}' for vision extraction")
@@ -163,4 +166,6 @@ def to_page_tiles(
                 clip = fitz.Rect(x0, y0, x1, y1)
                 pix = page.get_pixmap(dpi=dpi, clip=clip)
                 tiles.append(base64.b64encode(pix.tobytes("png")).decode("ascii"))
+                pix = None  # release the raw pixmap immediately — it dwarfs the PNG
+    gc.collect()  # reclaim the page's pixmaps before the next sheet is rendered
     return tiles

@@ -52,14 +52,19 @@ class Settings(BaseSettings):
     vision_max_pages: int = 30
     vision_image_detail: str = "high"  # "high" | "low" | "auto"
     vision_max_tokens: int = 8000
-    # Per-sheet extraction runs in parallel; cap concurrent vision calls.
-    vision_max_workers: int = 5
+    # Per-sheet extraction runs in parallel; cap concurrent vision calls. Each
+    # in-flight sheet holds its rendered tiles in memory, so this directly bounds
+    # peak RAM — kept low (2) so large plan sets don't OOM the container.
+    vision_max_workers: int = 2
     # Tiling — large plan sheets (24x36) lose small callout text when sent as one
     # downscaled image, so each sheet is rendered as a grid of high-DPI tiles. Set
     # cols=rows=1 to disable tiling.
     vision_tile_cols: int = 3
     vision_tile_rows: int = 2
-    vision_tile_dpi: int = 200
+    # Render DPI for tiles. 150 reads callouts on 24x36 sheets fine while using
+    # ~40% less memory than 200 (a single large sheet at 200 DPI spikes ~325MB);
+    # the tile grid already recovers small-text legibility.
+    vision_tile_dpi: int = 150
     vision_tile_overlap: float = 0.08
 
     # ------------------------------------------------ Google Maps Platform
