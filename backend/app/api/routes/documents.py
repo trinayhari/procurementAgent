@@ -11,6 +11,7 @@ Upload flow:
 Documents are persisted to SQLite (see app/models/document.py), so uploads and
 their extracted BOMs survive a backend restart.
 """
+import logging
 import os
 from datetime import datetime
 from typing import List
@@ -28,6 +29,7 @@ from app.services import extraction
 from app.services.extraction import pdf
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/plan-types", response_model=List[PlanType])
@@ -187,14 +189,40 @@ def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
 
     Runs after the response is sent, so it opens its own DB session rather than
     reusing the request-scoped one.
+
+    Any unexpected failure is caught and recorded on the document as 'Failed' so
+    it never stays stuck in 'Processing' (which would make the frontend poll
+    forever and never show a count). The error is also logged so production
+    extraction failures are diagnosable.
     """
-    result = extraction.extract_document(path, plan_type)
+    logger.info("Extraction started: doc=%s plan=%s path=%s", document_id, plan_type, path)
+    try:
+        result = extraction.extract_document(path, plan_type)
+    except Exception as exc:  # noqa: BLE001 — last-resort guard for the background task
+        logger.exception("Extraction crashed: doc=%s", document_id)
+        with SessionLocal() as db:
+            doc = documents_repo.get(db, document_id)
+            if doc is None:
+                return
+            documents_repo.update_status(
+                db, document_id,
+                status="Failed", status_tone="danger", processing=False,
+                items="—", error=f"Extraction failed: {exc}",
+            )
+            events_repo.log(
+                db, doc.project_id,
+                title=f"Extraction failed — {doc.name}",
+                icon="alert", tone="danger", meta=str(exc)[:80],
+            )
+        return
+
     with SessionLocal() as db:
         doc = documents_repo.get(db, document_id)
         if doc is None:
             return
         documents_repo.set_line_items(db, document_id, result.groups)
         if result.error:
+            logger.warning("Extraction failed: doc=%s error=%s", document_id, result.error)
             documents_repo.update_status(
                 db, document_id,
                 status="Failed", status_tone="danger", processing=False,
@@ -210,6 +238,10 @@ def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
                 db, document_id,
                 status="Analyzed", status_tone="success", processing=False,
                 items=str(result.total_items), summary=result.summary, mocked=result.mocked,
+            )
+            logger.info(
+                "Extraction complete: doc=%s items=%s mocked=%s",
+                document_id, result.total_items, result.mocked,
             )
             events_repo.log(
                 db, doc.project_id,

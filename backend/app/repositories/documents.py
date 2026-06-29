@@ -154,6 +154,32 @@ def update_status(db: Session, doc_id: str, **fields) -> Optional[Document]:
     return doc
 
 
+def fail_orphaned_processing(db: Session) -> List[str]:
+    """Mark documents stuck in 'Processing' as failed (called on startup).
+
+    Extraction runs in a background task in the API process. If that process is
+    killed mid-extraction (e.g. an OOM SIGKILL while rasterising a large plan
+    set), the task dies without ever writing a terminal status, so the document
+    is pinned in 'Processing' forever — and the frontend polls it indefinitely.
+    On boot, no extraction can still be in flight, so any such row is orphaned:
+    flip it to 'Failed' so the user sees a clear outcome and can re-run.
+
+    Returns the ids that were reset.
+    """
+    rows = db.scalars(select(Document).where(Document.processing.is_(True))).all()
+    ids = []
+    for doc in rows:
+        doc.status = "Failed"
+        doc.status_tone = "danger"
+        doc.processing = False
+        doc.items = "—"
+        doc.error = "Extraction was interrupted by a server restart — please re-run."
+        ids.append(doc.id)
+    if ids:
+        db.commit()
+    return ids
+
+
 def seed_starter_documents(db: Session) -> None:
     """Populate the prototype's Riverside demo docs once, on an empty table."""
     if db.scalar(select(func.count()).select_from(Document)):
