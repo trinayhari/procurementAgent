@@ -156,7 +156,10 @@ def _vision_topup(spec, path, sheets, final) -> None:
                     overlap=settings.vision_tile_overlap,
                 )
                 ex = vision.extract(spec, tiles, sheet=f"Sheet {idx + 1}")
-            except vision.VisionUnavailable:
+            except Exception:
+                # Best-effort enrichment only — a failed top-up (vision error,
+                # tiling/render failure) must never discard the text-pass BOM
+                # that was already extracted. Skip this sheet and move on.
                 continue
             for bom in ex.boms:
                 if bom.category != cat.key:
