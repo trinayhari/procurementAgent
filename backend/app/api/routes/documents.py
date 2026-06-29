@@ -131,14 +131,26 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=f"Unsupported or disabled plan type '{plan_type}'")
 
     os.makedirs(settings.upload_dir, exist_ok=True)
-    contents = await file.read()
-    if len(contents) > settings.max_upload_mb * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit")
-
     safe_name = os.path.basename(file.filename or "document")
     dest = os.path.join(settings.upload_dir, safe_name)
+
+    # Stream the upload to disk in chunks rather than reading it all into memory.
+    # Plan sets can be ~100MB; a full read held the whole file in RAM (twice, with
+    # the write buffer) on top of the resident app — enough to OOM a small
+    # container before extraction even started.
+    limit = settings.max_upload_mb * 1024 * 1024
+    size = 0
     with open(dest, "wb") as fh:
-        fh.write(contents)
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > limit:
+                fh.close()
+                os.remove(dest)
+                raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit")
+            fh.write(chunk)
 
     try:
         pages = pdf.page_count(dest)
