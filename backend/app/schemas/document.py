@@ -35,6 +35,9 @@ class PlanType(BaseModel):
     description: str
     enabled: bool
     categories: List[str]  # category labels, for display
+    # True for the single-document slots (site / building / electrical plan);
+    # False for the multi-document "Additional Document" slot. Drives the slot UI.
+    singleton: bool = True
 
 
 class LineItem(BaseModel):

@@ -43,6 +43,10 @@ class PlanTypeSpec(BaseModel):
     prompt_guidance: str = ""
     categories: List[BomCategory]
     enabled: bool = True  # disabled specs appear greyed-out / "coming soon" in the UI
+    # A "slot" plan type — a project holds at most ONE document of this type, so
+    # re-uploading replaces the prior one (see documents_repo / the upload route).
+    # Site / building / electrical plans are slots; "additional documents" are not.
+    singleton: bool = True
 
     def category(self, key: str) -> Optional[BomCategory]:
         return next((c for c in self.categories if c.key == key), None)

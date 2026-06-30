@@ -52,7 +52,8 @@ export interface ModelProps {
   uploading?: boolean
   uploadError?: string | null
   docLineItems?: { id: string; groups: LineItemGroup[] } | null
-  onUpload?: (file: File) => void
+  onUpload?: (file: File, planType?: string) => void
+  onDeleteDoc?: (id: string) => void
   editBom?: boolean
   bomDraft?: LineItemGroup[] | null
   bomBusy?: boolean
@@ -77,7 +78,7 @@ interface MetricInput { label: string; value: string; delta: string; sub?: strin
 interface OverviewCardInput { label: string; value: string; sub: string; icon: string; tone: string; ai?: boolean }
 interface DocInput {
   id?: string; name: string; type: string; date: string; status: string; statusTone: string
-  items: string; pages: number; processing?: boolean; hasFile?: boolean
+  items: string; pages: number; processing?: boolean; hasFile?: boolean; planType?: string | null
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
 }
 interface QuoteInput { id?: string; sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
@@ -204,6 +205,28 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     }),
   }))
   const doc = docs[s.docIdx]
+
+  // ---- Plan slots: one site / building / electrical plan each, plus a list of
+  // additional reference documents. Each slot is filled by the (single) document
+  // whose planType matches; re-uploading replaces it on the backend.
+  const SLOT_KEYS = ['site_plan', 'building_plan', 'electrical_plan']
+  const planTypeList = (props && props.planTypes) || []
+  const specFor = (key: string) => planTypeList.find((t) => t.key === key)
+  const docSlots = SLOT_KEYS.map((key) => {
+    const spec = specFor(key)
+    return {
+      key,
+      label: (spec && spec.label) || key,
+      description: (spec && spec.description) || '',
+      enabled: spec ? spec.enabled : true,
+      categories: (spec && spec.categories) || [],
+      doc: docs.find((d) => d.planType === key) || null,
+    }
+  })
+  // Everything not occupying a plan slot (planType 'other', or legacy/seed docs
+  // with no planType) is an additional reference document.
+  const additionalDocs = docs.filter((d) => !SLOT_KEYS.includes((d.planType as string) || ''))
+  const additionalSpec = specFor('other')
 
   // Per-document BOM groups (props.docLineItems, fetched when a doc is selected)
   // take precedence; then the project-wide line items; then baked-in literals.
@@ -381,13 +404,18 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     overviewCards, packages,
     suppliers, supplierOpen, activeSupplier, supComms,
     docs, doc, extracted,
+    // Plan slots + additional documents (see App.tsx + TabDocuments).
+    docSlots, additionalDocs,
+    additionalLabel: (additionalSpec && additionalSpec.label) || 'Additional Document',
+    additionalKey: 'other',
     // Upload / extraction wiring (see App.tsx + TabDocuments).
     planTypes: (props && props.planTypes) || null,
     planType: (props && props.planType) || 'site_plan',
     setPlanType: (key: string) => set({ planType: key }),
     uploading: !!(props && props.uploading),
     uploadError: (props && props.uploadError) || null,
-    onUpload: props?.onUpload ?? ((_file: File) => {}),
+    onUpload: props?.onUpload ?? ((_file: File, _planType?: string) => {}),
+    onDeleteDoc: props?.onDeleteDoc ?? ((_id: string) => {}),
     // Human-in-the-loop BOM review (see App.tsx + ExtractedPanel).
     bomEditing: !!(props && props.editBom),
     bomDraft: (props && props.bomDraft) || [],
