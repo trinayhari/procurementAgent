@@ -34,6 +34,7 @@ export type GanttBar = Schemas['GanttBar']
 export type FoundSupplier = Schemas['FoundSupplier']
 export type SupplierTier = Schemas['SupplierTier']
 export type SupplierSearchResult = Schemas['SupplierSearchResult']
+export type PackageBom = Schemas['PackageBom']
 export type PersistedRfq = Schemas['PersistedRfq']
 export type RfqRecipient = Schemas['RfqRecipient']
 export type RfqLineItem = Schemas['RfqLineItem']
@@ -236,6 +237,17 @@ export function getFoundSuppliers(
 ): Promise<SupplierSearchResult> {
   return get<SupplierSearchResult>(
     `/api/projects/${projectId}/suppliers/found?package=${encodeURIComponent(pkg)}`,
+  )
+}
+
+// The BOM line items a buy-package will ask suppliers to quote — drives the
+// "what we're asking for" panel on the supplier page.
+export function getPackageBom(
+  projectId: string,
+  pkg: string,
+): Promise<PackageBom> {
+  return get<PackageBom>(
+    `/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/bom`,
   )
 }
 

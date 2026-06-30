@@ -973,6 +973,58 @@
         }
       }
     },
+    "/api/projects/{project_id}/packages/{package}/bom": {
+      "get": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Get Package Bom",
+        "description": "The BOM line items this buy-package will ask suppliers to quote.\n\nPowers the supplier page's \"what are we asking for\" panel \u2014 selecting a\npackage (e.g. Water) shows the exact items pulled from the project's\nextracted plans for that discipline.",
+        "operationId": "get_package_bom_api_projects__project_id__packages__package__bom_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "package",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Package"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageBom"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
       "post": {
         "tags": [
@@ -3367,6 +3419,66 @@
           "tone"
         ],
         "title": "Package"
+      },
+      "PackageBom": {
+        "properties": {
+          "package": {
+            "type": "string",
+            "title": "Package"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "tone": {
+            "type": "string",
+            "title": "Tone"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PackageBomItem"
+            },
+            "type": "array",
+            "title": "Items",
+            "default": []
+          },
+          "seeded": {
+            "type": "boolean",
+            "title": "Seeded",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "package",
+          "label",
+          "tone",
+          "count"
+        ],
+        "title": "PackageBom",
+        "description": "The BOM line items a buy-package will ask suppliers to quote."
+      },
+      "PackageBomItem": {
+        "properties": {
+          "n": {
+            "type": "string",
+            "title": "N"
+          },
+          "q": {
+            "type": "string",
+            "title": "Q"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n",
+          "q"
+        ],
+        "title": "PackageBomItem"
       },
       "PersistedRfq": {
         "properties": {

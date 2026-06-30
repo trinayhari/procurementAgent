@@ -378,6 +378,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/packages/{package}/bom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Package Bom
+         * @description The BOM line items this buy-package will ask suppliers to quote.
+         *
+         *     Powers the supplier page's "what are we asking for" panel — selecting a
+         *     package (e.g. Water) shows the exact items pulled from the project's
+         *     extracted plans for that discipline.
+         */
+        get: operations["get_package_bom_api_projects__project_id__packages__package__bom_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
         parameters: {
             query?: never;
@@ -1317,6 +1341,37 @@ export interface components {
             /** Pct */
             pct: number;
             tone: components["schemas"]["Tone"];
+        };
+        /**
+         * PackageBom
+         * @description The BOM line items a buy-package will ask suppliers to quote.
+         */
+        PackageBom: {
+            /** Package */
+            package: string;
+            /** Label */
+            label: string;
+            /** Tone */
+            tone: string;
+            /** Count */
+            count: number;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["PackageBomItem"][];
+            /**
+             * Seeded
+             * @default false
+             */
+            seeded: boolean;
+        };
+        /** PackageBomItem */
+        PackageBomItem: {
+            /** N */
+            n: string;
+            /** Q */
+            q: string;
         };
         /**
          * PersistedRfq
@@ -2570,6 +2625,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QuoteIngestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_package_bom_api_projects__project_id__packages__package__bom_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                package: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageBom"];
                 };
             };
             /** @description Validation Error */

@@ -26,6 +26,7 @@ from app.schemas.rfq import (
 )
 from app.schemas.sourcing import (
     AdHocSupplierSearchRequest,
+    PackageBom,
     SupplierSearchAccepted,
     SupplierSearchRequest,
     SupplierSearchResult,
@@ -227,13 +228,18 @@ def get_ingest_status(project_id: str, db: Session = Depends(get_db)):
 
 
 # --------------------------------------------------------------- RFQ generation
-def _line_items_for_package(db: Session, project_id: str, package: str) -> List[dict]:
+def _line_items_for_package(
+    db: Session, project_id: str, package: str
+) -> Tuple[List[dict], bool]:
     """Pull the BOM line items for a package from the project's extracted documents.
 
     Aggregates the extracted BOM groups across every document on the project,
     keeps the groups whose label maps to this buy-package, and dedupes items by
     name. Falls back to the shared seed BOM if the project has no extracted items
     yet (e.g. the prototype Riverside project / offline mode).
+
+    Returns the items plus a `seeded` flag — True when the items came from the
+    shared demo BOM rather than this project's own extracted documents.
     """
     items: List[dict] = []
     seen: set = set()
@@ -251,9 +257,44 @@ def _line_items_for_package(db: Session, project_id: str, package: str) -> List[
     for doc in documents_repo.list_for_project(db, project_id):
         _collect(documents_repo.get_line_items(db, doc.get("id", "")) or [])
 
-    if not items:  # nothing extracted for this project yet → prototype demo BOM
-        _collect(reference_repo.list_line_item_groups(db))
-    return items
+    if items:
+        return items, False
+
+    # nothing extracted for this package yet → prototype demo BOM
+    _collect(reference_repo.list_line_item_groups(db))
+    return items, True
+
+
+@router.get(
+    "/{project_id}/packages/{package}/bom",
+    response_model=PackageBom,
+)
+def get_package_bom(
+    project_id: str,
+    package: str,
+    db: Session = Depends(get_db),
+):
+    """The BOM line items this buy-package will ask suppliers to quote.
+
+    Powers the supplier page's "what are we asking for" panel — selecting a
+    package (e.g. Water) shows the exact items pulled from the project's
+    extracted plans for that discipline.
+    """
+    _require_project(project_id, db)
+    _require_package(package)
+
+    items, seeded = _line_items_for_package(db, project_id, package)
+    return {
+        "package": package,
+        "label": packages.label_for(package),
+        "tone": packages.tone_for(package),
+        "count": len(items),
+        "items": [
+            {"n": it.get("n") or it.get("name") or "", "q": it.get("q") or ""}
+            for it in items
+        ],
+        "seeded": seeded,
+    }
 
 
 @router.post(
@@ -274,7 +315,7 @@ def generate_rfq(
     if not suppliers:
         raise HTTPException(status_code=400, detail="No matching found suppliers")
 
-    line_items = _line_items_for_package(db, project_id, package)
+    line_items, _seeded = _line_items_for_package(db, project_id, package)
     draft = rfq_generator.generate_rfq_draft(
         project, packages.label_for(package), line_items, suppliers
     )
