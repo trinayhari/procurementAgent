@@ -46,3 +46,21 @@ class AdHocSupplierSearchRequest(BaseModel):
 class SupplierSearchAccepted(BaseModel):
     status: str
     package: str
+
+
+class PackageBomItem(BaseModel):
+    n: str  # item name
+    q: str  # quantity (may be empty when not derivable)
+
+
+class PackageBom(BaseModel):
+    """The BOM line items a buy-package will ask suppliers to quote."""
+
+    package: str
+    label: str
+    tone: str
+    count: int
+    items: List[PackageBomItem] = []
+    # True when the items come from the shared demo BOM rather than this
+    # project's own extracted documents (nothing extracted for it yet).
+    seeded: bool = False

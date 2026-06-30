@@ -7,14 +7,14 @@ import Login from './Login'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
   saveDocumentLineItems, confirmDocument, deleteDocument,
-  searchSuppliers, getFoundSuppliers, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
+  searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   searchAdHocSuppliers, getAdHocFoundSuppliers, generateAdHocRfq,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
   getToken, getMe, logout as apiLogout, onAuthChange,
 } from './api'
 import type {
-  SupplierSearchResult, FoundSupplier, PersistedRfq, RfqRecipient, RfqLineItem, RfqConversation,
+  SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqLineItem, RfqConversation,
   LineComparison, AwardOption, AuthUser,
 } from './api'
 
@@ -1026,13 +1026,44 @@ function ExtractedPanel({ m }: MProps) {
 }
 
 /* ------------------------------------------------ Suppliers tab (project) */
-// Buy-packages the BOM is grouped into (mirrors the backend sourcing.packages).
-const BUY_PACKAGES = [
-  { key: 'water', label: 'Water Utilities' },
-  { key: 'sewer', label: 'Sanitary Sewer' },
-  { key: 'storm', label: 'Storm Drain' },
-  { key: 'erosion', label: 'Erosion Control' },
+// Buy-packages the BOM is grouped into, by plan discipline (mirrors the backend
+// sourcing.packages + the extraction plan_types). Each key matches a backend
+// package key so the supplier search / RFQ generation routes accept it directly.
+const PACKAGE_GROUPS = [
+  {
+    label: 'Site / Civil',
+    packages: [
+      { key: 'water', label: 'Water Utilities' },
+      { key: 'sewer', label: 'Sanitary Sewer' },
+      { key: 'storm', label: 'Storm Drain' },
+      { key: 'erosion', label: 'Erosion Control' },
+    ],
+  },
+  {
+    label: 'Building / Structural',
+    packages: [
+      { key: 'concrete', label: 'Cast-in-Place Concrete' },
+      { key: 'rebar', label: 'Reinforcing Steel' },
+      { key: 'steel', label: 'Structural Steel' },
+      { key: 'masonry', label: 'Masonry' },
+      { key: 'framing', label: 'Wood & Framing' },
+    ],
+  },
+  {
+    label: 'Electrical',
+    packages: [
+      { key: 'raceway', label: 'Conduit & Raceway' },
+      { key: 'conductors', label: 'Wire & Cable' },
+      { key: 'equipment', label: 'Panels & Distribution' },
+      { key: 'devices', label: 'Devices & Rough-in' },
+      { key: 'lighting', label: 'Lighting Fixtures' },
+      { key: 'grounding', label: 'Grounding & Bonding' },
+      { key: 'lowvoltage', label: 'Low-Voltage & Fire Alarm' },
+    ],
+  },
 ]
+
+const BUY_PACKAGES = PACKAGE_GROUPS.flatMap((g) => g.packages)
 
 const TIER_TONE: Record<number, string> = { 1: 'success', 2: 'blue', 3: 'violet' }
 
@@ -1059,6 +1090,8 @@ function SupplierSearch({ projectId }: { projectId: string }) {
   const [draft, setDraft] = useState<PersistedRfq | null>(null)
   const [generating, setGenerating] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [bom, setBom] = useState<PackageBom | null>(null)   // what we're asking suppliers to quote
+  const [bomLoading, setBomLoading] = useState(false)
   const isAdhoc = pkg === ADHOC_KEY
 
   // What we're searching/RFQ-ing for, as a display label.
@@ -1074,6 +1107,19 @@ function SupplierSearch({ projectId }: { projectId: string }) {
       .catch(() => {})
     return () => { alive = false }
   }, [projectId, pkg])
+
+  // Load the package's BOM (the items we'll ask suppliers to quote) when the
+  // selected package changes. Ad-hoc has no fixed BOM.
+  useEffect(() => {
+    if (isAdhoc) { setBom(null); return }
+    let alive = true
+    setBom(null); setBomLoading(true)
+    getPackageBom(projectId, pkg)
+      .then((b) => { if (alive) setBom(b) })
+      .catch(() => {})
+      .finally(() => { if (alive) setBomLoading(false) })
+    return () => { alive = false }
+  }, [projectId, pkg, isAdhoc])
 
   // Poll while a background search runs.
   useEffect(() => {
@@ -1134,13 +1180,23 @@ function SupplierSearch({ projectId }: { projectId: string }) {
           <span style={css('width:24px;height:24px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} fill d={SPARKLE_SM} /></span>
           <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>Find suppliers near the jobsite</h2>
         </div>
-        <div style={css('display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px')}>
-          {BUY_PACKAGES.map((p) => (
-            <Box as="button" key={p.key} onClick={() => setPkg(p.key)} style={chip(pkg === p.key)}
-              hover="background:var(--panel-2)">{p.label}</Box>
+        <div style={css('display:flex;flex-direction:column;gap:11px;margin-bottom:14px')}>
+          {PACKAGE_GROUPS.map((g) => (
+            <div key={g.label}>
+              <div style={css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:7px')}>{g.label}</div>
+              <div style={css('display:flex;gap:7px;flex-wrap:wrap')}>
+                {g.packages.map((p) => (
+                  <Box as="button" key={p.key} onClick={() => setPkg(p.key)} style={chip(pkg === p.key)}
+                    hover="background:var(--panel-2)">{p.label}</Box>
+                ))}
+              </div>
+            </div>
           ))}
-          <Box as="button" key={ADHOC_KEY} onClick={() => setPkg(ADHOC_KEY)} style={chip(isAdhoc)}
-            hover="background:var(--panel-2)"><Svg size={13} sw={2.2} d='M12 5v14M5 12h14' />Ad-hoc</Box>
+          <div>
+            <div style={css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:7px')}>Other</div>
+            <Box as="button" key={ADHOC_KEY} onClick={() => setPkg(ADHOC_KEY)} style={chip(isAdhoc)}
+              hover="background:var(--panel-2)"><Svg size={13} sw={2.2} d='M12 5v14M5 12h14' />Ad-hoc</Box>
+          </div>
         </div>
 
         {/* Ad-hoc: describe what you need + optional line items */}
@@ -1194,6 +1250,36 @@ function SupplierSearch({ projectId }: { projectId: string }) {
         </div>
         {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>{err}</div>}
       </div>
+
+      {/* What we're asking suppliers to quote — the package's BOM */}
+      {!isAdhoc && (
+        <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
+          <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:4px')}>
+            <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>What we're asking for · {pkgLabel(pkg)}</h2>
+            {bom && bom.count > 0 && <span style={{ ...DcBadge('blue') }}>{bom.count} item{bom.count > 1 ? 's' : ''}</span>}
+          </div>
+          <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:12px')}>
+            Pulled from this project's extracted plans — these line items go into the RFQ.
+            {bom && bom.seeded && <span style={css('color:var(--warn);font-weight:600')}> · Sample BOM (nothing extracted for this package yet)</span>}
+          </div>
+          {bomLoading && <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>Loading BOM…</div>}
+          {!bomLoading && bom && bom.count === 0 && (
+            <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>
+              No {pkgLabel(pkg)} items found yet. Upload the relevant plan so we can extract this BOM, or use an Ad-hoc RFQ to list items by hand.
+            </div>
+          )}
+          {!bomLoading && bom && bom.count > 0 && (
+            <div style={css('display:flex;flex-direction:column;border:1px solid var(--border);border-radius:11px;overflow:hidden')}>
+              {bom.items.map((it, i) => (
+                <div key={i} style={css(`display:flex;align-items:center;gap:12px;padding:9px 13px;font-size:13px;${i ? 'border-top:1px solid var(--border);' : ''}`)}>
+                  <span style={css('flex:1;min-width:0;color:var(--text)')}>{it.n}</span>
+                  <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--text-2);white-space:nowrap")}>{it.q || '—'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Results */}
       {searching && total === 0 && (
