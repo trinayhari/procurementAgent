@@ -192,7 +192,10 @@ def extract_document(path: str, plan_type: str) -> ExtractionResult:
         )
 
     # Text-first — vector CAD PDFs carry the BOM as exact text; one cheap text call.
-    if has_text_layer(path):
+    # Skipped for plan types whose text layer is scrambled (prefer_vision): there the
+    # schedules/plans are only legible as rendered images, so we fall through to the
+    # per-sheet vision path below.
+    if has_text_layer(path) and not spec.prefer_vision:
         sheets = extract_text_pages(path, settings.vision_max_pages)
         try:
             final = vision.extract_text(spec, sheets)

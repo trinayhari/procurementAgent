@@ -42,6 +42,13 @@ class PlanTypeSpec(BaseModel):
     # Extra, plan-type-specific instructions appended to the base prompt.
     prompt_guidance: str = ""
     categories: List[BomCategory]
+    # Some plan types carry a text layer that is *unusable* — CAD building sheets
+    # render their schedules and dimensioned plans as graphically-positioned text
+    # fragments, so reading-order extraction returns scrambled word-salad in which
+    # the tabular count/dimension relationships (which is where the quantities live)
+    # are destroyed. For these, force the per-sheet VISION path even though a text
+    # layer exists, so the model reads the schedules/plans as legible images.
+    prefer_vision: bool = False
     enabled: bool = True  # disabled specs appear greyed-out / "coming soon" in the UI
     # A "slot" plan type — a project holds at most ONE document of this type, so
     # re-uploading replaces the prior one (see documents_repo / the upload route).
