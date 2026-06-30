@@ -1380,6 +1380,11 @@ export interface components {
             enabled: boolean;
             /** Categories */
             categories: string[];
+            /**
+             * Singleton
+             * @default true
+             */
+            singleton: boolean;
         };
         /** Project */
         Project: {

@@ -3490,6 +3490,11 @@
             },
             "type": "array",
             "title": "Categories"
+          },
+          "singleton": {
+            "type": "boolean",
+            "title": "Singleton",
+            "default": true
           }
         },
         "type": "object",

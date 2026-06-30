@@ -6,7 +6,7 @@ import type { Model, State } from './model'
 import Login from './Login'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
-  saveDocumentLineItems, confirmDocument,
+  saveDocumentLineItems, confirmDocument, deleteDocument,
   searchSuppliers, getFoundSuppliers, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   searchAdHocSuppliers, getAdHocFoundSuppliers, generateAdHocRfq,
   getRfqConversation, ingestQuotes, getIngestStatus,
@@ -180,17 +180,30 @@ export default function App() {
     getPlanTypes().then((planTypes) => set({ planTypes })).catch(() => {})
   }, [])
 
-  // Upload a plan set, then refresh so it appears in the documents list.
-  const uploadDoc = async (file: File) => {
+  // Upload a plan into a slot (or an additional document), then refresh so it
+  // appears in the documents list. `planType` selects the slot; uploading a
+  // site/building/electrical plan replaces whatever occupied that slot before.
+  const uploadDoc = async (file: File, planType?: string) => {
     set({ uploading: true, uploadError: null })
     try {
-      await uploadDocument(file, s.planType, s.projectId)
+      await uploadDocument(file, planType || s.planType, s.projectId)
       set({ docIdx: 0 }) // newest doc lands at the top
       await reload()
     } catch (e) {
       set({ uploadError: 'Upload failed. Is the backend running?' })
     } finally {
       set({ uploading: false })
+    }
+  }
+
+  // Remove a document (clear a slot, or drop an additional reference doc).
+  const deleteDoc = async (id: string) => {
+    try {
+      await deleteDocument(id)
+      set({ docIdx: 0, docLineItems: null })
+      await reload()
+    } catch (e) {
+      set({ uploadError: 'Could not delete the document.' })
     }
   }
 
@@ -257,7 +270,7 @@ export default function App() {
     user, onLogout: handleLogout,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
-    docLineItems: s.docLineItems, onUpload: uploadDoc,
+    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc,
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
   })
@@ -792,57 +805,92 @@ function TabOverview({ m }: MProps) {
 }
 
 /* ----------------------------------------------------------- Documents tab */
-function Dropzone({ m }: MProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [drag, setDrag] = useState(false)
+// Inline svg path data for the icons reused across the slot cards.
+const UPLOAD_ICON = 'M12 16V4M7 9l5-5 5 5" /><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2'
+const FILE_ICON = 'M14 3v5h5" /><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z'
 
-  const onFiles = (fileList: FileList | null) => {
-    const file = fileList && fileList[0]
-    if (file) m.onUpload(file)
+type Slot = Model['docSlots'][number]
+
+// One plan slot — holds a single site / building / electrical plan. A filled slot
+// shows the document with View / Replace / Remove; an empty slot is an uploader.
+// "Replace" re-uploads the same plan type, which the backend swaps in place.
+function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const pick = () => inputRef.current && inputRef.current.click()
+  const onFiles = (fl: FileList | null) => {
+    const f = fl && fl[0]
+    if (f) m.onUpload(f, slot.key)
   }
-  const onDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault(); setDrag(false)
-    if (!m.uploading) onFiles(e.dataTransfer.files)
+  const d = slot.doc
+  const active = !!(d && d.active)
+  const btn = css('flex:1;height:30px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center')
+  return (
+    <div style={css(`background:var(--panel);border:1px solid ${active ? 'var(--primary)' : 'var(--border)'};border-radius:14px;box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:10px;min-height:140px`)}>
+      <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }}
+        onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} />
+      <div style={css('display:flex;align-items:center;gap:8px')}>
+        <span style={css('width:26px;height:26px;border-radius:7px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={FILE_ICON} /></span>
+        <span style={css('font-size:13px;font-weight:600;flex:1')}>{slot.label}</span>
+        {d && <span style={d.statusBadge}>{d.processing && <span style={css('width:9px;height:9px;border:1.5px solid var(--primary);border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>}{d.status}</span>}
+      </div>
+      {d ? (
+        <>
+          <Box onClick={d.onOpen} style={css('display:flex;flex-direction:column;gap:3px;cursor:pointer;flex:1')}>
+            <span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span>
+            <span style={css('font-size:11.5px;color:var(--text-3)')}>{d.date}{slot.categories.length ? ` · ${d.items} line items` : ''}</span>
+          </Box>
+          <div style={css('display:flex;gap:6px')}>
+            <Box as="button" onClick={d.onOpen} style={btn} hover="background:var(--panel-2)">View</Box>
+            <Box as="button" onClick={pick} disabled={m.uploading} style={btn} hover="background:var(--panel-2)">Replace</Box>
+            <Box as="button" onClick={() => d.id && m.onDeleteDoc(d.id)} title="Remove" style={css('width:30px;height:30px;flex:none;border-radius:7px;border:1px solid var(--border);color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+        </>
+      ) : (
+        <Box as="button" onClick={pick} disabled={m.uploading}
+          style={css(`flex:1;border:1.5px dashed var(--border-strong);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text-3);min-height:70px;opacity:${m.uploading ? '.6' : '1'}`)}
+          hover="border-color:var(--primary);color:var(--primary);background:var(--primary-softer)">
+          <Svg size={18} d={UPLOAD_ICON} />
+          <span style={css('font-size:12px;font-weight:600')}>Upload {slot.label}</span>
+        </Box>
+      )}
+    </div>
+  )
+}
+
+// The non-slot bucket: any number of supporting reference documents. No BOM is
+// extracted for these — they're stored as attachments.
+function AdditionalDocsCard({ m }: MProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const pick = () => inputRef.current && inputRef.current.click()
+  const onFiles = (fl: FileList | null) => {
+    const f = fl && fl[0]
+    if (f) m.onUpload(f, m.additionalKey)
   }
   return (
-    <div
-      onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
-      onDragLeave={() => setDrag(false)}
-      onDrop={onDrop}
-      style={css(`border:1.5px dashed ${drag ? 'var(--primary)' : 'var(--border-strong)'};border-radius:14px;padding:22px;display:flex;align-items:center;gap:16px;background:${drag ? 'var(--primary-softer)' : 'var(--panel)'};margin-bottom:18px;transition:background .12s,border-color .12s`)}
-    >
-      <input
-        ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }}
-        onChange={(e) => { onFiles(e.target.files); e.target.value = '' }}
-      />
-      <div style={css('width:44px;height:44px;border-radius:11px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none')}>
-        {m.uploading
-          ? <span style={css('width:18px;height:18px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>
-          : <Svg size={21} d='M12 16V4M7 9l5-5 5 5" /><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2' />}
-      </div>
-      <div style={css('flex:1;min-width:0')}>
-        <div style={css('font-size:14px;font-weight:600')}>{m.uploading ? 'Uploading & extracting…' : 'Drag & drop plans for AI extraction'}</div>
-        <div style={css('font-size:12.5px;color:var(--text-3);margin-top:2px')}>
-          {m.uploadError
-            ? <span style={css('color:var(--danger)')}>{m.uploadError}</span>
-            : 'PDF or image · GPT-4.1 vision extracts a Bill of Materials per discipline'}
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
+      <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }}
+        onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} />
+      <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
+        <div style={css('display:flex;align-items:center;gap:8px')}>
+          <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Additional documents</h2>
+          <span style={css('font-size:12px;color:var(--text-3)')}>{m.additionalDocs.length} files</span>
         </div>
+        <Box as="button" onClick={pick} disabled={m.uploading}
+          style={css(`display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600;opacity:${m.uploading ? '.6' : '1'}`)}
+          hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />Add document</Box>
       </div>
-      <select
-        value={m.planType} onChange={(e) => m.setPlanType(e.target.value)}
-        style={css('height:36px;padding:0 10px;border-radius:9px;background:var(--panel-2);border:1px solid var(--border);color:var(--text);font-size:12.5px;font-weight:600;flex:none;cursor:pointer')}
-      >
-        {(m.planTypes || []).map((t) => (
-          <option key={t.key} value={t.key} disabled={!t.enabled}>
-            {t.label}{t.enabled ? '' : ' (coming soon)'}
-          </option>
-        ))}
-      </select>
-      <Box
-        as="button" onClick={() => inputRef.current && inputRef.current.click()} disabled={m.uploading}
-        style={css(`height:36px;padding:0 15px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;flex:none;opacity:${m.uploading ? '.6' : '1'}`)}
-        hover="background:var(--primary-2)"
-      >Browse files</Box>
+      {m.additionalDocs.length === 0 ? (
+        <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No additional documents — add specs, geotech reports, or addenda for reference.</div>
+      ) : (
+        m.additionalDocs.map((d, i) => (
+          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+            <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--panel-3);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={FILE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
+            <span style={css('font-size:12px;color:var(--text-2)')}>{d.date}</span>
+            <span><span style={d.statusBadge}>{d.status}</span></span>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+        ))
+      )}
     </div>
   )
 }
@@ -863,21 +911,19 @@ function previewFileName(name: string): string {
 function TabDocuments({ m }: MProps) {
   return (
     <>
-      <Dropzone m={m} />
+      <div style={css('margin-bottom:6px;font-size:12.5px;color:var(--text-3)')}>
+        {m.uploadError
+          ? <span style={css('color:var(--danger)')}>{m.uploadError}</span>
+          : m.uploading
+            ? 'Uploading & extracting…'
+            : 'One site, building, and electrical plan per project · GPT-4.1 extracts a Bill of Materials per discipline.'}
+      </div>
+      <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px')}>
+        {m.docSlots.map((slot) => <PlanSlotCard key={slot.key} m={m} slot={slot} />)}
+      </div>
+      <AdditionalDocsCard m={m} />
       <div style={css('display:grid;grid-template-columns:minmax(0,1.7fr) 330px;gap:16px;align-items:start')}>
         <div style={css('display:flex;flex-direction:column;gap:16px;min-width:0')}>
-          <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
-            <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}><h2 style={css('margin:0;font-size:14.5px;font-weight:600')}>Project documents</h2><span style={css('font-size:12px;color:var(--text-3)')}>{m.docs.length} files</span></div>
-            <div style={css('display:grid;grid-template-columns:minmax(150px,2fr) 124px 116px 104px;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase')}><span>File</span><span>Type</span><span>Uploaded</span><span>AI Status</span></div>
-            {m.docs.map((d, i) => (
-              <div key={i} onClick={d.onOpen} style={d.rowStyle}>
-                <div style={css('display:flex;align-items:center;gap:10px;min-width:0')}><span style={css('width:30px;height:30px;border-radius:7px;background:var(--panel-3);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} sw={1.8} d='M14 3v5h5" /><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z' /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
-                <span style={css('font-size:12px;color:var(--text-2)')}>{d.type}</span>
-                <span style={css('font-size:12px;color:var(--text-2)')}>{d.date}</span>
-                <span><span style={d.statusBadge}>{d.processing && <span style={css('width:9px;height:9px;border:1.5px solid var(--primary);border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>}{d.status}</span></span>
-              </div>
-            ))}
-          </div>
           {m.doc ? (
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
@@ -894,7 +940,9 @@ function TabDocuments({ m }: MProps) {
               ) : (
                 <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
               )}
+              {m.doc.items && m.doc.items !== '—' && (
               <div style={css('position:absolute;left:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:8px 12px;border-radius:10px;pointer-events:none')}><span style={css('width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={13} fill d={SPARKLE_SM} /></span><span style={css('font-size:12.5px;font-weight:600')}>AI detected <span style={css('color:var(--primary)')}>{m.doc.items}</span> line items</span></div>
+              )}
             </div>
           </div>
           ) : (

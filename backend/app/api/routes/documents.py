@@ -43,6 +43,7 @@ def list_plan_types():
             "description": s.description,
             "enabled": s.enabled,
             "categories": [c.label for c in s.categories],
+            "singleton": s.singleton,
         }
         for s in extraction.registry.all_specs()
     ]
@@ -158,6 +159,15 @@ async def upload_document(
     except pdf.UnsupportedDocument:
         pages = 0
 
+    # Single-document slots (site / building / electrical plan) hold one document
+    # each — re-uploading that plan type replaces the prior one ("update a slot").
+    if spec.singleton:
+        documents_repo.delete_for_plan_type(db, project_id, plan_type)
+
+    # "Additional Document" slots have no BOM categories, so there's nothing to
+    # extract — store them as a reference attachment without running extraction.
+    extractable = bool(spec.categories)
+
     doc = documents_repo.add(
         db,
         name=os.path.splitext(safe_name)[0],
@@ -168,17 +178,20 @@ async def upload_document(
         project_id=project_id,
         source_path=dest,
         has_file=True,
+        status="Processing" if extractable else "Analyzed",
+        status_tone="blue" if extractable else "success",
     )
     payload = doc.to_dict()
     events_repo.log(
         db,
         project_id,
-        title=f"Plans uploaded — {payload['name']}",
+        title=f"{'Plans' if extractable else 'Document'} uploaded — {payload['name']}",
         icon="file",
         tone="blue",
         meta=f"{spec.label}{f' · {pages} pages' if pages else ''}",
     )
-    background.add_task(_run_extraction, doc.id, dest, plan_type)
+    if extractable:
+        background.add_task(_run_extraction, doc.id, dest, plan_type)
     return payload
 
 
@@ -192,6 +205,9 @@ def analyze_document(document_id: str, background: BackgroundTasks, db: Session 
     path = doc.source_path
     if not plan_type or not path or not os.path.exists(path):
         raise HTTPException(status_code=409, detail="Document has no source file to re-analyze")
+    spec = extraction.registry.get(plan_type)
+    if spec is None or not spec.categories:
+        raise HTTPException(status_code=409, detail="This document type has no BOM to extract")
     documents_repo.update_status(db, document_id, status="Processing", status_tone="blue", processing=True)
     background.add_task(_run_extraction, document_id, path, plan_type)
     return documents_repo.get(db, document_id).to_dict()

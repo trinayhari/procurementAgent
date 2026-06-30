@@ -93,6 +93,33 @@ def delete(db: Session, doc_id: str) -> Optional[Document]:
     return doc
 
 
+def delete_for_plan_type(db: Session, project_id: str, plan_type: str) -> List[str]:
+    """Delete any documents of one plan type in a project (and their files).
+
+    Used to keep the single-document plan slots (site / building / electrical)
+    to one document each: re-uploading that plan type replaces the prior one.
+    Returns the ids that were removed.
+    """
+    rows = db.scalars(
+        select(Document).where(
+            Document.project_id == project_id, Document.plan_type == plan_type
+        )
+    ).all()
+    removed = []
+    for doc in rows:
+        path = doc.source_path
+        removed.append(doc.id)
+        db.delete(doc)
+        if path and os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    if removed:
+        db.commit()
+    return removed
+
+
 def set_line_items(db: Session, doc_id: str, groups: List[dict]) -> None:
     """Store AI-extracted BOM groups (overwrites any existing)."""
     doc = db.get(Document, doc_id)
