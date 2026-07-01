@@ -15,6 +15,8 @@ class FoundSupplier(BaseModel):
     website: Optional[str] = None
     materialCategories: List[str] = []
     emailSource: str = "none"
+    relevanceScore: float = 1.0
+    verifyReason: str = ""
 
 
 class SupplierTier(BaseModel):

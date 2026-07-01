@@ -104,32 +104,61 @@ def _llm_pick(candidates: List[str], company: str) -> Optional[str]:
     return None
 
 
-def discover_email(website: Optional[str], company: str = "") -> EmailDiscovery:
-    """Discover the best RFQ email for a supplier website. Never raises."""
+def fetch_website_pages(website: Optional[str]) -> List[str]:
+    """Fetch homepage + contact/about pages. Returns HTML strings. Never raises."""
     if not website:
-        return EmailDiscovery(None, "none", 0.0)
+        return []
     try:
         import httpx
     except ImportError:
-        return EmailDiscovery(None, "none", 0.0)
+        return []
 
     base = website if urlparse(website).scheme else f"https://{website}"
     headers = {"User-Agent": "Mozilla/5.0 (ProcureAI supplier sourcing)"}
-    candidates: List[str] = []
-    had_mailto = False
+    pages: List[str] = []
 
     with httpx.Client(
         timeout=settings.search_email_fetch_timeout_s, headers=headers
     ) as client:
         for path in _CONTACT_PATHS:
             html = _fetch_text(client, urljoin(base, path))
-            if not html:
-                continue
+            if html:
+                pages.append(html)
+            if len(pages) >= 3:
+                break
+    return pages
+
+
+def discover_email(
+    website: Optional[str],
+    company: str = "",
+    html_pages: Optional[List[str]] = None,
+) -> EmailDiscovery:
+    """Discover the best RFQ email for a supplier website. Never raises.
+
+    Pass ``html_pages`` when the caller already fetched the site (e.g. for
+    relevance scoring) to avoid a second round-trip.
+    """
+    if not website and not html_pages:
+        return EmailDiscovery(None, "none", 0.0)
+
+    candidates: List[str] = []
+    had_mailto = False
+
+    if html_pages is not None:
+        for html in html_pages:
             mailtos = MAILTO_RE.findall(html)
             if mailtos:
                 had_mailto = True
             candidates.extend(_harvest(html))
-            # Stop early once we have a confident set from the homepage/contact.
+            if len(_clean_candidates(candidates)) >= 5:
+                break
+    else:
+        for html in fetch_website_pages(website):
+            mailtos = MAILTO_RE.findall(html)
+            if mailtos:
+                had_mailto = True
+            candidates.extend(_harvest(html))
             if len(_clean_candidates(candidates)) >= 5:
                 break
 

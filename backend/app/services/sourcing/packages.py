@@ -21,6 +21,10 @@ PACKAGES: Dict[str, dict] = {
     "water": {
         "label": "Water Utilities",
         "tone": "blue",
+        "verify_hint": (
+            "Wholesale waterworks / utility pipe, valve, hydrant & fitting distributor "
+            "serving contractors — not a retail hardware or plumbing-fixture store."
+        ),
         "keywords": [
             "waterworks supplier",
             "PVC water pipe distributor",
@@ -32,6 +36,10 @@ PACKAGES: Dict[str, dict] = {
     "sewer": {
         "label": "Sanitary Sewer",
         "tone": "violet",
+        "verify_hint": (
+            "Wholesale sanitary sewer pipe, manhole, and sewer materials distributor "
+            "serving contractors — not a general retail store."
+        ),
         "keywords": [
             "sewer pipe supplier",
             "PVC sewer pipe distributor",
@@ -42,6 +50,10 @@ PACKAGES: Dict[str, dict] = {
     "storm": {
         "label": "Storm Drain",
         "tone": "success",
+        "verify_hint": (
+            "Wholesale storm drain / RCP / precast drainage structure distributor "
+            "serving contractors — not a retail home-improvement store."
+        ),
         "keywords": [
             "RCP pipe supplier",
             "storm drain pipe supplier",
@@ -53,6 +65,10 @@ PACKAGES: Dict[str, dict] = {
     "erosion": {
         "label": "Erosion Control",
         "tone": "warn",
+        "verify_hint": (
+            "Wholesale erosion-control / geotextile / sitework materials supplier "
+            "serving contractors — not a consumer garden center or nursery."
+        ),
         "keywords": [
             "erosion control supplier",
             "silt fence supplier",
@@ -64,6 +80,10 @@ PACKAGES: Dict[str, dict] = {
     "concrete": {
         "label": "Cast-in-Place Concrete",
         "tone": "gray",
+        "verify_hint": (
+            "Ready-mix concrete supplier or batch plant delivering to job sites — "
+            "not a retail store selling bagged concrete."
+        ),
         "keywords": [
             "ready mix concrete supplier",
             "concrete batch plant",
@@ -73,6 +93,10 @@ PACKAGES: Dict[str, dict] = {
     "rebar": {
         "label": "Reinforcing Steel",
         "tone": "warn",
+        "verify_hint": (
+            "Rebar / reinforcing steel supplier or fabricator serving contractors — "
+            "not a general hardware retailer."
+        ),
         "keywords": [
             "rebar supplier",
             "rebar fabricator",
@@ -83,6 +107,10 @@ PACKAGES: Dict[str, dict] = {
     "steel": {
         "label": "Structural Steel",
         "tone": "blue",
+        "verify_hint": (
+            "Structural steel fabricator or supplier serving commercial construction — "
+            "not a welding supply retail shop or scrap yard."
+        ),
         "keywords": [
             "structural steel fabricator",
             "structural steel supplier",
@@ -93,6 +121,10 @@ PACKAGES: Dict[str, dict] = {
     "masonry": {
         "label": "Masonry",
         "tone": "violet",
+        "verify_hint": (
+            "Wholesale masonry supply house (block, brick, mortar) serving contractors — "
+            "not a decorative tile or home décor store."
+        ),
         "keywords": [
             "masonry supply",
             "concrete block CMU supplier",
@@ -103,6 +135,10 @@ PACKAGES: Dict[str, dict] = {
     "framing": {
         "label": "Wood & Framing",
         "tone": "success",
+        "verify_hint": (
+            "Wholesale lumber / framing / engineered wood supplier serving contractors — "
+            "not a consumer furniture or home-goods store."
+        ),
         "keywords": [
             "lumber supplier",
             "framing lumber yard",
@@ -114,6 +150,10 @@ PACKAGES: Dict[str, dict] = {
     "raceway": {
         "label": "Conduit & Raceway",
         "tone": "warn",
+        "verify_hint": (
+            "Wholesale electrical supply house distributing conduit & raceway to "
+            "contractors — not a consumer electronics store."
+        ),
         "keywords": [
             "electrical supply house",
             "conduit supplier",
@@ -124,6 +164,10 @@ PACKAGES: Dict[str, dict] = {
     "conductors": {
         "label": "Wire & Cable",
         "tone": "blue",
+        "verify_hint": (
+            "Wholesale electrical wire & cable distributor serving contractors — "
+            "not a consumer electronics retailer."
+        ),
         "keywords": [
             "electrical wire and cable supplier",
             "building wire distributor",
@@ -133,6 +177,10 @@ PACKAGES: Dict[str, dict] = {
     "equipment": {
         "label": "Panels & Distribution",
         "tone": "violet",
+        "verify_hint": (
+            "Wholesale electrical distributor of panelboards, switchgear & distribution "
+            "equipment serving contractors — not a retail appliance store."
+        ),
         "keywords": [
             "electrical distributor",
             "panelboard supplier",
@@ -143,6 +191,10 @@ PACKAGES: Dict[str, dict] = {
     "devices": {
         "label": "Devices & Rough-in",
         "tone": "gray",
+        "verify_hint": (
+            "Wholesale electrical supply house for wiring devices, boxes & rough-in "
+            "materials serving contractors — not a consumer hardware store."
+        ),
         "keywords": [
             "electrical supply house",
             "wiring device distributor",
@@ -152,6 +204,10 @@ PACKAGES: Dict[str, dict] = {
     "lighting": {
         "label": "Lighting Fixtures",
         "tone": "success",
+        "verify_hint": (
+            "Commercial lighting distributor / supply house serving contractors — "
+            "not a consumer home décor or furniture lighting showroom."
+        ),
         "keywords": [
             "commercial lighting distributor",
             "LED lighting fixture supplier",
@@ -161,6 +217,10 @@ PACKAGES: Dict[str, dict] = {
     "grounding": {
         "label": "Grounding & Bonding",
         "tone": "danger",
+        "verify_hint": (
+            "Wholesale electrical supply house for grounding & bonding materials "
+            "serving contractors — not a general retail store."
+        ),
         "keywords": [
             "electrical grounding supplier",
             "ground rod supplier",
@@ -170,6 +230,10 @@ PACKAGES: Dict[str, dict] = {
     "lowvoltage": {
         "label": "Low-Voltage & Fire Alarm",
         "tone": "ai",
+        "verify_hint": (
+            "Wholesale low-voltage / fire alarm / structured cabling distributor "
+            "serving contractors — not a consumer security gadget retailer."
+        ),
         "keywords": [
             "fire alarm equipment supplier",
             "low voltage supply",
@@ -241,6 +305,14 @@ def label_for(category_key: str) -> str:
 def tone_for(category_key: str) -> str:
     pkg = PACKAGES.get(category_key)
     return pkg["tone"] if pkg else "gray"
+
+
+def verify_hint_for(category_key: str) -> str:
+    """One-line LLM/heuristic accept criteria for a buy-package category."""
+    pkg = PACKAGES.get(category_key)
+    if pkg and pkg.get("verify_hint"):
+        return pkg["verify_hint"]
+    return f"Wholesale distributor or supplier of {label_for(category_key)} materials to contractors."
 
 
 def category_for_label(label: str) -> Optional[str]:

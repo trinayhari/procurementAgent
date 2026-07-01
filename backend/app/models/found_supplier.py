@@ -33,6 +33,8 @@ class FoundSupplier(Base):
     material_categories: Mapped[str] = mapped_column(String, nullable=False, default="[]")
     email_source: Mapped[str] = mapped_column(String, nullable=False, default="none")
     place_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    relevance_score: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    verify_reason: Mapped[str] = mapped_column(String, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
@@ -53,4 +55,6 @@ class FoundSupplier(Base):
             "materialCategories": json.loads(self.material_categories or "[]"),
             "emailSource": self.email_source,
             "placeId": self.place_id,
+            "relevanceScore": self.relevance_score,
+            "verifyReason": self.verify_reason,
         }

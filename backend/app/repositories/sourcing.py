@@ -37,6 +37,8 @@ def replace_found_suppliers(
             material_categories=json.dumps(r.get("material_categories", [])),
             email_source=r.get("email_source", "none"),
             place_id=r.get("place_id"),
+            relevance_score=float(r.get("relevance_score", 1.0)),
+            verify_reason=r.get("verify_reason", ""),
         )
         rows.append(row)
         db.add(row)
@@ -50,7 +52,10 @@ def list_found_suppliers(
     stmt = select(FoundSupplier).where(FoundSupplier.project_id == project_id)
     if package:
         stmt = stmt.where(FoundSupplier.package == package)
-    stmt = stmt.order_by(FoundSupplier.distance_miles)
+    stmt = stmt.order_by(
+        FoundSupplier.relevance_score.desc(),
+        FoundSupplier.distance_miles,
+    )
     return [r.to_dict() for r in db.scalars(stmt).all()]
 
 
