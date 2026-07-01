@@ -39,3 +39,5 @@ class DocStatus(str, Enum):
     processing = "Processing"
     analyzed = "Analyzed"
     failed = "Failed"
+    draft = "Draft"  # a hand-built custom BOM before it's confirmed
+    saved = "Saved"  # a custom BOM the user has confirmed (still editable)

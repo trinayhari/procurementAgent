@@ -979,7 +979,7 @@
           "sourcing"
         ],
         "summary": "Get Package Bom",
-        "description": "The BOM line items this buy-package will ask suppliers to quote.\n\nPowers the supplier page's \"what are we asking for\" panel \u2014 selecting a\npackage (e.g. Water) shows the exact items pulled from the project's\nextracted plans for that discipline.",
+        "description": "The BOM line items this buy-package will ask suppliers to quote.\n\nPowers the supplier page's \"what are we asking for\" panel \u2014 selecting a\npackage (e.g. Water) shows the exact items pulled from the project's\nextracted plans for that discipline. For a custom BOM the items come straight\nfrom that hand-built document.",
         "operationId": "get_package_bom_api_projects__project_id__packages__package__bom_get",
         "parameters": [
           {
@@ -1008,6 +1008,53 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PackageBom"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/boms": {
+      "get": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "List Project Boms",
+        "description": "The project's hand-built custom BOMs \u2014 the selectable custom packages in\nthe supplier search. Each BOM's document id doubles as its package key.",
+        "operationId": "list_project_boms_api_projects__project_id__boms_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomBomSummary"
+                  },
+                  "title": "Response List Project Boms Api Projects  Project Id  Boms Get"
                 }
               }
             }
@@ -1058,154 +1105,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RfqGenerateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PersistedRfq"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/projects/{project_id}/rfqs/adhoc/search-suppliers": {
-      "post": {
-        "tags": [
-          "sourcing"
-        ],
-        "summary": "Search Adhoc Suppliers",
-        "description": "Kick off a free-text supplier search for an ad-hoc RFQ. The frontend then\npolls GET .../rfqs/adhoc/suppliers/found, exactly like the package flow.",
-        "operationId": "search_adhoc_suppliers_api_projects__project_id__rfqs_adhoc_search_suppliers_post",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Project Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AdHocSupplierSearchRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SupplierSearchAccepted"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/projects/{project_id}/rfqs/adhoc/suppliers/found": {
-      "get": {
-        "tags": [
-          "sourcing"
-        ],
-        "summary": "Get Adhoc Found Suppliers",
-        "operationId": "get_adhoc_found_suppliers_api_projects__project_id__rfqs_adhoc_suppliers_found_get",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Project Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SupplierSearchResult"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/projects/{project_id}/rfqs/adhoc/generate": {
-      "post": {
-        "tags": [
-          "sourcing"
-        ],
-        "summary": "Generate Adhoc Rfq",
-        "description": "Generate a draft RFQ from the chosen ad-hoc found-suppliers. The draft\nlands in the same list as package RFQs and is reviewed/sent the same way.",
-        "operationId": "generate_adhoc_rfq_api_projects__project_id__rfqs_adhoc_generate_post",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Project Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AdHocRfqGenerateRequest"
               }
             }
           }
@@ -1890,6 +1789,48 @@
         }
       }
     },
+    "/api/documents/manual": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Create Manual Bom",
+        "description": "Create a hand-built custom BOM \u2014 a bill of materials the user types by hand.\n\nThere's no file and no extraction: it's seeded with one empty group and then\nedited via the same line-items endpoints an extracted BOM uses. It appears in\nthe Documents panel and becomes a selectable \"package\" in the supplier search\n(its document id is used as the package key), replacing the old free-text\nad-hoc RFQ flow with a saved, viewable bill of materials.",
+        "operationId": "create_manual_bom_api_documents_manual_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualBomCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/documents": {
       "post": {
         "tags": [
@@ -2230,57 +2171,6 @@
           "time"
         ],
         "title": "Activity"
-      },
-      "AdHocRfqGenerateRequest": {
-        "properties": {
-          "supplier_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Supplier Ids"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description"
-          },
-          "lineItems": {
-            "items": {
-              "$ref": "#/components/schemas/RfqLineItem"
-            },
-            "type": "array",
-            "title": "Lineitems",
-            "default": []
-          }
-        },
-        "type": "object",
-        "required": [
-          "supplier_ids",
-          "description"
-        ],
-        "title": "AdHocRfqGenerateRequest",
-        "description": "Generate an ad-hoc RFQ from suppliers found via a free-text search.\n\n``description`` is what the user typed they need (drives the subject and is\nthe default line item); ``supplier_ids`` are the chosen found-suppliers."
-      },
-      "AdHocSupplierSearchRequest": {
-        "properties": {
-          "query": {
-            "type": "string",
-            "title": "Query"
-          },
-          "radius_mi": {
-            "type": "integer",
-            "maximum": 250.0,
-            "minimum": 1.0,
-            "title": "Radius Mi",
-            "default": 75
-          }
-        },
-        "type": "object",
-        "required": [
-          "query"
-        ],
-        "title": "AdHocSupplierSearchRequest",
-        "description": "Free-text supplier search for an ad-hoc RFQ (no fixed buy-package)."
       },
       "AwardOption": {
         "properties": {
@@ -2649,6 +2539,35 @@
         ],
         "title": "ConversationMessage"
       },
+      "CustomBomSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "reviewed": {
+            "type": "boolean",
+            "title": "Reviewed",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "count"
+        ],
+        "title": "CustomBomSummary",
+        "description": "A hand-built custom BOM, surfaced as a selectable package in the\nsupplier search alongside the discipline buy-packages."
+      },
       "Dashboard": {
         "properties": {
           "metrics": {
@@ -2679,7 +2598,9 @@
           "Queued",
           "Processing",
           "Analyzed",
-          "Failed"
+          "Failed",
+          "Draft",
+          "Saved"
         ],
         "title": "DocStatus"
       },
@@ -3258,6 +3179,25 @@
         ],
         "title": "LoginRequest"
       },
+      "ManualBomCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "projectId"
+        ],
+        "title": "ManualBomCreate",
+        "description": "Body for creating a hand-built custom BOM document (no file upload)."
+      },
       "MessageCreate": {
         "properties": {
           "body": {
@@ -3449,6 +3389,11 @@
           "seeded": {
             "type": "boolean",
             "title": "Seeded",
+            "default": false
+          },
+          "custom": {
+            "type": "boolean",
+            "title": "Custom",
             "default": false
           }
         },

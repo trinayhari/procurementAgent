@@ -54,6 +54,7 @@ export interface ModelProps {
   docLineItems?: { id: string; groups: LineItemGroup[] } | null
   onUpload?: (file: File, planType?: string) => void
   onDeleteDoc?: (id: string) => void
+  onCreateBom?: () => void
   editBom?: boolean
   bomDraft?: LineItemGroup[] | null
   bomBusy?: boolean
@@ -223,9 +224,15 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       doc: docs.find((d) => d.planType === key) || null,
     }
   })
-  // Everything not occupying a plan slot (planType 'other', or legacy/seed docs
-  // with no planType) is an additional reference document.
-  const additionalDocs = docs.filter((d) => !SLOT_KEYS.includes((d.planType as string) || ''))
+  // Hand-built custom BOMs (created in the Documents panel, no upload/extraction).
+  // They render in their own section and are selectable as packages in sourcing.
+  const CUSTOM_BOM_TYPE = 'custom_bom'
+  const customBoms = docs.filter((d) => d.planType === CUSTOM_BOM_TYPE)
+  // Everything not occupying a plan slot and not a custom BOM (planType 'other',
+  // or legacy/seed docs with no planType) is an additional reference document.
+  const additionalDocs = docs.filter(
+    (d) => !SLOT_KEYS.includes((d.planType as string) || '') && d.planType !== CUSTOM_BOM_TYPE,
+  )
   const additionalSpec = specFor('other')
 
   // Per-document BOM groups (props.docLineItems, fetched when a doc is selected)
@@ -405,9 +412,11 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     suppliers, supplierOpen, activeSupplier, supComms,
     docs, doc, extracted,
     // Plan slots + additional documents (see App.tsx + TabDocuments).
-    docSlots, additionalDocs,
+    docSlots, additionalDocs, customBoms,
     additionalLabel: (additionalSpec && additionalSpec.label) || 'Additional Document',
     additionalKey: 'other',
+    customBomType: CUSTOM_BOM_TYPE,
+    createBom: (props && props.onCreateBom) || (() => {}),
     // Upload / extraction wiring (see App.tsx + TabDocuments).
     planTypes: (props && props.planTypes) || null,
     planType: (props && props.planType) || 'site_plan',

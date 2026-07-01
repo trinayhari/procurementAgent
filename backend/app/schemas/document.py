@@ -56,3 +56,10 @@ class LineItemsUpdate(BaseModel):
     """Body for saving a human-edited BOM (full replacement of the groups)."""
 
     groups: List[LineItemGroup]
+
+
+class ManualBomCreate(BaseModel):
+    """Body for creating a hand-built custom BOM document (no file upload)."""
+
+    name: str
+    projectId: str

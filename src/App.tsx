@@ -6,16 +6,16 @@ import type { Model, State } from './model'
 import Login from './Login'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
-  saveDocumentLineItems, confirmDocument, deleteDocument,
+  saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  searchAdHocSuppliers, getAdHocFoundSuppliers, generateAdHocRfq,
+  listProjectBoms,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
   getToken, getMe, logout as apiLogout, onAuthChange,
 } from './api'
 import type {
-  SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqLineItem, RfqConversation,
-  LineComparison, AwardOption, AuthUser,
+  SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
+  CustomBomSummary, LineComparison, AwardOption, AuthUser,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -207,6 +207,30 @@ export default function App() {
     }
   }
 
+  // Create a hand-built custom BOM (no file). We name it, create the document,
+  // then select it and drop straight into the BOM editor so the user can start
+  // adding line items. It sorts newest-first, so it lands at docIdx 0.
+  const activePid = () => s.projectId || (s.data && s.data.projects[0] && s.data.projects[0].id) || ''
+  const createBom = async () => {
+    const pid = activePid()
+    if (!pid) { set({ uploadError: 'Open a project before creating a BOM.' }); return }
+    const name = window.prompt('Name this bill of materials', 'Custom BOM')
+    if (name === null) return
+    try {
+      const doc = await createManualBom(pid, name.trim() || 'Custom BOM')
+      await reload()
+      const groups = await getDocumentLineItems(doc.id)
+      set({
+        tab: 'documents', docIdx: 0, uploadError: null,
+        docLineItems: { id: doc.id, groups },
+        editBom: true,
+        bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })),
+      })
+    } catch (e) {
+      set({ uploadError: 'Could not create the BOM.' })
+    }
+  }
+
   // Poll while any document is still being analyzed.
   useEffect(() => {
     const docs = s.data && s.data.docs
@@ -270,7 +294,7 @@ export default function App() {
     user, onLogout: handleLogout,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
-    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc,
+    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onCreateBom: createBom,
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
   })
@@ -895,6 +919,37 @@ function AdditionalDocsCard({ m }: MProps) {
   )
 }
 
+// Hand-built bills of materials: create a named BOM, fill it in with the same
+// editor the extracted BOMs use, then quote it from the Suppliers tab. Replaces
+// the old throwaway free-text ad-hoc RFQ with a saved, viewable BOM.
+function CustomBomsCard({ m }: MProps) {
+  return (
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
+      <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
+        <div style={css('display:flex;align-items:center;gap:8px')}>
+          <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Custom bills of materials</h2>
+          <span style={css('font-size:12px;color:var(--text-3)')}>{m.customBoms.length}</span>
+        </div>
+        <Box as="button" onClick={m.createBom}
+          style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
+          hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New BOM</Box>
+      </div>
+      {m.customBoms.length === 0 ? (
+        <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No custom BOMs yet — build one by hand for items not on a plan, then quote it from the Suppliers tab.</div>
+      ) : (
+        m.customBoms.map((d, i) => (
+          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+            <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d='M9 3H5a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 5 21h14a1.5 1.5 0 0 0 1.5-1.5V4.5A1.5 1.5 0 0 0 19 3h-4" /><path d="M8 8h8M8 12h8M8 16h5' /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
+            <span style={css('font-size:12px;color:var(--text-2)')}>{d.items === '—' ? '0' : d.items} items</span>
+            <span><span style={d.statusBadge}>{d.status}</span></span>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
 // Derive the preview filename shown on the plan-sheet placeholder from the
 // selected document's name, so the preview reflects the clicked document.
 function previewFileName(name: string): string {
@@ -909,6 +964,9 @@ function previewFileName(name: string): string {
 }
 
 function TabDocuments({ m }: MProps) {
+  // Custom BOMs have no source file — skip the plan-sheet / PDF preview and show
+  // a simple card; the line items are edited in the panel on the right.
+  const isCustomBom = !!(m.doc && m.doc.planType === m.customBomType)
   return (
     <>
       <div style={css('margin-bottom:6px;font-size:12.5px;color:var(--text-3)')}>
@@ -921,10 +979,23 @@ function TabDocuments({ m }: MProps) {
       <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px')}>
         {m.docSlots.map((slot) => <PlanSlotCard key={slot.key} m={m} slot={slot} />)}
       </div>
+      <CustomBomsCard m={m} />
       <AdditionalDocsCard m={m} />
       <div style={css('display:grid;grid-template-columns:minmax(0,1.7fr) 330px;gap:16px;align-items:start')}>
         <div style={css('display:flex;flex-direction:column;gap:16px;min-width:0')}>
-          {m.doc ? (
+          {m.doc && isCustomBom ? (
+          <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
+            <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
+              <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.items === '—' ? '0' : m.doc.items} line items</span></div>
+              <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}>Custom BOM</span>
+            </div>
+            <div style={css('padding:44px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center')}>
+              <span style={css('width:48px;height:48px;border-radius:12px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center')}><Svg size={24} sw={1.7} d='M9 3H5a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 5 21h14a1.5 1.5 0 0 0 1.5-1.5V4.5A1.5 1.5 0 0 0 19 3h-4" /><path d="M8 8h8M8 12h8M8 16h5' /></span>
+              <div style={css('font-size:14px;font-weight:600')}>Hand-built bill of materials</div>
+              <div style={css('font-size:12.5px;color:var(--text-3);max-width:340px')}>No plan to preview — add and edit line items in the panel on the right, then quote it from the Suppliers tab.</div>
+            </div>
+          </div>
+          ) : m.doc ? (
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
               <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.pages} pages</span></div>
@@ -962,17 +1033,18 @@ function ExtractedPanel({ m }: MProps) {
   // groups, which carry presentational extras (dotStyle/countBadge).
   const groups = (editing ? m.bomDraft : m.extracted) as BomGroup[]
   const reviewed = m.doc && m.doc.reviewed
+  const isCustom = !!(m.doc && m.doc.planType === m.customBomType)
   const inputCss = css('flex:1;min-width:0;font-size:12px;padding:5px 7px;border-radius:6px;border:1px solid var(--border);background:var(--panel-2);color:var(--text)')
 
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);position:sticky;top:72px;overflow:hidden')}>
       <div style={css('padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px')}>
         <span style={css('width:24px;height:24px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} fill d={SPARKLE_SM} /></span>
-        <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>{editing ? 'Edit materials' : 'Extracted materials'}</h2>
+        <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>{editing ? 'Edit materials' : isCustom ? 'Bill of materials' : 'Extracted materials'}</h2>
         {!editing && reviewed && (
-          <span style={css('display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--success);background:var(--success-soft);padding:3px 8px;border-radius:999px')}><Svg size={12} sw={2.4} d="M20 6 9 17l-5-5" />Confirmed</span>
+          <span style={css('display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--success);background:var(--success-soft);padding:3px 8px;border-radius:999px')}><Svg size={12} sw={2.4} d="M20 6 9 17l-5-5" />{isCustom ? 'Saved' : 'Confirmed'}</span>
         )}
-        {!editing && !reviewed && (
+        {!editing && (
           <Box as="button" onClick={m.startBomEdit} style={css('font-size:12px;font-weight:600;color:var(--text-2);padding:4px 9px;border-radius:7px;border:1px solid var(--border)')} hover="background:var(--panel-2)">Edit</Box>
         )}
         {editing && (
@@ -1073,17 +1145,16 @@ function pkgLabel(key: string): string {
   return p ? p.label : key
 }
 
-// Self-contained supplier search: pick a buy-package (or "Ad-hoc" to search a
-// free-text description), set a radius, search Google Places (mock when no key),
-// review tiered results, select recipients, and generate an RFQ draft. Manages
-// its own state + polling.
-const ADHOC_KEY = 'adhoc'
-
+// Self-contained supplier search: pick a discipline buy-package or a hand-built
+// custom BOM, set a radius, search Google Places (mock when no key), review
+// tiered results, select recipients, and generate an RFQ draft. Custom BOMs are
+// created in the Documents panel and selected here by their document id — they
+// quote exactly like a package (replacing the old free-text ad-hoc flow).
+// Manages its own state + polling.
 function SupplierSearch({ projectId }: { projectId: string }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
-  const [query, setQuery] = useState('')                       // ad-hoc description
-  const [lineItems, setLineItems] = useState<RfqLineItem[]>([]) // optional ad-hoc items
+  const [boms, setBoms] = useState<CustomBomSummary[]>([])     // custom BOMs on this project
   const [result, setResult] = useState<SupplierSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<Record<string, boolean>>({})
@@ -1092,26 +1163,32 @@ function SupplierSearch({ projectId }: { projectId: string }) {
   const [err, setErr] = useState<string | null>(null)
   const [bom, setBom] = useState<PackageBom | null>(null)   // what we're asking suppliers to quote
   const [bomLoading, setBomLoading] = useState(false)
-  const isAdhoc = pkg === ADHOC_KEY
 
-  // What we're searching/RFQ-ing for, as a display label.
-  const subjectLabel = isAdhoc ? (query.trim() || 'ad-hoc RFQ') : pkgLabel(pkg)
-  const fetchFound = () => (isAdhoc ? getAdHocFoundSuppliers(projectId) : getFoundSuppliers(projectId, pkg))
+  // Resolve a package key — a preset key or a custom BOM's document id — to its
+  // display label. Custom BOMs show their own name.
+  const labelFor = (key: string) => boms.find((b) => b.id === key)?.name || pkgLabel(key)
+  const subjectLabel = labelFor(pkg)
+  const isCustom = !!(bom && bom.custom)
+
+  // Load this project's custom BOMs (the extra selectable "packages").
+  useEffect(() => {
+    let alive = true
+    listProjectBoms(projectId).then((b) => { if (alive) setBoms(b) }).catch(() => {})
+    return () => { alive = false }
+  }, [projectId])
 
   // Load any prior results when the package changes.
   useEffect(() => {
     let alive = true
     setResult(null); setSelected({}); setErr(null)
-    fetchFound()
+    getFoundSuppliers(projectId, pkg)
       .then((r) => { if (!alive) return; setResult(r); if (r.status === 'searching') setSearching(true) })
       .catch(() => {})
     return () => { alive = false }
   }, [projectId, pkg])
 
-  // Load the package's BOM (the items we'll ask suppliers to quote) when the
-  // selected package changes. Ad-hoc has no fixed BOM.
+  // Load the selected package/BOM's line items (what we'll ask suppliers to quote).
   useEffect(() => {
-    if (isAdhoc) { setBom(null); return }
     let alive = true
     setBom(null); setBomLoading(true)
     getPackageBom(projectId, pkg)
@@ -1119,13 +1196,13 @@ function SupplierSearch({ projectId }: { projectId: string }) {
       .catch(() => {})
       .finally(() => { if (alive) setBomLoading(false) })
     return () => { alive = false }
-  }, [projectId, pkg, isAdhoc])
+  }, [projectId, pkg])
 
   // Poll while a background search runs.
   useEffect(() => {
     if (!searching) return
     const t = setInterval(() => {
-      fetchFound()
+      getFoundSuppliers(projectId, pkg)
         .then((r) => { setResult(r); if (r.status !== 'searching') setSearching(false) })
         .catch(() => {})
     }, 2500)
@@ -1134,10 +1211,8 @@ function SupplierSearch({ projectId }: { projectId: string }) {
 
   const runSearch = async () => {
     setErr(null); setSelected({})
-    if (isAdhoc && !query.trim()) { setErr('Describe what you need before searching.'); return }
     try {
-      if (isAdhoc) await searchAdHocSuppliers(projectId, query.trim(), radius)
-      else await searchSuppliers(projectId, pkg, radius)
+      await searchSuppliers(projectId, pkg, radius)
       setSearching(true)
       setResult({ status: 'searching', mocked: false, radiusMi: radius, package: pkg, error: null, tiers: [] })
     } catch (e) { setErr('Search failed. Is the backend running?') }
@@ -1146,21 +1221,10 @@ function SupplierSearch({ projectId }: { projectId: string }) {
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }))
   const selectedIds = Object.keys(selected).filter((k) => selected[k])
 
-  const addItem = () => setLineItems((xs) => [...xs, { n: '', q: '' }])
-  const setItem = (i: number, patch: Partial<RfqLineItem>) =>
-    setLineItems((xs) => xs.map((x, j) => (j === i ? { ...x, ...patch } : x)))
-  const dropItem = (i: number) => setLineItems((xs) => xs.filter((_, j) => j !== i))
-
   const generate = async () => {
     setGenerating(true); setErr(null)
     try {
-      const rfq = isAdhoc
-        ? await generateAdHocRfq(projectId, {
-            supplierIds: selectedIds,
-            description: query.trim(),
-            lineItems: lineItems.filter((li) => (li.n || '').trim()),
-          })
-        : await generateRfq(projectId, pkg, selectedIds)
+      const rfq = await generateRfq(projectId, pkg, selectedIds)
       setDraft(rfq)
     } catch (e) {
       setErr('Could not generate RFQ — selected suppliers may not have a discovered email.')
@@ -1170,7 +1234,7 @@ function SupplierSearch({ projectId }: { projectId: string }) {
   const tiers = (result && result.tiers) || []
   const total = tiers.reduce((n, t) => n + t.suppliers.length, 0)
   const chip = (active: boolean) =>
-    css(`height:32px;padding:0 13px;border-radius:8px;font-size:12.5px;font-weight:600;border:1px solid ${active ? 'var(--primary)' : 'var(--border)'};background:${active ? 'var(--primary-soft)' : 'var(--panel)'};color:${active ? 'var(--primary)' : 'var(--text-2)'}`)
+    css(`height:32px;padding:0 13px;border-radius:8px;font-size:12.5px;font-weight:600;border:1px solid ${active ? 'var(--primary)' : 'var(--border)'};background:${active ? 'var(--primary-soft)' : 'var(--panel)'};color:${active ? 'var(--primary)' : 'var(--text-2)'};display:inline-flex;align-items:center;gap:6px`)
 
   return (
     <>
@@ -1193,39 +1257,18 @@ function SupplierSearch({ projectId }: { projectId: string }) {
             </div>
           ))}
           <div>
-            <div style={css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:7px')}>Other</div>
-            <Box as="button" key={ADHOC_KEY} onClick={() => setPkg(ADHOC_KEY)} style={chip(isAdhoc)}
-              hover="background:var(--panel-2)"><Svg size={13} sw={2.2} d='M12 5v14M5 12h14' />Ad-hoc</Box>
+            <div style={css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:7px')}>Custom BOMs</div>
+            <div style={css('display:flex;gap:7px;flex-wrap:wrap;align-items:center')}>
+              {boms.map((b) => (
+                <Box as="button" key={b.id} onClick={() => setPkg(b.id)} style={chip(pkg === b.id)} hover="background:var(--panel-2)">
+                  <Svg size={13} sw={1.9} d='M9 3H5a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 5 21h14a1.5 1.5 0 0 0 1.5-1.5V4.5A1.5 1.5 0 0 0 19 3h-4" /><path d="M8 8h8M8 12h8M8 16h5' />{b.name}
+                  <span style={css('font-size:11px;font-weight:700;color:var(--text-3)')}>{b.count}</span>
+                </Box>
+              ))}
+              {boms.length === 0 && <span style={css('font-size:12px;color:var(--text-3)')}>None yet — create one in the Documents tab to quote items by hand.</span>}
+            </div>
           </div>
         </div>
-
-        {/* Ad-hoc: describe what you need + optional line items */}
-        {isAdhoc && (
-          <div style={css('margin-bottom:14px;display:flex;flex-direction:column;gap:10px')}>
-            <div>
-              <label style={fieldLabel}>What do you need a quote for?</label>
-              <input value={query} onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !searching) { e.preventDefault(); runSearch() } }}
-                placeholder="e.g. ready-mix concrete, #5 rebar, W-beam guardrail" style={fieldInput} />
-            </div>
-            <div>
-              <div style={css('display:flex;align-items:center;justify-content:space-between;margin-bottom:8px')}>
-                <label style={{ ...fieldLabel, marginBottom: 0 }}>Line items ({lineItems.length}) <span style={css('font-weight:500;color:var(--text-3)')}>· optional</span></label>
-                <Box as="button" onClick={addItem} style={css('display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={13} sw={2.2} d='M12 5v14M5 12h14' />Add item</Box>
-              </div>
-              {lineItems.length === 0 && <div style={css('font-size:12px;color:var(--text-3)')}>Leave empty to quote “{subjectLabel}”, or list specific items below.</div>}
-              <div style={css('display:flex;flex-direction:column;gap:6px')}>
-                {lineItems.map((li, i) => (
-                  <div key={i} style={css('display:flex;gap:6px;align-items:center')}>
-                    <input value={li.n} onChange={(e) => setItem(i, { n: e.target.value })} placeholder="Item" style={{ ...fieldInput, flex: '1 1 0', marginBottom: 0 }} />
-                    <input value={li.q} onChange={(e) => setItem(i, { q: e.target.value })} placeholder="Qty" style={{ ...fieldInput, flex: '0 0 110px', marginBottom: 0 }} />
-                    <Box as="button" onClick={() => dropItem(i)} style={css('width:30px;height:30px;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center;flex:none')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
 
         <div style={css('display:flex;align-items:center;gap:16px;flex-wrap:wrap')}>
           <div style={css('display:flex;align-items:center;gap:11px;flex:1;min-width:240px')}>
@@ -1251,35 +1294,37 @@ function SupplierSearch({ projectId }: { projectId: string }) {
         {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>{err}</div>}
       </div>
 
-      {/* What we're asking suppliers to quote — the package's BOM */}
-      {!isAdhoc && (
-        <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
-          <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:4px')}>
-            <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>What we're asking for · {pkgLabel(pkg)}</h2>
-            {bom && bom.count > 0 && <span style={{ ...DcBadge('blue') }}>{bom.count} item{bom.count > 1 ? 's' : ''}</span>}
-          </div>
-          <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:12px')}>
-            Pulled from this project's extracted plans — these line items go into the RFQ.
-            {bom && bom.seeded && <span style={css('color:var(--warn);font-weight:600')}> · Sample BOM (nothing extracted for this package yet)</span>}
-          </div>
-          {bomLoading && <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>Loading BOM…</div>}
-          {!bomLoading && bom && bom.count === 0 && (
-            <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>
-              No {pkgLabel(pkg)} items found yet. Upload the relevant plan so we can extract this BOM, or use an Ad-hoc RFQ to list items by hand.
-            </div>
-          )}
-          {!bomLoading && bom && bom.count > 0 && (
-            <div style={css('display:flex;flex-direction:column;border:1px solid var(--border);border-radius:11px;overflow:hidden')}>
-              {bom.items.map((it, i) => (
-                <div key={i} style={css(`display:flex;align-items:center;gap:12px;padding:9px 13px;font-size:13px;${i ? 'border-top:1px solid var(--border);' : ''}`)}>
-                  <span style={css('flex:1;min-width:0;color:var(--text)')}>{it.n}</span>
-                  <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--text-2);white-space:nowrap")}>{it.q || '—'}</span>
-                </div>
-              ))}
-            </div>
-          )}
+      {/* What we're asking suppliers to quote — the package's or custom BOM's items */}
+      <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
+        <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:4px')}>
+          <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>What we're asking for · {labelFor(pkg)}</h2>
+          {bom && bom.count > 0 && <span style={{ ...DcBadge('blue') }}>{bom.count} item{bom.count > 1 ? 's' : ''}</span>}
         </div>
-      )}
+        <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:12px')}>
+          {isCustom
+            ? 'Your hand-built bill of materials — these line items go into the RFQ.'
+            : "Pulled from this project's extracted plans — these line items go into the RFQ."}
+          {bom && bom.seeded && <span style={css('color:var(--warn);font-weight:600')}> · Sample BOM (nothing extracted for this package yet)</span>}
+        </div>
+        {bomLoading && <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>Loading BOM…</div>}
+        {!bomLoading && bom && bom.count === 0 && (
+          <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>
+            {isCustom
+              ? 'This BOM has no items yet — add line items in the Documents tab, then come back to quote it.'
+              : `No ${labelFor(pkg)} items found yet. Upload the relevant plan to extract this BOM, or build a custom BOM in the Documents tab.`}
+          </div>
+        )}
+        {!bomLoading && bom && bom.count > 0 && (
+          <div style={css('display:flex;flex-direction:column;border:1px solid var(--border);border-radius:11px;overflow:hidden')}>
+            {bom.items.map((it, i) => (
+              <div key={i} style={css(`display:flex;align-items:center;gap:12px;padding:9px 13px;font-size:13px;${i ? 'border-top:1px solid var(--border);' : ''}`)}>
+                <span style={css('flex:1;min-width:0;color:var(--text)')}>{it.n}</span>
+                <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--text-2);white-space:nowrap")}>{it.q || '—'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Results */}
       {searching && total === 0 && (
@@ -1287,7 +1332,7 @@ function SupplierSearch({ projectId }: { projectId: string }) {
       )}
       {!searching && result && total === 0 && (
         <div style={css('padding:30px;text-align:center;font-size:13px;color:var(--text-3)')}>
-          {isAdhoc ? 'Describe what you need and run a search to find suppliers.' : `No suppliers found yet — run a search for ${pkgLabel(pkg)}.`}
+          No suppliers found yet — run a search for {labelFor(pkg)}.
         </div>
       )}
 
@@ -1427,7 +1472,7 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
       <div style={css('position:relative;width:min(640px,100%);max-height:90vh;overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);animation:pcUp .2s ease both')}>
         <div style={css('display:flex;align-items:center;gap:9px;padding:16px 18px;border-bottom:1px solid var(--border)')}>
           <span style={css('width:26px;height:26px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} fill d={SPARKLE_SM} /></span>
-          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? 'Review RFQ draft' : 'RFQ conversation'} · {pkgLabel(rfq.package)}</h2>
+          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? 'Review RFQ draft' : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
           {!draft && <span style={DcBadge(STATUS_TONE[status] || 'gray')}>{status}</span>}
           <Box as="button" onClick={onClose} style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={17} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
@@ -1571,7 +1616,7 @@ function TabRfqs({ m }: MProps) {
                   <div style={css(`width:34px;height:34px;border-radius:9px;background:${rq.logoBg || '#334155'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none`)}>{rq.logo}</div>
                   <div style={css('flex:1;min-width:0')}>
                     <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.subject}</div>
-                    <div style={css('font-size:11.5px;color:var(--text-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{pkgLabel(rq.package)} · {(rq.recipients || []).length} recipient{(rq.recipients || []).length === 1 ? '' : 's'}</div>
+                    <div style={css('font-size:11.5px;color:var(--text-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.pkg || pkgLabel(rq.package)} · {(rq.recipients || []).length} recipient{(rq.recipients || []).length === 1 ? '' : 's'}</div>
                   </div>
                   <span style={DcBadge(rq.statusTone)}>{rq.status}</span>
                   {rq.status === 'Draft' && (

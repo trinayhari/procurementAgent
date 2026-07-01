@@ -223,6 +223,16 @@ def keywords_for(category_key: str) -> List[str]:
     return list(pkg["keywords"]) if pkg else []
 
 
+def adhoc_keywords(text: str) -> List[str]:
+    """Fan a free-text label (e.g. a custom BOM's name) into a few Places search
+    variants, so a hand-built BOM with no preset keywords still searches on its
+    name — mirroring how the old free-text ad-hoc search worked."""
+    base = " ".join((text or "").split())
+    if not base:
+        return []
+    return [base, f"{base} supplier", f"{base} distributor"]
+
+
 def label_for(category_key: str) -> str:
     pkg = PACKAGES.get(category_key)
     return pkg["label"] if pkg else category_key.title()
