@@ -1100,6 +1100,16 @@ export interface components {
              * @default none
              */
             emailSource: string;
+            /**
+             * Relevancescore
+             * @default 1
+             */
+            relevanceScore: number;
+            /**
+             * Verifyreason
+             * @default
+             */
+            verifyReason: string;
         };
         /** GanttBar */
         GanttBar: {

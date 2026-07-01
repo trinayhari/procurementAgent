@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from typing import List, Optional, Tuple
 
 from app.config import settings
-from app.services.sourcing import distance, emails, packages, places
+from app.services.sourcing import distance, emails, packages, places, relevance
 
 LatLng = Tuple[float, float]
 
@@ -27,6 +27,8 @@ class FoundSupplierResult:
     material_categories: List[str] = field(default_factory=list)
     email_source: str = "none"
     place_id: Optional[str] = None
+    relevance_score: float = 1.0
+    verify_reason: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -34,6 +36,43 @@ class FoundSupplierResult:
 
 def is_configured() -> bool:
     return places.is_configured()
+
+
+def _place_coords(place: dict) -> Optional[LatLng]:
+    try:
+        loc = place.get("geometry", {}).get("location", {})
+        return float(loc["lat"]), float(loc["lng"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _prefilter_candidates(
+    raw: dict,
+    origin: LatLng,
+    radius_mi: int,
+) -> List[Tuple[str, dict, float]]:
+    """Cheap distance + types/name gate before Details / website fetch."""
+    survivors: List[Tuple[str, dict, float]] = []
+    for pid, place in raw.items():
+        coords = _place_coords(place)
+        if coords is None:
+            continue
+        dist = distance.haversine_miles(origin, coords)
+        if dist > radius_mi:
+            continue
+        if distance.tier_for(dist) == 0:
+            continue
+        name = place.get("name") or ""
+        types = place.get("types") or []
+        if not relevance.passes_prefilter(name, types):
+            continue
+        survivors.append((pid, place, dist))
+
+    survivors.sort(key=lambda item: item[2])
+    cap = settings.search_candidate_pool
+    if cap > 0:
+        survivors = survivors[:cap]
+    return survivors
 
 
 def search_suppliers(
@@ -46,8 +85,9 @@ def search_suppliers(
 ) -> Tuple[List[FoundSupplierResult], Optional[LatLng], bool]:
     """Return (results, latlng_used, mocked).
 
-    results are sorted by distance and capped at search_max_results_per_package.
-    latlng_used is returned so the caller can cache the project geocode.
+    results are sorted by relevance then distance and capped at
+    search_max_results_per_package. latlng_used is returned so the caller can
+    cache the project geocode.
 
     ``keywords``/``label`` override the buy-package presets — this is how an
     ad-hoc RFQ searches on a free-text description instead of a fixed package.
@@ -66,6 +106,12 @@ def search_suppliers(
     radius_m = int(min(radius_mi, settings.search_tier3_max_mi) * 1609.34)
     label = label or packages.label_for(category_key)
     search_keywords = keywords if ad_hoc else packages.keywords_for(category_key)
+    verify_hint = (
+        f"Wholesale distributor or supplier of {label} materials to contractors — "
+        "not a consumer retail store."
+        if ad_hoc
+        else packages.verify_hint_for(category_key)
+    )
 
     # 2. Text Search across the keywords; dedupe by place_id.
     raw: dict = {}
@@ -75,28 +121,42 @@ def search_suppliers(
             if pid and pid not in raw:
                 raw[pid] = place
 
-    # 3. Details + email discovery, concurrently and isolated per supplier.
-    def _enrich(item: Tuple[str, dict]) -> Optional[FoundSupplierResult]:
-        pid, place = item
-        try:
-            loc = place.get("geometry", {}).get("location", {})
-            coords = (float(loc["lat"]), float(loc["lng"]))
-        except (KeyError, TypeError, ValueError):
-            return None
-        dist = distance.haversine_miles(origin, coords)
-        if dist > radius_mi:
-            return None
+    # 3. Cheap pre-filter + candidate pool cap.
+    candidates = _prefilter_candidates(raw, origin, radius_mi)
+
+    # 4. Details + single website fetch + relevance scoring, concurrently.
+    def _enrich(item: Tuple[str, dict, float]) -> Optional[FoundSupplierResult]:
+        pid, place, dist = item
         tier = distance.tier_for(dist)
         if tier == 0:
             return None
+
         detail = {}
         try:
             detail = places.place_details(pid)
         except places.PlacesUnavailable:
             detail = {}
+
         name = detail.get("name") or place.get("name") or "Unknown supplier"
+        types = detail.get("types") or place.get("types") or []
+        if not relevance.passes_prefilter(name, types):
+            return None
+
         website = places.website_for(detail)
-        disc = emails.discover_email(website, name)
+        html_pages = emails.fetch_website_pages(website) if website else []
+        website_html = "\n".join(html_pages)
+
+        rel = relevance.score_supplier(
+            name,
+            types,
+            website_html,
+            category_key,
+            verify_hint=verify_hint,
+        )
+        if not rel.verified:
+            return None
+
+        disc = emails.discover_email(website, name, html_pages=html_pages or None)
         return FoundSupplierResult(
             name=name,
             address=detail.get("formatted_address") or place.get("formatted_address") or "",
@@ -109,16 +169,18 @@ def search_suppliers(
             material_categories=[label],
             email_source=disc.source,
             place_id=pid,
+            relevance_score=rel.score,
+            verify_reason=rel.reason,
         )
 
     results: List[FoundSupplierResult] = []
-    if raw:
+    if candidates:
         with ThreadPoolExecutor(max_workers=settings.search_max_workers) as pool:
-            for res in pool.map(_enrich, list(raw.items())):
+            for res in pool.map(_enrich, candidates):
                 if res is not None:
                     results.append(res)
 
-    results.sort(key=lambda r: r.distance_miles)
+    results.sort(key=lambda r: (-r.relevance_score, r.distance_miles))
     return results[: settings.search_max_results_per_package], origin, False
 
 
@@ -185,9 +247,11 @@ def _mock_adhoc_suppliers(label: str, radius_mi: int) -> List[FoundSupplierResul
                 material_categories=[label] if label else [],
                 email_source="mock" if email else "none",
                 place_id=f"mock-adhoc-{i}",
+                relevance_score=1.0,
+                verify_reason="mock",
             )
         )
-    out.sort(key=lambda r: r.distance_miles)
+    out.sort(key=lambda r: (-r.relevance_score, r.distance_miles))
     return out
 
 
@@ -214,7 +278,9 @@ def _mock_suppliers(category_key: str, radius_mi: int) -> List[FoundSupplierResu
                 material_categories=[label],
                 email_source="mock" if email else "none",
                 place_id=f"mock-{category_key}-{i}",
+                relevance_score=1.0,
+                verify_reason="mock",
             )
         )
-    out.sort(key=lambda r: r.distance_miles)
+    out.sort(key=lambda r: (-r.relevance_score, r.distance_miles))
     return out

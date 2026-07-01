@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     # Per-supplier website fetch for email discovery (best-effort).
     search_email_fetch_timeout_s: int = 8
     search_max_workers: int = 6  # cap concurrent details + website fetches
+    # Relevance filtering: cap candidates before enrichment, drop below min score.
+    search_candidate_pool: int = 40
+    search_relevance_min_score: float = 0.5
+    search_verify_with_llm: bool = True
 
 
 settings = Settings()

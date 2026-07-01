@@ -2810,6 +2810,16 @@
             "type": "string",
             "title": "Emailsource",
             "default": "none"
+          },
+          "relevanceScore": {
+            "type": "number",
+            "title": "Relevancescore",
+            "default": 1.0
+          },
+          "verifyReason": {
+            "type": "string",
+            "title": "Verifyreason",
+            "default": ""
           }
         },
         "type": "object",
