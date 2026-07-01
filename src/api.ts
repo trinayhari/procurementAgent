@@ -35,6 +35,7 @@ export type FoundSupplier = Schemas['FoundSupplier']
 export type SupplierTier = Schemas['SupplierTier']
 export type SupplierSearchResult = Schemas['SupplierSearchResult']
 export type PackageBom = Schemas['PackageBom']
+export type CustomBomSummary = Schemas['CustomBomSummary']
 export type PersistedRfq = Schemas['PersistedRfq']
 export type RfqRecipient = Schemas['RfqRecipient']
 export type RfqLineItem = Schemas['RfqLineItem']
@@ -267,37 +268,20 @@ export function listGeneratedRfqs(projectId: string): Promise<PersistedRfq[]> {
   return get<PersistedRfq[]>(`/api/projects/${projectId}/rfqs/generated`)
 }
 
-// ----------------------------------------------------- ad-hoc RFQ sourcing
-// An ad-hoc RFQ reuses the find-suppliers → select → generate flow, but driven
-// by a free-text description instead of a fixed buy-package.
+// ----------------------------------------------------- custom (ad-hoc) BOMs
+// A custom BOM is a hand-built bill of materials created in the Documents panel.
+// It shows up as a selectable "package" in the supplier search (its document id
+// is the package key), so the same find-suppliers → select → generate flow works
+// with no separate ad-hoc code path.
 
-// Kick off a free-text supplier search; poll getAdHocFoundSuppliers for results.
-export function searchAdHocSuppliers(
-  projectId: string,
-  query: string,
-  radiusMi: number,
-): Promise<{ status: string; package: string }> {
-  return post(`/api/projects/${projectId}/rfqs/adhoc/search-suppliers`, {
-    query,
-    radius_mi: radiusMi,
-  })
+// Create a new empty custom BOM document; returns the created Document.
+export function createManualBom(projectId: string, name: string): Promise<Document> {
+  return post<Document>('/api/documents/manual', { name, projectId })
 }
 
-// Found suppliers for the project's ad-hoc search, bucketed into distance tiers.
-export function getAdHocFoundSuppliers(projectId: string): Promise<SupplierSearchResult> {
-  return get<SupplierSearchResult>(`/api/projects/${projectId}/rfqs/adhoc/suppliers/found`)
-}
-
-// Generate a draft RFQ from the chosen ad-hoc suppliers + what the user needs.
-export function generateAdHocRfq(
-  projectId: string,
-  payload: { supplierIds: string[]; description: string; lineItems?: RfqLineItem[] },
-): Promise<PersistedRfq> {
-  return post<PersistedRfq>(`/api/projects/${projectId}/rfqs/adhoc/generate`, {
-    supplier_ids: payload.supplierIds,
-    description: payload.description,
-    lineItems: payload.lineItems || [],
-  })
+// The project's custom BOMs — the selectable custom packages in the search.
+export function listProjectBoms(projectId: string): Promise<CustomBomSummary[]> {
+  return get<CustomBomSummary[]>(`/api/projects/${projectId}/boms`)
 }
 
 export function saveRfq(

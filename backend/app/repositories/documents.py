@@ -15,6 +15,35 @@ from sqlalchemy.orm import Session
 from app.models.document import Document
 from app.repositories import seed
 
+# Plan type for a hand-built "custom BOM" — a bill of materials the user types by
+# hand in the Documents panel (no file, no extraction). Kept here so the routes
+# that create, list, and source from these documents agree on one key.
+CUSTOM_BOM_PLAN_TYPE = "custom_bom"
+
+
+def list_custom_boms(db: Session, project_id: str) -> List[Document]:
+    """The project's hand-built custom BOMs, newest first."""
+    return list(
+        db.scalars(
+            select(Document)
+            .where(
+                Document.project_id == project_id,
+                Document.plan_type == CUSTOM_BOM_PLAN_TYPE,
+            )
+            .order_by(Document.seq.desc())
+        ).all()
+    )
+
+
+def is_custom_bom(db: Session, project_id: str, doc_id: str) -> bool:
+    """True when `doc_id` is a custom BOM belonging to `project_id`."""
+    doc = db.get(Document, doc_id)
+    return (
+        doc is not None
+        and doc.project_id == project_id
+        and doc.plan_type == CUSTOM_BOM_PLAN_TYPE
+    )
+
 
 def _next_seq(db: Session) -> int:
     return (db.scalar(select(func.max(Document.seq))) or 0) + 1
@@ -159,11 +188,19 @@ def get_line_items(db: Session, doc_id: str) -> Optional[List[dict]]:
 
 
 def confirm(db: Session, doc_id: str, when: str) -> Optional[Document]:
-    """Mark a document's BOM as human-reviewed/approved."""
+    """Mark a document's BOM as human-reviewed/approved.
+
+    A hand-built custom BOM has no upload/extraction status of its own, so once
+    the user confirms it we surface it as "Saved" rather than the initial
+    "Draft". It stays editable — confirming doesn't lock it.
+    """
     doc = db.get(Document, doc_id)
     if doc is not None:
         doc.reviewed = True
         doc.reviewed_at = when
+        if doc.plan_type == CUSTOM_BOM_PLAN_TYPE:
+            doc.status = "Saved"
+            doc.status_tone = "success"
         db.commit()
         db.refresh(doc)
     return doc

@@ -18,14 +18,13 @@ from app.repositories import rfqs as rfqs_repo
 from app.repositories import sourcing as sourcing_repo
 from app.schemas.quote import QuoteIngestResult
 from app.schemas.rfq import (
-    AdHocRfqGenerateRequest,
     PersistedRfq,
     RfqConversation,
     RfqGenerateRequest,
     RfqUpdate,
 )
 from app.schemas.sourcing import (
-    AdHocSupplierSearchRequest,
+    CustomBomSummary,
     PackageBom,
     SupplierSearchAccepted,
     SupplierSearchRequest,
@@ -55,9 +54,26 @@ def _require_project(project_id: str, db: Session) -> dict:
     return project
 
 
-def _require_package(package: str) -> None:
-    if not packages.is_valid(package):
-        raise HTTPException(status_code=400, detail=f"Unknown package '{package}'")
+def _require_package(package: str, project_id: str, db: Session) -> None:
+    """A `package` is either a preset buy-package key (water, rebar, …) or the
+    document id of a hand-built custom BOM on this project. Custom BOMs are
+    searched and quoted exactly like packages, using their doc id as the key."""
+    if packages.is_valid(package) or documents_repo.is_custom_bom(db, project_id, package):
+        return
+    raise HTTPException(status_code=400, detail=f"Unknown package '{package}'")
+
+
+def _custom_bom(db: Session, project_id: str, package: str):
+    """The custom BOM document when `package` names one on this project, else None."""
+    if documents_repo.is_custom_bom(db, project_id, package):
+        return documents_repo.get(db, package)
+    return None
+
+
+def _package_label(db: Session, project_id: str, package: str) -> str:
+    """Display label for a package or custom BOM (the BOM's own name)."""
+    bom = _custom_bom(db, project_id, package)
+    return bom.name if bom is not None else packages.label_for(package)
 
 
 # --------------------------------------------------------------- supplier search
@@ -74,10 +90,21 @@ def search_suppliers(
     db: Session = Depends(get_db),
 ):
     project = _require_project(project_id, db)
-    _require_package(package)
+    _require_package(package, project_id, db)
+
+    # A custom BOM has no preset keywords — search on its name (its "description"),
+    # mirroring the old free-text ad-hoc search. Preset packages pass keywords=None
+    # so the service uses their built-in query presets.
+    keywords: Optional[List[str]] = None
+    label: Optional[str] = None
+    bom = _custom_bom(db, project_id, package)
+    if bom is not None:
+        keywords = packages.adhoc_keywords(bom.name)
+        label = bom.name
+
     _SEARCH_STATUS[(project_id, package)] = {"status": "searching", "radiusMi": payload.radius_mi}
     background.add_task(
-        _run_search, project_id, project["loc"], package, payload.radius_mi
+        _run_search, project_id, project["loc"], package, payload.radius_mi, keywords, label
     )
     return {"status": "searching", "package": package}
 
@@ -160,7 +187,7 @@ def get_found_suppliers(
     db: Session = Depends(get_db),
 ):
     _require_project(project_id, db)
-    _require_package(package)
+    _require_package(package, project_id, db)
     return _found_suppliers_payload(db, project_id, package)
 
 
@@ -244,6 +271,17 @@ def _line_items_for_package(
     items: List[dict] = []
     seen: set = set()
 
+    # A custom BOM is its own bill of materials: take its items directly (across
+    # all its groups), rather than mapping discipline group labels to a package.
+    if documents_repo.is_custom_bom(db, project_id, package):
+        for group in documents_repo.get_line_items(db, package) or []:
+            for it in group.get("items", []):
+                key = (it.get("n") or it.get("name") or "").strip().lower()
+                if key and key not in seen:
+                    seen.add(key)
+                    items.append(it)
+        return items, False
+
     def _collect(groups: List[dict]) -> None:
         for group in groups or []:
             if packages.category_for_label(group.get("group", "")) != package:
@@ -278,23 +316,41 @@ def get_package_bom(
 
     Powers the supplier page's "what are we asking for" panel — selecting a
     package (e.g. Water) shows the exact items pulled from the project's
-    extracted plans for that discipline.
+    extracted plans for that discipline. For a custom BOM the items come straight
+    from that hand-built document.
     """
     _require_project(project_id, db)
-    _require_package(package)
+    _require_package(package, project_id, db)
 
+    bom = _custom_bom(db, project_id, package)
     items, seeded = _line_items_for_package(db, project_id, package)
     return {
         "package": package,
-        "label": packages.label_for(package),
-        "tone": packages.tone_for(package),
+        "label": bom.name if bom is not None else packages.label_for(package),
+        "tone": "blue" if bom is not None else packages.tone_for(package),
         "count": len(items),
         "items": [
             {"n": it.get("n") or it.get("name") or "", "q": it.get("q") or ""}
             for it in items
         ],
         "seeded": seeded,
+        "custom": bom is not None,
     }
+
+
+@router.get("/{project_id}/boms", response_model=List[CustomBomSummary])
+def list_project_boms(project_id: str, db: Session = Depends(get_db)):
+    """The project's hand-built custom BOMs — the selectable custom packages in
+    the supplier search. Each BOM's document id doubles as its package key."""
+    _require_project(project_id, db)
+    out: List[dict] = []
+    for doc in documents_repo.list_custom_boms(db, project_id):
+        groups = documents_repo.get_line_items(db, doc.id) or []
+        count = sum(len(g.get("items", [])) for g in groups)
+        out.append(
+            {"id": doc.id, "name": doc.name, "count": count, "reviewed": doc.reviewed}
+        )
+    return out
 
 
 @router.post(
@@ -309,16 +365,15 @@ def generate_rfq(
     db: Session = Depends(get_db),
 ):
     project = _require_project(project_id, db)
-    _require_package(package)
+    _require_package(package, project_id, db)
+    label = _package_label(db, project_id, package)
 
     suppliers = sourcing_repo.get_found_suppliers_by_ids(db, payload.supplier_ids)
     if not suppliers:
         raise HTTPException(status_code=400, detail="No matching found suppliers")
 
     line_items, _seeded = _line_items_for_package(db, project_id, package)
-    draft = rfq_generator.generate_rfq_draft(
-        project, packages.label_for(package), line_items, suppliers
-    )
+    draft = rfq_generator.generate_rfq_draft(project, label, line_items, suppliers)
     if not draft.recipients:
         raise HTTPException(
             status_code=400,
@@ -328,7 +383,7 @@ def generate_rfq(
         db,
         project_id=project_id,
         package=package,
-        package_label=packages.label_for(package),
+        package_label=label,
         subject=draft.subject,
         body=draft.body,
         line_items=draft.line_items,
@@ -336,101 +391,7 @@ def generate_rfq(
     )
     events_repo.log(
         db, project_id,
-        title=f"RFQ drafted — {packages.label_for(package)}",
-        icon="rfq", tone="ai",
-        meta=f"{len(draft.recipients)} supplier{'s' if len(draft.recipients) != 1 else ''}",
-    )
-    return rfq
-
-
-# --------------------------------------------------------------- ad-hoc RFQs
-# An ad-hoc RFQ runs the same find-suppliers → select → generate flow as a buy
-# package, but driven by a free-text description instead of a fixed package. Its
-# found suppliers are stored under this reserved package key.
-_ADHOC_PACKAGE = "adhoc"
-
-
-@router.post(
-    "/{project_id}/rfqs/adhoc/search-suppliers",
-    response_model=SupplierSearchAccepted,
-    status_code=202,
-)
-def search_adhoc_suppliers(
-    project_id: str,
-    payload: AdHocSupplierSearchRequest,
-    background: BackgroundTasks,
-    db: Session = Depends(get_db),
-):
-    """Kick off a free-text supplier search for an ad-hoc RFQ. The frontend then
-    polls GET .../rfqs/adhoc/suppliers/found, exactly like the package flow.
-    """
-    project = _require_project(project_id, db)
-    query = payload.query.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="Describe what you need to search for")
-
-    # Fan a single description into a few search variants for better recall.
-    keywords = [query, f"{query} supplier", f"{query} distributor"]
-    _SEARCH_STATUS[(project_id, _ADHOC_PACKAGE)] = {
-        "status": "searching", "radiusMi": payload.radius_mi
-    }
-    background.add_task(
-        _run_search, project_id, project["loc"], _ADHOC_PACKAGE,
-        payload.radius_mi, keywords, query,
-    )
-    return {"status": "searching", "package": _ADHOC_PACKAGE}
-
-
-@router.get(
-    "/{project_id}/rfqs/adhoc/suppliers/found",
-    response_model=SupplierSearchResult,
-)
-def get_adhoc_found_suppliers(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
-    return _found_suppliers_payload(db, project_id, _ADHOC_PACKAGE)
-
-
-@router.post(
-    "/{project_id}/rfqs/adhoc/generate",
-    response_model=PersistedRfq,
-    status_code=201,
-)
-def generate_adhoc_rfq(
-    project_id: str,
-    payload: AdHocRfqGenerateRequest,
-    db: Session = Depends(get_db),
-):
-    """Generate a draft RFQ from the chosen ad-hoc found-suppliers. The draft
-    lands in the same list as package RFQs and is reviewed/sent the same way.
-    """
-    project = _require_project(project_id, db)
-    description = payload.description.strip() or "Ad-hoc RFQ"
-
-    suppliers = sourcing_repo.get_found_suppliers_by_ids(db, payload.supplier_ids)
-    if not suppliers:
-        raise HTTPException(status_code=400, detail="No matching found suppliers")
-
-    # Use the user's line items, or fall back to the description as a single item.
-    line_items = [li.model_dump() for li in payload.lineItems] or [{"n": description, "q": ""}]
-    draft = rfq_generator.generate_rfq_draft(project, description, line_items, suppliers)
-    if not draft.recipients:
-        raise HTTPException(
-            status_code=400,
-            detail="None of the selected suppliers have a discovered email",
-        )
-    rfq = rfqs_repo.create_rfq_draft(
-        db,
-        project_id=project_id,
-        package=_ADHOC_PACKAGE,
-        package_label=description,
-        subject=draft.subject,
-        body=draft.body,
-        line_items=draft.line_items,
-        recipients=draft.recipients,
-    )
-    events_repo.log(
-        db, project_id,
-        title=f"Ad-hoc RFQ drafted — {description[:40]}",
+        title=f"RFQ drafted — {label}",
         icon="rfq", tone="ai",
         meta=f"{len(draft.recipients)} supplier{'s' if len(draft.recipients) != 1 else ''}",
     )

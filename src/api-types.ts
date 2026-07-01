@@ -391,9 +391,31 @@ export interface paths {
          *
          *     Powers the supplier page's "what are we asking for" panel — selecting a
          *     package (e.g. Water) shows the exact items pulled from the project's
-         *     extracted plans for that discipline.
+         *     extracted plans for that discipline. For a custom BOM the items come straight
+         *     from that hand-built document.
          */
         get: operations["get_package_bom_api_projects__project_id__packages__package__bom_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/boms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Project Boms
+         * @description The project's hand-built custom BOMs — the selectable custom packages in
+         *     the supplier search. Each BOM's document id doubles as its package key.
+         */
+        get: operations["list_project_boms_api_projects__project_id__boms_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -413,65 +435,6 @@ export interface paths {
         put?: never;
         /** Generate Rfq */
         post: operations["generate_rfq_api_projects__project_id__packages__package__rfqs_generate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/projects/{project_id}/rfqs/adhoc/search-suppliers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Search Adhoc Suppliers
-         * @description Kick off a free-text supplier search for an ad-hoc RFQ. The frontend then
-         *     polls GET .../rfqs/adhoc/suppliers/found, exactly like the package flow.
-         */
-        post: operations["search_adhoc_suppliers_api_projects__project_id__rfqs_adhoc_search_suppliers_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/projects/{project_id}/rfqs/adhoc/suppliers/found": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Adhoc Found Suppliers */
-        get: operations["get_adhoc_found_suppliers_api_projects__project_id__rfqs_adhoc_suppliers_found_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/projects/{project_id}/rfqs/adhoc/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Generate Adhoc Rfq
-         * @description Generate a draft RFQ from the chosen ad-hoc found-suppliers. The draft
-         *     lands in the same list as package RFQs and is reviewed/sent the same way.
-         */
-        post: operations["generate_adhoc_rfq_api_projects__project_id__rfqs_adhoc_generate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -698,6 +661,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Manual Bom
+         * @description Create a hand-built custom BOM — a bill of materials the user types by hand.
+         *
+         *     There's no file and no extraction: it's seeded with one empty group and then
+         *     edited via the same line-items endpoints an extracted BOM uses. It appears in
+         *     the Documents panel and becomes a selectable "package" in the supplier search
+         *     (its document id is used as the package key), replacing the old free-text
+         *     ad-hoc RFQ flow with a saved, viewable bill of materials.
+         */
+        post: operations["create_manual_bom_api_documents_manual_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents": {
         parameters: {
             query?: never;
@@ -851,37 +840,6 @@ export interface components {
             /** Time */
             time: string;
         };
-        /**
-         * AdHocRfqGenerateRequest
-         * @description Generate an ad-hoc RFQ from suppliers found via a free-text search.
-         *
-         *     ``description`` is what the user typed they need (drives the subject and is
-         *     the default line item); ``supplier_ids`` are the chosen found-suppliers.
-         */
-        AdHocRfqGenerateRequest: {
-            /** Supplier Ids */
-            supplier_ids: string[];
-            /** Description */
-            description: string;
-            /**
-             * Lineitems
-             * @default []
-             */
-            lineItems: components["schemas"]["RfqLineItem"][];
-        };
-        /**
-         * AdHocSupplierSearchRequest
-         * @description Free-text supplier search for an ad-hoc RFQ (no fixed buy-package).
-         */
-        AdHocSupplierSearchRequest: {
-            /** Query */
-            query: string;
-            /**
-             * Radius Mi
-             * @default 75
-             */
-            radius_mi: number;
-        };
         /** AwardOption */
         AwardOption: {
             /** Key */
@@ -1027,6 +985,24 @@ export interface components {
             /** Logobg */
             logoBg?: string | null;
         };
+        /**
+         * CustomBomSummary
+         * @description A hand-built custom BOM, surfaced as a selectable package in the
+         *     supplier search alongside the discipline buy-packages.
+         */
+        CustomBomSummary: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Count */
+            count: number;
+            /**
+             * Reviewed
+             * @default false
+             */
+            reviewed: boolean;
+        };
         /** Dashboard */
         Dashboard: {
             /** Metrics */
@@ -1038,7 +1014,7 @@ export interface components {
          * DocStatus
          * @enum {string}
          */
-        DocStatus: "Queued" | "Processing" | "Analyzed" | "Failed";
+        DocStatus: "Queued" | "Processing" | "Analyzed" | "Failed" | "Draft" | "Saved";
         /** Document */
         Document: {
             /** Id */
@@ -1256,6 +1232,16 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * ManualBomCreate
+         * @description Body for creating a hand-built custom BOM document (no file upload).
+         */
+        ManualBomCreate: {
+            /** Name */
+            name: string;
+            /** Projectid */
+            projectId: string;
+        };
         /** MessageCreate */
         MessageCreate: {
             /** Body */
@@ -1365,6 +1351,11 @@ export interface components {
              * @default false
              */
             seeded: boolean;
+            /**
+             * Custom
+             * @default false
+             */
+            custom: boolean;
         };
         /** PackageBomItem */
         PackageBomItem: {
@@ -2670,78 +2661,7 @@ export interface operations {
             };
         };
     };
-    generate_rfq_api_projects__project_id__packages__package__rfqs_generate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                package: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RfqGenerateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PersistedRfq"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    search_adhoc_suppliers_api_projects__project_id__rfqs_adhoc_search_suppliers_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdHocSupplierSearchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SupplierSearchAccepted"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_adhoc_found_suppliers_api_projects__project_id__rfqs_adhoc_suppliers_found_get: {
+    list_project_boms_api_projects__project_id__boms_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2758,7 +2678,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SupplierSearchResult"];
+                    "application/json": components["schemas"]["CustomBomSummary"][];
                 };
             };
             /** @description Validation Error */
@@ -2772,18 +2692,19 @@ export interface operations {
             };
         };
     };
-    generate_adhoc_rfq_api_projects__project_id__rfqs_adhoc_generate_post: {
+    generate_rfq_api_projects__project_id__packages__package__rfqs_generate_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 project_id: string;
+                package: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AdHocRfqGenerateRequest"];
+                "application/json": components["schemas"]["RfqGenerateRequest"];
             };
         };
         responses: {
@@ -3241,6 +3162,39 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Document"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_manual_bom_api_documents_manual_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualBomCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

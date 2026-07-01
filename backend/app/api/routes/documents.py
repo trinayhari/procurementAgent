@@ -24,7 +24,13 @@ from app.config import settings
 from app.db import SessionLocal, get_db
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
-from app.schemas.document import Document, LineItemGroup, LineItemsUpdate, PlanType
+from app.schemas.document import (
+    Document,
+    LineItemGroup,
+    LineItemsUpdate,
+    ManualBomCreate,
+    PlanType,
+)
 from app.services import extraction
 from app.services.extraction import isolated as extraction_isolated
 from app.services.extraction import pdf
@@ -106,6 +112,45 @@ def confirm_document(document_id: str, db: Session = Depends(get_db)):
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     return doc.to_dict()
+
+
+@router.post("/manual", response_model=Document, status_code=201)
+def create_manual_bom(payload: ManualBomCreate, db: Session = Depends(get_db)):
+    """Create a hand-built custom BOM — a bill of materials the user types by hand.
+
+    There's no file and no extraction: it's seeded with one empty group and then
+    edited via the same line-items endpoints an extracted BOM uses. It appears in
+    the Documents panel and becomes a selectable "package" in the supplier search
+    (its document id is used as the package key), replacing the old free-text
+    ad-hoc RFQ flow with a saved, viewable bill of materials.
+    """
+    name = payload.name.strip() or "Custom BOM"
+    doc = documents_repo.add(
+        db,
+        name=name,
+        doc_type="Custom BOM",
+        pages=0,
+        plan_type=documents_repo.CUSTOM_BOM_PLAN_TYPE,
+        date=datetime.now().strftime("%b %d, %Y"),
+        project_id=payload.projectId,
+        has_file=False,
+        status="Draft",
+        status_tone="gray",
+    )
+    # Seed one empty group so the editor opens with a place to add items.
+    documents_repo.set_line_items(
+        db, doc.id, [{"group": name, "count": 0, "tone": "blue", "items": []}]
+    )
+    documents_repo.update_status(db, doc.id, items="0")
+    events_repo.log(
+        db,
+        payload.projectId,
+        title=f"Custom BOM created — {name}",
+        icon="file",
+        tone="blue",
+        meta="Manual bill of materials",
+    )
+    return documents_repo.get(db, doc.id).to_dict()
 
 
 @router.delete("/{document_id}", status_code=204)

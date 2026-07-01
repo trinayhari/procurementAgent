@@ -36,13 +36,6 @@ class SupplierSearchRequest(BaseModel):
     radius_mi: int = Field(default=75, ge=1, le=250)
 
 
-class AdHocSupplierSearchRequest(BaseModel):
-    """Free-text supplier search for an ad-hoc RFQ (no fixed buy-package)."""
-
-    query: str
-    radius_mi: int = Field(default=75, ge=1, le=250)
-
-
 class SupplierSearchAccepted(BaseModel):
     status: str
     package: str
@@ -64,3 +57,16 @@ class PackageBom(BaseModel):
     # True when the items come from the shared demo BOM rather than this
     # project's own extracted documents (nothing extracted for it yet).
     seeded: bool = False
+    # True when this "package" is actually a hand-built custom BOM document
+    # (its items come straight from that document, not a discipline mapping).
+    custom: bool = False
+
+
+class CustomBomSummary(BaseModel):
+    """A hand-built custom BOM, surfaced as a selectable package in the
+    supplier search alongside the discipline buy-packages."""
+
+    id: str  # the underlying document id — used as the `package` in search/RFQ
+    name: str
+    count: int
+    reviewed: bool = False
