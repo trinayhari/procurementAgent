@@ -69,7 +69,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Me */
+        patch: operations["update_me_api_auth_me_patch"];
         trace?: never;
     };
     "/api/dashboard": {
@@ -1916,6 +1917,15 @@ export interface components {
          */
         Tone: "blue" | "violet" | "gray" | "success" | "warn" | "danger" | "ai";
         /**
+         * UpdateMeRequest
+         * @description Editable account settings. `senderEmail: null` clears the custom From
+         *     address (outgoing RFQs revert to the workspace default).
+         */
+        UpdateMeRequest: {
+            /** Senderemail */
+            senderEmail?: string | null;
+        };
+        /**
          * User
          * @description Public-safe user shape (never includes the password hash).
          */
@@ -1931,6 +1941,8 @@ export interface components {
             name: string;
             /** Company */
             company: string;
+            /** Senderemail */
+            senderEmail?: string | null;
             /** Createdat */
             createdAt?: string | null;
         };
@@ -2054,6 +2066,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+        };
+    };
+    update_me_api_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -9,7 +9,9 @@ from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.core.security import get_current_user
 from app.db import SessionLocal, get_db
+from app.models.user import User
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
 from app.repositories import projects as projects_repo
@@ -456,14 +458,19 @@ def update_generated_rfq(
 
 
 @router.post("/{project_id}/rfqs/{rfq_id}/send", response_model=PersistedRfq)
-def send_generated_rfq(project_id: str, rfq_id: str, db: Session = Depends(get_db)):
+def send_generated_rfq(
+    project_id: str,
+    rfq_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     _require_project(project_id, db)
     rfq = rfqs_repo.get_rfq(db, rfq_id)
     if rfq is None or rfq["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")
 
     sender = rfq_sender.get_sender()
-    from_addr = rfq_sender.sender_address()
+    from_addr = current_user.sender_email or rfq_sender.sender_address()
     recipients = rfq["recipients"]
     if not recipients:
         raise HTTPException(status_code=400, detail="RFQ has no recipients")

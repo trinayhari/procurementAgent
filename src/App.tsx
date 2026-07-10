@@ -11,7 +11,7 @@ import {
   listProjectBoms,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
-  getToken, getMe, logout as apiLogout, onAuthChange,
+  getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
@@ -291,7 +291,7 @@ export default function App() {
 
   const m = buildModel(s, set, {
     accent: 'blue', data: s.data, reload,
-    user, onLogout: handleLogout,
+    user, onLogout: handleLogout, onUserUpdated: setUser,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
     docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onCreateBom: createBom,
@@ -631,6 +631,26 @@ function Suppliers({ m }: MProps) {
 /* ----------------------------------------------------------------- Settings */
 function Settings({ m }: MProps) {
   const toggleOn = css('width:38px;height:22px;border-radius:999px;background:var(--primary);position:relative;flex:none')
+  // RFQ sender address — the one writable setting; saves via PATCH /api/auth/me.
+  const [senderEmail, setSenderEmail] = useState(m.userSenderEmail)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const dirty = senderEmail.trim() !== m.userSenderEmail
+  const saveSender = async (e: FormEvent) => {
+    e.preventDefault()
+    setSaving(true); setErr(null); setSaved(false)
+    try {
+      const u = await updateMe({ senderEmail: senderEmail.trim() || null })
+      m.onUserUpdated(u)
+      setSenderEmail((u.senderEmail as string) || '')
+      setSaved(true)
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Could not save')
+    } finally {
+      setSaving(false)
+    }
+  }
   return (
     <div style={css('animation:pcUp .25s ease both;max-width:680px')}>
       <h1 style={css('margin:0 0 4px;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>Settings</h1>
@@ -646,6 +666,25 @@ function Settings({ m }: MProps) {
             <div><div style={css('font-size:13.5px;font-weight:600')}>Appearance</div><div style={css('font-size:12px;color:var(--text-3)')}>Theme used across the workspace</div></div>
             <Box as="button" onClick={m.toggleTheme} style={css('height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px')} hover="background:var(--panel-2)">{m.isDark ? 'Dark' : 'Light'}</Box>
           </div>
+          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
+            <div style={{ flex: 1 }}>
+              <div style={css('font-size:13.5px;font-weight:600')}>RFQ sender address</div>
+              <div style={css('font-size:12px;color:var(--text-3)')}>Outgoing RFQs are sent from this address. Must be a verified send-as alias on the connected Gmail account, or Gmail rewrites it.</div>
+              {err && <div style={css('font-size:12px;color:var(--danger);margin-top:4px')}>{err}</div>}
+            </div>
+            <div style={css('display:flex;align-items:center;gap:8px;flex:none')}>
+              <input
+                type="email"
+                value={senderEmail}
+                onChange={(e) => { setSenderEmail(e.target.value); setSaved(false); setErr(null) }}
+                placeholder="Workspace default"
+                style={css('height:32px;width:210px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:12.5px;outline:none')}
+              />
+              <Box as="button" type="submit" disabled={saving || !dirty} style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;${saving || !dirty ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
+                {saving ? 'Saving…' : saved && !dirty ? 'Saved ✓' : 'Save'}
+              </Box>
+            </div>
+          </form>
           <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
             <div><div style={css('font-size:13.5px;font-weight:600')}>Default RFQ due window</div><div style={css('font-size:12px;color:var(--text-3)')}>Days suppliers get to respond</div></div>
             <span style={css("font-size:13px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border)")}>7 days</span>

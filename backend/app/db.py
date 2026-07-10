@@ -76,9 +76,14 @@ def _ensure_dev_columns() -> None:
     zero-config dev DB usable without a manual `alembic upgrade`.
     """
     inspector = inspect(engine)
-    if "quotes" not in inspector.get_table_names():
-        return
-    cols = {c["name"] for c in inspector.get_columns("quotes")}
-    if "distance_miles" not in cols:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE quotes ADD COLUMN distance_miles FLOAT"))
+    tables = set(inspector.get_table_names())
+    if "quotes" in tables:
+        cols = {c["name"] for c in inspector.get_columns("quotes")}
+        if "distance_miles" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE quotes ADD COLUMN distance_miles FLOAT"))
+    if "users" in tables:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "sender_email" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN sender_email VARCHAR"))

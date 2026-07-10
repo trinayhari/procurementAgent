@@ -46,6 +46,7 @@ export interface ModelProps {
   data?: ModelData | null
   user?: AuthUser | null
   onLogout?: () => void
+  onUserUpdated?: (u: AuthUser) => void
   reload?: (pid?: string) => Promise<void> | void
   planTypes?: PlanType[] | null
   planType?: string
@@ -340,7 +341,9 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     desktop, mobile: !desktop, navStyle,
     // Signed-in user identity + sign-out (see App.tsx Sidebar/Settings/Dashboard).
     userName, userCompany, userEmail, userInitials, firstName, greeting,
+    userSenderEmail: (authUser && authUser.senderEmail) || '',
     logout: (props && props.onLogout) || (() => {}),
+    onUserUpdated: (props && props.onUserUpdated) || (() => {}),
     isDashboard: s.nav === 'dashboard', isProjects: s.nav === 'projects', isSuppliers: s.nav === 'suppliers',
     isSettings: s.nav === 'settings', isDS: s.nav === 'ds', isProject,
     crumbMain, crumbSub, hasSub,

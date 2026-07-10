@@ -148,6 +148,21 @@ export function getMe(): Promise<AuthUser> {
   return get<AuthUser>('/api/auth/me')
 }
 
+// Update account settings; `senderEmail: null` clears the custom RFQ From
+// address (outgoing RFQs revert to the workspace default).
+export async function updateMe(input: { senderEmail: string | null }): Promise<AuthUser> {
+  const res = await fetch(`${BASE}/api/auth/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) {
+    if (res.status === 422) throw new Error('Enter a valid email address')
+    throw new Error(`Save failed (${res.status})`)
+  }
+  return res.json() as Promise<AuthUser>
+}
+
 export function logout(): void {
   setToken(null)
 }
