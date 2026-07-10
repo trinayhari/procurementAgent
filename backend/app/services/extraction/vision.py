@@ -11,12 +11,15 @@ The OpenAI SDK is imported lazily so the API still boots (and the mock path in
 from typing import List
 
 from app.config import settings
-from app.services.extraction.models import VisionExtraction
+from app.services.extraction.models import TimelineExtraction, VisionExtraction
 from app.services.extraction.prompts import (
+    TIMELINE_SYSTEM_PROMPT,
     build_consolidation_system_prompt,
     build_consolidation_user_prompt,
     build_system_prompt,
     build_text_prompt,
+    build_timeline_text_prompt,
+    build_timeline_vision_prompt,
     build_user_prompt,
 )
 from app.services.extraction.registry import PlanTypeSpec
@@ -53,12 +56,12 @@ def _client():
     return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url or None)
 
 
-def _parse(client, messages) -> VisionExtraction:
+def _parse(client, messages, response_format=VisionExtraction):
     try:
         completion = client.beta.chat.completions.parse(
             model=settings.openai_vision_model,
             messages=messages,
-            response_format=VisionExtraction,
+            response_format=response_format,
             temperature=0,
             max_tokens=settings.vision_max_tokens,
         )
@@ -97,6 +100,30 @@ def extract_text(spec: PlanTypeSpec, sheets: List[dict]) -> VisionExtraction:
         {"role": "user", "content": build_text_prompt(spec, sheets)},
     ]
     return _parse(_client(), messages)
+
+
+def extract_timeline_text(sheets: List[dict]) -> TimelineExtraction:
+    """Text-only timeline extraction from the PDF's embedded text layer."""
+    messages = [
+        {"role": "system", "content": TIMELINE_SYSTEM_PROMPT},
+        {"role": "user", "content": build_timeline_text_prompt(sheets)},
+    ]
+    return _parse(_client(), messages, response_format=TimelineExtraction)
+
+
+def extract_timeline_images(images_b64: List[str]) -> TimelineExtraction:
+    """Vision fallback: timeline extraction from rendered pages (scanned documents)."""
+    messages = [
+        {"role": "system", "content": TIMELINE_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": build_timeline_vision_prompt()},
+                *_image_content(images_b64),
+            ],
+        },
+    ]
+    return _parse(_client(), messages, response_format=TimelineExtraction)
 
 
 def consolidate(spec: PlanTypeSpec, per_sheet_items: List[dict]) -> VisionExtraction:

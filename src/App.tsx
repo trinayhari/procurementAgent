@@ -1912,7 +1912,7 @@ function TabTimeline({ m }: MProps) {
     return (
       <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center')}>
         <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No timeline yet</div>
-        <div style={css('font-size:13px;color:var(--text-3)')}>Milestones and the procurement schedule populate as the project progresses.</div>
+        <div style={css('font-size:13px;color:var(--text-3)')}>Upload project documents — construction schedules, contracts, or plans with phasing — and the milestones and schedule extracted from them will appear here.</div>
       </div>
     )
   }

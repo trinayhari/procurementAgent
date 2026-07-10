@@ -21,6 +21,7 @@ from app.models.reference import (
 )
 from app.models.rfq import Rfq
 from app.models.supplier import Supplier, SupplierComm
+from app.models.timeline_event import TimelineEvent
 from app.models.user import User
 
 __all__ = [
@@ -44,5 +45,6 @@ __all__ = [
     "RfqFolder",
     "DemoRfq",
     "DemoQuote",
+    "TimelineEvent",
     "User",
 ]
