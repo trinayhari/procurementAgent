@@ -252,6 +252,16 @@ export function getPackageBom(
   )
 }
 
+// -------------------------------------------------------- supplier directory
+// The customer's own supplier network (the top-level Suppliers page). Add a
+// supplier manually there, or from a project's search results. Idempotent by
+// name server-side, so saving the same supplier twice is a no-op.
+export type SupplierCreate = Schemas['SupplierCreate']
+
+export function createSupplier(payload: SupplierCreate): Promise<Supplier> {
+  return post<Supplier>('/api/suppliers', payload)
+}
+
 // ------------------------------------------------------------- generated RFQs
 // Generate a draft RFQ for a package from the chosen found-supplier ids.
 export function generateRfq(
