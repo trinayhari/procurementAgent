@@ -3,6 +3,8 @@
 Cheap heuristics (types, name) run before enrichment; website text + optional
 LLM verification run after a single website fetch alongside email discovery.
 """
+from __future__ import annotations
+
 import re
 from typing import List, NamedTuple, Optional
 
