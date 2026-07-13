@@ -619,6 +619,7 @@
           "projects"
         ],
         "summary": "Get Timeline",
+        "description": "The project schedule, built from timeline events extracted out of the\nproject's documents. Falls back to the demo timeline (present only when\ndemo seeding is enabled) while nothing has been extracted.",
         "operationId": "get_timeline_api_projects__project_id__timeline_get",
         "parameters": [
           {
@@ -1506,6 +1507,46 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "suppliers"
+        ],
+        "summary": "Create Supplier",
+        "description": "Add a supplier to the customer's directory (manually or from a search\nresult). Idempotent by name.",
+        "operationId": "create_supplier_api_suppliers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Supplier"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/suppliers/{supplier_id}": {
@@ -1928,7 +1969,7 @@
           "documents"
         ],
         "summary": "Analyze Document",
-        "description": "Re-run extraction for an already-uploaded document.",
+        "description": "Re-run extraction (BOM and timeline) for an already-uploaded document.",
         "operationId": "analyze_document_api_documents__document_id__analyze_post",
         "parameters": [
           {
@@ -4420,6 +4461,48 @@
           "icon"
         ],
         "title": "SupplierComm"
+      },
+      "SupplierCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "contact": {
+            "type": "string",
+            "title": "Contact",
+            "default": ""
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone",
+            "default": ""
+          },
+          "email": {
+            "type": "string",
+            "title": "Email",
+            "default": ""
+          },
+          "web": {
+            "type": "string",
+            "title": "Web",
+            "default": ""
+          },
+          "cats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cats",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SupplierCreate",
+        "description": "Add a supplier to the directory \u2014 manually, or from a search result.\n\nOnly a name is required; the rest is optional contact/category detail."
       },
       "SupplierDetail": {
         "properties": {

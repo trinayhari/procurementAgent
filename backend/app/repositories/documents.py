@@ -104,14 +104,18 @@ def add(
 
 
 def delete(db: Session, doc_id: str) -> Optional[Document]:
-    """Delete a document and best-effort unlink its on-disk source file.
+    """Delete a document, its extracted timeline events, and best-effort unlink
+    its on-disk source file.
 
     Returns the deleted row, or None if no such document exists.
     """
+    from app.repositories import timeline as timeline_repo
+
     doc = db.get(Document, doc_id)
     if doc is None:
         return None
     path = doc.source_path
+    timeline_repo.delete_for_documents(db, [doc_id])
     db.delete(doc)
     db.commit()
     if path and os.path.exists(path):
@@ -129,6 +133,8 @@ def delete_for_plan_type(db: Session, project_id: str, plan_type: str) -> List[s
     to one document each: re-uploading that plan type replaces the prior one.
     Returns the ids that were removed.
     """
+    from app.repositories import timeline as timeline_repo
+
     rows = db.scalars(
         select(Document).where(
             Document.project_id == project_id, Document.plan_type == plan_type
@@ -145,6 +151,7 @@ def delete_for_plan_type(db: Session, project_id: str, plan_type: str) -> List[s
             except OSError:
                 pass
     if removed:
+        timeline_repo.delete_for_documents(db, removed)
         db.commit()
     return removed
 

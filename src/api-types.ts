@@ -238,7 +238,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Timeline */
+        /**
+         * Get Timeline
+         * @description The project schedule, built from timeline events extracted out of the
+         *     project's documents. Falls back to the demo timeline (present only when
+         *     demo seeding is enabled) while nothing has been extracted.
+         */
         get: operations["get_timeline_api_projects__project_id__timeline_get"];
         put?: never;
         post?: never;
@@ -528,7 +533,12 @@ export interface paths {
         /** List Suppliers */
         get: operations["list_suppliers_api_suppliers_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Supplier
+         * @description Add a supplier to the customer's directory (manually or from a search
+         *     result). Idempotent by name.
+         */
+        post: operations["create_supplier_api_suppliers_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -720,7 +730,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze Document
-         * @description Re-run extraction for an already-uploaded document.
+         * @description Re-run extraction (BOM and timeline) for an already-uploaded document.
          */
         post: operations["analyze_document_api_documents__document_id__analyze_post"];
         delete?: never;
@@ -1775,6 +1785,41 @@ export interface components {
             time: string;
             /** Icon */
             icon: string;
+        };
+        /**
+         * SupplierCreate
+         * @description Add a supplier to the directory — manually, or from a search result.
+         *
+         *     Only a name is required; the rest is optional contact/category detail.
+         */
+        SupplierCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Contact
+             * @default
+             */
+            contact: string;
+            /**
+             * Phone
+             * @default
+             */
+            phone: string;
+            /**
+             * Email
+             * @default
+             */
+            email: string;
+            /**
+             * Web
+             * @default
+             */
+            web: string;
+            /**
+             * Cats
+             * @default []
+             */
+            cats: string[];
         };
         /** SupplierDetail */
         SupplierDetail: {
@@ -2992,6 +3037,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Supplier"][];
+                };
+            };
+        };
+    };
+    create_supplier_api_suppliers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Supplier"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
