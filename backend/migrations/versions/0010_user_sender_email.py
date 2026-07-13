@@ -1,8 +1,11 @@
 """add per-user RFQ sender email
 
 Revision ID: 0010_user_sender_email
-Revises: 0009_found_supplier_relevance
+Revises: 0011_timeline_events
 Create Date: 2026-07-10
+
+Chained after 0011 (which landed on main first, also revising 0009) so the
+migration history keeps a single head.
 """
 from typing import Sequence, Union
 
@@ -11,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0010_user_sender_email"
-down_revision: Union[str, None] = "0009_found_supplier_relevance"
+down_revision: Union[str, None] = "0011_timeline_events"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
