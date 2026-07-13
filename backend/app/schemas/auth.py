@@ -22,7 +22,15 @@ class User(BaseModel):
     email: EmailStr
     name: str
     company: str
+    senderEmail: Optional[EmailStr] = None
     createdAt: Optional[str] = None
+
+
+class UpdateMeRequest(BaseModel):
+    """Editable account settings. `senderEmail: null` clears the custom From
+    address (outgoing RFQs revert to the workspace default)."""
+
+    senderEmail: Optional[EmailStr] = None
 
 
 class TokenResponse(BaseModel):

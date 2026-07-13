@@ -76,7 +76,7 @@ def _ensure_dev_columns() -> None:
     zero-config dev DB usable without a manual `alembic upgrade`.
     """
     inspector = inspect(engine)
-    tables = inspector.get_table_names()
+    tables = set(inspector.get_table_names())
     if "quotes" in tables:
         cols = {c["name"] for c in inspector.get_columns("quotes")}
         if "distance_miles" not in cols:
@@ -89,3 +89,8 @@ def _ensure_dev_columns() -> None:
                 conn.execute(text("ALTER TABLE timeline_events ADD COLUMN done BOOLEAN NOT NULL DEFAULT 0"))
             if "done_at" not in cols:
                 conn.execute(text("ALTER TABLE timeline_events ADD COLUMN done_at VARCHAR NOT NULL DEFAULT ''"))
+    if "users" in tables:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "sender_email" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN sender_email VARCHAR"))

@@ -13,8 +13,10 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.user import User
 from app.repositories import quotes as quotes_repo
 from app.services.quotes import gmail_reader
 from app.services.rfq.sender import is_configured as gmail_configured
@@ -57,7 +59,7 @@ def build_conversation(db: Session, rfq: dict) -> dict:
                 "status": rfq["status"],
                 "statusTone": rfq["statusTone"],
                 "gmail": True,
-                "thread": _emails_to_thread(emails),
+                "thread": _emails_to_thread(emails, _known_sender_addrs(db)),
             }
 
     return {
@@ -96,11 +98,21 @@ def _gather_gmail(rfq: dict) -> Optional[List[gmail_reader.ThreadEmail]]:
     return emails
 
 
-def _emails_to_thread(emails: List[gmail_reader.ThreadEmail]) -> List[dict]:
-    our_addr = sender_address().lower()
+def _known_sender_addrs(db: Session) -> set:
+    """Every address our RFQs may have gone out from: the workspace default
+    plus each user's custom sender_email. Gmail can rewrite an unverified
+    custom From back to the token owner's address, which is why the default
+    always stays in the set."""
+    addrs = {sender_address().lower()}
+    for (se,) in db.execute(select(User.sender_email).where(User.sender_email.is_not(None))):
+        addrs.add(se.lower())
+    return addrs
+
+
+def _emails_to_thread(emails: List[gmail_reader.ThreadEmail], our_addrs: set) -> List[dict]:
     thread: List[dict] = []
     for i, e in enumerate(emails):
-        is_out = e.from_email == our_addr
+        is_out = e.from_email in our_addrs
         who = "You · ProcureAI" if is_out else (e.from_name or e.from_email)
         thread.append({
             "dir": "out" if is_out else "in",

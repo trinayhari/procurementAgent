@@ -57,6 +57,14 @@ def create_user(
     return user
 
 
+def set_sender_email(db: Session, user: User, sender_email: Optional[str]) -> User:
+    """Set (or clear, with None) the user's custom RFQ From address."""
+    user.sender_email = sender_email.strip().lower() if sender_email else None
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def seed_demo_user(db: Session) -> None:
     """Seed the prototype's demo account so login works on a fresh checkout.
 

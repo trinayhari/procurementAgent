@@ -130,6 +130,50 @@
             "OAuth2PasswordBearer": []
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Update Me",
+        "operationId": "update_me_api_auth_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/dashboard": {
@@ -1391,6 +1435,11 @@
         ],
         "summary": "Send Generated Rfq",
         "operationId": "send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -4914,6 +4963,25 @@
         "title": "Tone",
         "description": "Semantic color token consumed by the frontend (maps to a CSS variable)."
       },
+      "UpdateMeRequest": {
+        "properties": {
+          "senderEmail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senderemail"
+          }
+        },
+        "type": "object",
+        "title": "UpdateMeRequest",
+        "description": "Editable account settings. `senderEmail: null` clears the custom From\naddress (outgoing RFQs revert to the workspace default)."
+      },
       "User": {
         "properties": {
           "id": {
@@ -4932,6 +5000,18 @@
           "company": {
             "type": "string",
             "title": "Company"
+          },
+          "senderEmail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senderemail"
           },
           "createdAt": {
             "anyOf": [

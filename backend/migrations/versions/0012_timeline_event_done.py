@@ -1,7 +1,7 @@
 """add human check-off (done/done_at) to timeline events
 
 Revision ID: 0012_timeline_event_done
-Revises: 0011_timeline_events
+Revises: 0010_user_sender_email
 Create Date: 2026-07-13
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0012_timeline_event_done"
-down_revision: Union[str, None] = "0011_timeline_events"
+down_revision: Union[str, None] = "0010_user_sender_email"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

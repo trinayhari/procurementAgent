@@ -6,7 +6,7 @@ from app.core.security import create_access_token, get_current_user, verify_pass
 from app.db import get_db
 from app.models.user import User
 from app.repositories import users as users_repo
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
+from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UpdateMeRequest
 from app.schemas.auth import User as UserSchema
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -35,3 +35,13 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserSchema)
 def me(current_user: User = Depends(get_current_user)):
     return current_user.to_dict()
+
+
+@router.patch("/me", response_model=UserSchema)
+def update_me(
+    body: UpdateMeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = users_repo.set_sender_email(db, current_user, body.senderEmail)
+    return user.to_dict()
