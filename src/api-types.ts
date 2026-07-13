@@ -835,6 +835,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/timeline/events/{event_id}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Event Done
+         * @description Human check-off for a milestone: the schedule can't know a milestone
+         *     actually happened from dates alone, so completion is confirmed (or undone)
+         *     by the user. Applies to every same-named event in the project, and survives
+         *     document re-analysis.
+         */
+        post: operations["set_event_done_api_timeline_events__event_id__done_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1063,6 +1086,11 @@ export interface components {
             mocked: boolean;
             /** Error */
             error?: string | null;
+            /**
+             * Timelineevents
+             * @default 0
+             */
+            timelineEvents: number;
             /**
              * Reviewed
              * @default false
@@ -1304,6 +1332,8 @@ export interface components {
         };
         /** Milestone */
         Milestone: {
+            /** Id */
+            id?: number | null;
             /** Name */
             name: string;
             /** Date */
@@ -1323,6 +1353,24 @@ export interface components {
              * @default false
              */
             active: boolean;
+            /**
+             * Conflict
+             * @default false
+             */
+            conflict: boolean;
+        };
+        /** MilestoneDoneResult */
+        MilestoneDoneResult: {
+            /** Updated */
+            updated: number;
+        };
+        /**
+         * MilestoneDoneUpdate
+         * @description Body for checking a milestone off (or undoing it).
+         */
+        MilestoneDoneUpdate: {
+            /** Done */
+            done: boolean;
         };
         /** OverviewCard */
         OverviewCard: {
@@ -3556,6 +3604,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SelectResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_event_done_api_timeline_events__event_id__done_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MilestoneDoneUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilestoneDoneResult"];
                 };
             };
             /** @description Validation Error */

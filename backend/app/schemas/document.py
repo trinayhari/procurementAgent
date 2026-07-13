@@ -21,6 +21,10 @@ class Document(BaseModel):
     summary: Optional[str] = None
     mocked: bool = False
     error: Optional[str] = None
+    # How many schedule events this document contributed to the project
+    # timeline (annotated at read time from timeline_events; 0 until the
+    # background timeline extraction has run).
+    timelineEvents: int = 0
     # Human-in-the-loop review state.
     reviewed: bool = False
     reviewedAt: Optional[str] = None

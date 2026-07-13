@@ -82,11 +82,12 @@ interface DocInput {
   id?: string; name: string; type: string; date: string; status: string; statusTone: string
   items: string; pages: number; processing?: boolean; hasFile?: boolean; planType?: string | null
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
+  timelineEvents?: number
 }
 interface QuoteInput { id?: string; sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }
 interface ThreadInput { dir: string; who: string; initials: string; time: string; body: string; subject?: string; attach?: string; logoBg?: string }
-interface MilestoneInput { name: string; date: string; status: string; desc: string; tone: string; done?: boolean; active?: boolean }
+interface MilestoneInput { id?: number | null; name: string; date: string; status: string; desc: string; tone: string; done?: boolean; active?: boolean; conflict?: boolean }
 interface GanttInput { name: string; start: number; len: number; tone: string; label: string; warn?: boolean }
 
 // Identity helper that contextually types an inline object literal as

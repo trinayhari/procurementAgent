@@ -82,6 +82,13 @@ def _ensure_dev_columns() -> None:
         if "distance_miles" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE quotes ADD COLUMN distance_miles FLOAT"))
+    if "timeline_events" in tables:
+        cols = {c["name"] for c in inspector.get_columns("timeline_events")}
+        with engine.begin() as conn:
+            if "done" not in cols:
+                conn.execute(text("ALTER TABLE timeline_events ADD COLUMN done BOOLEAN NOT NULL DEFAULT 0"))
+            if "done_at" not in cols:
+                conn.execute(text("ALTER TABLE timeline_events ADD COLUMN done_at VARCHAR NOT NULL DEFAULT ''"))
     if "users" in tables:
         cols = {c["name"] for c in inspector.get_columns("users")}
         if "sender_email" not in cols:

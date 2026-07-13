@@ -19,3 +19,6 @@ backend/procureai.db
 # uploaded plan sets
 backend/uploads/
 .vercel
+
+# Claude Code session data & agent worktrees
+.claude/

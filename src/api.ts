@@ -222,6 +222,12 @@ export function confirmDocument(docId: string): Promise<Document> {
 }
 
 // Delete a document, its extracted BOM, and any uploaded source file.
+// Human check-off for an extracted timeline milestone. Applies to every
+// same-named event in the project; returns how many were updated.
+export function setTimelineEventDone(eventId: number, done: boolean): Promise<{ updated: number }> {
+  return post(`/api/timeline/events/${eventId}/done`, { done })
+}
+
 export async function deleteDocument(docId: string): Promise<void> {
   const res = await fetch(`${BASE}/api/documents/${docId}`, { method: 'DELETE', headers: { ...authHeaders() } })
   if (!res.ok) throw new Error(`delete document -> ${res.status}`)

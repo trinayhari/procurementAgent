@@ -6,7 +6,7 @@ import type { Model, State } from './model'
 import Login from './Login'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
-  saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom,
+  saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   listProjectBoms, createSupplier,
   getRfqConversation, ingestQuotes, getIngestStatus,
@@ -1078,6 +1078,13 @@ function TabDocuments({ m }: MProps) {
       </div>
       <CustomBomsCard m={m} />
       <AdditionalDocsCard m={m} />
+      {m.doc && !m.doc.processing && (m.doc.timelineEvents || 0) > 0 && (
+        <div style={css('display:flex;align-items:center;gap:10px;background:var(--primary-soft);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px')}>
+          <span style={css('width:24px;height:24px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={13} fill d={SPARKLE_SM} /></span>
+          <span style={css('flex:1;font-size:12.5px')}><b>{m.doc.name}</b> added {m.doc.timelineEvents} schedule event{m.doc.timelineEvents === 1 ? '' : 's'} to the project timeline.</span>
+          <Box as="button" onClick={m.setTimeline} style={css('font-size:12px;font-weight:600;color:var(--primary);padding:5px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);white-space:nowrap')} hover="background:var(--primary-softer)">View timeline →</Box>
+        </div>
+      )}
       <div style={css('display:grid;grid-template-columns:minmax(0,1.7fr) 330px;gap:16px;align-items:start')}>
         <div style={css('display:flex;flex-direction:column;gap:16px;min-width:0')}>
           {m.doc && isCustomBom ? (
@@ -2034,6 +2041,13 @@ function TabCompare({ m }: MProps) {
 
 /* ------------------------------------------------------------- Timeline tab */
 function TabTimeline({ m }: MProps) {
+  // Completion is human-confirmed: check a milestone off (or undo it), then
+  // reload so statuses (Complete / Overdue / active) recompute.
+  const toggleDone = async (mm: { id?: number | null; done?: boolean }) => {
+    if (mm.id == null) return
+    try { await setTimelineEventDone(mm.id, !mm.done) } catch { /* reload shows truth either way */ }
+    m.reload()
+  }
   if (m.gantt.length === 0 && m.milestones.length === 0) {
     return (
       <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center')}>
@@ -2064,7 +2078,9 @@ function TabTimeline({ m }: MProps) {
           {m.milestones.map((mm, i) => (
             <div key={i} style={css('display:flex;gap:15px')}>
               <div style={css('display:flex;flex-direction:column;align-items:center;flex:none')}><span style={mm.dotStyle}></span><span style={css('flex:1;width:2px;background:var(--border);min-height:26px')}></span></div>
-              <div style={css('flex:1;padding-bottom:18px;margin-top:-3px')}><div style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap')}><span style={css('font-size:13.5px;font-weight:600')}>{mm.name}</span><span style={mm.statusBadge}>{mm.status}</span><span style={css("font-size:12px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>{mm.date}</span></div><div style={css('font-size:12.5px;color:var(--text-2);margin-top:3px')}>{mm.desc}</div></div>
+              <div style={css('flex:1;padding-bottom:18px;margin-top:-3px')}><div style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap')}><span style={css('font-size:13.5px;font-weight:600')}>{mm.name}</span><span style={mm.statusBadge}>{mm.status}</span>{mm.conflict && <span style={css('display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--danger);background:var(--danger-soft);padding:3px 8px;border-radius:999px')}><Svg size={11} sw={2.2} d='M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z' />Date conflict</span>}<span style={css("font-size:12px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>{mm.date}</span>{mm.id != null && (
+                  <Box as="button" onClick={() => toggleDone(mm)} style={css(`margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:7px;border:1px solid var(--border);${mm.done ? 'color:var(--text-3);background:var(--panel-2)' : 'color:var(--success);background:var(--success-soft)'}`)} hover="filter:brightness(.96)">{mm.done ? 'Undo' : <><Svg size={12} sw={2.6} d='M20 6 9 17l-5-5' />Mark done</>}</Box>
+                )}</div><div style={css('font-size:12.5px;color:var(--text-2);margin-top:3px')}>{mm.desc}</div></div>
             </div>
           ))}
         </div>

@@ -81,7 +81,13 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
 @router.get("/{project_id}/documents", response_model=List[Document])
 def list_documents(project_id: str, db: Session = Depends(get_db)):
     _require_project(project_id, db)
-    return documents_repo.list_for_project(db, project_id)
+    docs = documents_repo.list_for_project(db, project_id)
+    # Annotate each document with how many schedule events it contributed, so
+    # the Documents tab can nudge the user toward the Timeline tab.
+    counts = timeline_repo.counts_by_document(db, project_id)
+    for d in docs:
+        d["timelineEvents"] = counts.get(d["id"], 0)
+    return docs
 
 
 @router.get("/{project_id}/line-items", response_model=List[LineItemGroup])
