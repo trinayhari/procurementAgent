@@ -1039,6 +1039,13 @@ function TabDocuments({ m }: MProps) {
       </div>
       <CustomBomsCard m={m} />
       <AdditionalDocsCard m={m} />
+      {m.doc && !m.doc.processing && (m.doc.timelineEvents || 0) > 0 && (
+        <div style={css('display:flex;align-items:center;gap:10px;background:var(--primary-soft);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px')}>
+          <span style={css('width:24px;height:24px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={13} fill d={SPARKLE_SM} /></span>
+          <span style={css('flex:1;font-size:12.5px')}><b>{m.doc.name}</b> added {m.doc.timelineEvents} schedule event{m.doc.timelineEvents === 1 ? '' : 's'} to the project timeline.</span>
+          <Box as="button" onClick={m.setTimeline} style={css('font-size:12px;font-weight:600;color:var(--primary);padding:5px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);white-space:nowrap')} hover="background:var(--primary-softer)">View timeline →</Box>
+        </div>
+      )}
       <div style={css('display:grid;grid-template-columns:minmax(0,1.7fr) 330px;gap:16px;align-items:start')}>
         <div style={css('display:flex;flex-direction:column;gap:16px;min-width:0')}>
           {m.doc && isCustomBom ? (

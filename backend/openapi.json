@@ -2725,6 +2725,11 @@
             ],
             "title": "Error"
           },
+          "timelineEvents": {
+            "type": "integer",
+            "title": "Timelineevents",
+            "default": 0
+          },
           "reviewed": {
             "type": "boolean",
             "title": "Reviewed",

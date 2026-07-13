@@ -1063,6 +1063,11 @@ export interface components {
             /** Error */
             error?: string | null;
             /**
+             * Timelineevents
+             * @default 0
+             */
+            timelineEvents: number;
+            /**
              * Reviewed
              * @default false
              */

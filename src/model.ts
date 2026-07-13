@@ -81,6 +81,7 @@ interface DocInput {
   id?: string; name: string; type: string; date: string; status: string; statusTone: string
   items: string; pages: number; processing?: boolean; hasFile?: boolean; planType?: string | null
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
+  timelineEvents?: number
 }
 interface QuoteInput { id?: string; sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }

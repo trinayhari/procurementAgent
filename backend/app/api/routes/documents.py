@@ -61,7 +61,9 @@ def get_document(document_id: str, db: Session = Depends(get_db)):
     doc = documents_repo.get(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    return doc.to_dict()
+    payload = doc.to_dict()
+    payload["timelineEvents"] = timeline_repo.count_for_document(db, document_id)
+    return payload
 
 
 @router.get("/{document_id}/file")
