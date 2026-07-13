@@ -11,6 +11,13 @@ the `Timeline` shape the frontend already renders:
     placed on a calendar — they are listed as unscheduled milestones showing the
     document's own wording.
 
+Completion is human-confirmed, not calendar-derived: a milestone is Complete
+only when the user checked it off (TimelineEvent.done); a dated milestone whose
+date has passed unconfirmed shows as Overdue. When documents disagree on an
+event's dates (contract says July, schedule revision says August), the newest
+extraction wins and the milestone/bar is flagged as a conflict listing every
+claimed date and its source document.
+
 Returns None when there are no events, so the route can fall back to the demo
 timeline (only present when demo seeding is on).
 """
@@ -40,19 +47,67 @@ def _provenance(e: dict) -> str:
 
 
 def _dedup(events: List[dict]) -> List[dict]:
-    """Drop repeats of the same event name across documents (e.g. the contract
-    and the schedule both list 'Substantial Completion'), preferring the entry
-    that carries a calendar date."""
-    by_name = {}
-    order = []
+    """Collapse repeats of the same event name across documents (e.g. the
+    contract and the schedule both list 'Substantial Completion') into one
+    entry, and detect date conflicts between them.
+
+    Among dated duplicates the one from the NEWEST document wins (a schedule
+    revision supersedes the contract it amends); any dated duplicate claiming
+    different dates is kept on the winner as `_conflicts` so the UI can flag
+    the disagreement instead of silently picking a side."""
+    groups, order = {}, []
     for e in events:
         key = e["name"].strip().lower()
-        if key not in by_name:
-            by_name[key] = e
+        if key not in groups:
+            groups[key] = []
             order.append(key)
-        elif e.get("start") and not by_name[key].get("start"):
-            by_name[key] = e
-    return [by_name[k] for k in order]
+        groups[key].append(e)
+
+    out = []
+    for key in order:
+        group = groups[key]
+        dated = [e for e in group if e.get("start")]
+        if not dated:
+            out.append({**group[0], "_conflicts": []})
+            continue
+        rep = max(dated, key=_recency)
+        rep_dates = (rep.get("start", ""), rep.get("end", ""))
+        seen = {rep_dates}
+        conflicts = []
+        for e in dated:
+            pair = (e.get("start", ""), e.get("end", ""))
+            if pair not in seen:
+                seen.add(pair)
+                conflicts.append(e)
+        out.append({**rep, "_conflicts": conflicts})
+    return out
+
+
+def _recency(e: dict) -> tuple:
+    """Sort key for 'which document's date wins': upload order (document ids
+    are 'upload-N'), then row id. Extraction jobs finish out of order, so row
+    id alone would let a slow older document beat a newer revision."""
+    doc_id = e.get("document_id") or ""
+    suffix = doc_id.rsplit("-", 1)[-1]
+    doc_seq = int(suffix) if suffix.isdigit() else 0
+    return (doc_seq, e.get("id") or 0)
+
+
+def _conflict_note(e: dict) -> str:
+    """Human-readable 'Conflicting dates: X (doc) vs Y (doc)' line."""
+    if not e.get("_conflicts"):
+        return ""
+
+    def fmt(x: dict) -> str:
+        start, end = _parse(x.get("start", "")), _parse(x.get("end", ""))
+        when = (
+            f"{_display(start)} – {_display(end)}" if start and end
+            else _display(start) if start
+            else x.get("date_text") or "?"
+        )
+        return f"{when} ({x.get('source_doc') or 'unknown document'})"
+
+    return "Conflicting dates: " + " vs ".join(fmt(x) for x in [e] + e["_conflicts"])
 
 
 def _month_add(d: date, months: int) -> date:
@@ -104,40 +159,55 @@ def _build_gantt(ranged: List[dict], today: date) -> dict:
             "len": len_pct,
             "tone": _BAR_TONES[i % len(_BAR_TONES)],
             "label": f"{_display(e['_start'], not one_year)} – {_display(e['_end'], not one_year)}",
-            "warn": False,
+            "warn": bool(e.get("_conflicts")),  # documents disagree on this phase's dates
         })
     return {"gantt": bars, "ganttCols": _build_columns(span_start, span_end)}
+
+
+def _milestone_desc(e: dict) -> str:
+    note = _conflict_note(e)
+    prov = _provenance(e)
+    return f"{note} · {prov}" if note and prov else (note or prov)
 
 
 def _build_milestones(points: List[dict], undated: List[dict], today: date) -> List[dict]:
     points = sorted(points, key=lambda e: e["_start"])
     out = []
     for e in points:
-        done = e["_start"] < today
+        # Complete is a human check-off, never the calendar: a passed date the
+        # user hasn't confirmed means the milestone is OVERDUE, not done.
+        done = bool(e.get("done"))
+        overdue = not done and e["_start"] < today
         out.append({
+            "id": e.get("id"),
             "name": e["name"],
             "date": _display(e["_start"]),
-            "status": "Complete" if done else "Upcoming",
-            "desc": _provenance(e),
-            "tone": "success" if done else "gray",
+            "status": "Complete" if done else "Overdue" if overdue else "Upcoming",
+            "desc": _milestone_desc(e),
+            "tone": "success" if done else "danger" if overdue else "gray",
             "done": done,
             "active": False,
+            "conflict": bool(e.get("_conflicts")),
         })
-    # The next upcoming milestone is the one the project is working toward.
+    # The next unconfirmed milestone is the one the project is working toward.
     for m in out:
         if not m["done"]:
             m["active"] = True
-            m["tone"] = "blue"
+            if m["status"] == "Upcoming":
+                m["tone"] = "blue"
             break
     for e in undated:
+        done = bool(e.get("done"))
         out.append({
+            "id": e.get("id"),
             "name": e["name"],
             "date": e.get("date_text", "") or "—",
-            "status": "Unscheduled",
-            "desc": _provenance(e),
-            "tone": "gray",
-            "done": False,
+            "status": "Complete" if done else "Unscheduled",
+            "desc": _milestone_desc(e),
+            "tone": "success" if done else "gray",
+            "done": done,
             "active": False,
+            "conflict": bool(e.get("_conflicts")),
         })
     return out
 

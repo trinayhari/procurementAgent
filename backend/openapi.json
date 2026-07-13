@@ -2177,6 +2177,59 @@
           }
         }
       }
+    },
+    "/api/timeline/events/{event_id}/done": {
+      "post": {
+        "tags": [
+          "timeline"
+        ],
+        "summary": "Set Event Done",
+        "description": "Human check-off for a milestone: the schedule can't know a milestone\nactually happened from dates alone, so completion is confirmed (or undone)\nby the user. Applies to every same-named event in the project, and survives\ndocument re-analysis.",
+        "operationId": "set_event_done_api_timeline_events__event_id__done_post",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Event Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MilestoneDoneUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilestoneDoneResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3317,6 +3370,17 @@
       },
       "Milestone": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "name": {
             "type": "string",
             "title": "Name"
@@ -3345,6 +3409,11 @@
             "type": "boolean",
             "title": "Active",
             "default": false
+          },
+          "conflict": {
+            "type": "boolean",
+            "title": "Conflict",
+            "default": false
           }
         },
         "type": "object",
@@ -3356,6 +3425,33 @@
           "tone"
         ],
         "title": "Milestone"
+      },
+      "MilestoneDoneResult": {
+        "properties": {
+          "updated": {
+            "type": "integer",
+            "title": "Updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "updated"
+        ],
+        "title": "MilestoneDoneResult"
+      },
+      "MilestoneDoneUpdate": {
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "title": "Done"
+          }
+        },
+        "type": "object",
+        "required": [
+          "done"
+        ],
+        "title": "MilestoneDoneUpdate",
+        "description": "Body for checking a milestone off (or undoing it)."
       },
       "OverviewCard": {
         "properties": {
