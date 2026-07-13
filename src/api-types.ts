@@ -532,7 +532,12 @@ export interface paths {
         /** List Suppliers */
         get: operations["list_suppliers_api_suppliers_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Supplier
+         * @description Add a supplier to the customer's directory (manually or from a search
+         *     result). Idempotent by name.
+         */
+        post: operations["create_supplier_api_suppliers_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1780,6 +1785,41 @@ export interface components {
             /** Icon */
             icon: string;
         };
+        /**
+         * SupplierCreate
+         * @description Add a supplier to the directory — manually, or from a search result.
+         *
+         *     Only a name is required; the rest is optional contact/category detail.
+         */
+        SupplierCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Contact
+             * @default
+             */
+            contact: string;
+            /**
+             * Phone
+             * @default
+             */
+            phone: string;
+            /**
+             * Email
+             * @default
+             */
+            email: string;
+            /**
+             * Web
+             * @default
+             */
+            web: string;
+            /**
+             * Cats
+             * @default []
+             */
+            cats: string[];
+        };
         /** SupplierDetail */
         SupplierDetail: {
             /** Id */
@@ -2952,6 +2992,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Supplier"][];
+                };
+            };
+        };
+    };
+    create_supplier_api_suppliers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Supplier"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -1458,6 +1458,46 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "suppliers"
+        ],
+        "summary": "Create Supplier",
+        "description": "Add a supplier to the customer's directory (manually or from a search\nresult). Idempotent by name.",
+        "operationId": "create_supplier_api_suppliers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Supplier"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/suppliers/{supplier_id}": {
@@ -4372,6 +4412,48 @@
           "icon"
         ],
         "title": "SupplierComm"
+      },
+      "SupplierCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "contact": {
+            "type": "string",
+            "title": "Contact",
+            "default": ""
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone",
+            "default": ""
+          },
+          "email": {
+            "type": "string",
+            "title": "Email",
+            "default": ""
+          },
+          "web": {
+            "type": "string",
+            "title": "Web",
+            "default": ""
+          },
+          "cats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cats",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SupplierCreate",
+        "description": "Add a supplier to the directory \u2014 manually, or from a search result.\n\nOnly a name is required; the rest is optional contact/category detail."
       },
       "SupplierDetail": {
         "properties": {

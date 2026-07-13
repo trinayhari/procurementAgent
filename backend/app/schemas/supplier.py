@@ -30,6 +30,19 @@ class Supplier(BaseModel):
     fin: SupplierFinancials
 
 
+class SupplierCreate(BaseModel):
+    """Add a supplier to the directory — manually, or from a search result.
+
+    Only a name is required; the rest is optional contact/category detail."""
+
+    name: str
+    contact: str = ""
+    phone: str = ""
+    email: str = ""
+    web: str = ""
+    cats: List[str] = []
+
+
 class SupplierComm(BaseModel):
     tone: Tone
     title: str

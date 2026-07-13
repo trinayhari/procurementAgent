@@ -8,7 +8,7 @@ import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  listProjectBoms,
+  listProjectBoms, createSupplier,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
   getToken, getMe, logout as apiLogout, onAuthChange,
@@ -603,6 +603,7 @@ function SupplierCard({ x }: { x: Model['suppliers'][number] }) {
   )
 }
 function Suppliers({ m }: MProps) {
+  const [adding, setAdding] = useState(false)
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
@@ -610,20 +611,77 @@ function Suppliers({ m }: MProps) {
           <h1 style={css('margin:0;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>Suppliers</h1>
           <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>Your network across all projects · {m.suppliers.length} shown</p>
         </div>
-        <Box as="button" style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)">
+        <Box as="button" onClick={() => setAdding(true)} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)">
           <Svg size={16} sw={2.2} d={PLUS} />Add supplier
         </Box>
       </div>
       {m.suppliers.length === 0 ? (
         <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center')}>
           <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No suppliers yet</div>
-          <div style={css('font-size:13px;color:var(--text-3)')}>Suppliers appear here once you search and add them from a project.</div>
+          <div style={css('font-size:13px;color:var(--text-3)')}>Add one with “Add supplier”, or search and add them from a project.</div>
         </div>
       ) : (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px')}>
         {m.suppliers.map((x, i) => <SupplierCard key={i} x={x} />)}
       </div>
       )}
+      {adding && <AddSupplierModal onClose={() => setAdding(false)} onSaved={async () => { await m.reload(); setAdding(false) }} />}
+    </div>
+  )
+}
+
+// Manual "add a supplier to my network" form (the Suppliers page). Only a name
+// is required; the backend dedups by name so re-adding is a no-op.
+function AddSupplierModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void | Promise<void> }) {
+  const [name, setName] = useState('')
+  const [contact, setContact] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [web, setWeb] = useState('')
+  const [cats, setCats] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) { setErr('A supplier name is required.'); return }
+    setSaving(true); setErr(null)
+    try {
+      await createSupplier({
+        name: name.trim(), contact, phone, email, web,
+        cats: cats.split(',').map((c) => c.trim()).filter(Boolean),
+      })
+      await onSaved()
+    } catch { setErr('Could not add supplier — is the backend running?'); setSaving(false) }
+  }
+
+  const field = css("width:100%;height:36px;padding:0 11px;border-radius:9px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:13px;box-sizing:border-box")
+  const label = css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:5px')
+  return (
+    <div onClick={onClose} style={css('position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50')}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);width:460px;max-width:100%;max-height:90vh;overflow:auto;padding:22px')}>
+        <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:16px')}>
+          <span style={css('width:26px;height:26px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} sw={2.2} d={PLUS} /></span>
+          <h2 style={css('margin:0;font-size:15px;font-weight:600;flex:1')}>Add supplier to your network</h2>
+        </div>
+        <div style={css('display:flex;flex-direction:column;gap:13px')}>
+          <div><div style={label}>Name *</div><input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ferguson Waterworks" style={field} /></div>
+          <div style={css('display:flex;gap:11px')}>
+            <div style={css('flex:1')}><div style={label}>Contact</div><input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Contact name" style={field} /></div>
+            <div style={css('flex:1')}><div style={label}>Phone</div><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-0100" style={field} /></div>
+          </div>
+          <div><div style={label}>Email</div><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="sales@example.com" style={field} /></div>
+          <div><div style={label}>Website</div><input value={web} onChange={(e) => setWeb(e.target.value)} placeholder="example.com" style={field} /></div>
+          <div><div style={label}>Categories</div><input value={cats} onChange={(e) => setCats(e.target.value)} placeholder="Water, Sewer (comma-separated)" style={field} /></div>
+        </div>
+        {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:12px')}>{err}</div>}
+        <div style={css('display:flex;justify-content:flex-end;gap:9px;margin-top:20px')}>
+          <Box as="button" type="button" onClick={onClose} style={css('height:36px;padding:0 15px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">Cancel</Box>
+          <Box as="button" type="submit" disabled={saving} style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${saving ? '.6' : '1'}`)} hover="background:var(--primary-2)">
+            {saving ? 'Adding…' : 'Add supplier'}
+          </Box>
+        </div>
+      </form>
     </div>
   )
 }
@@ -1151,7 +1209,7 @@ function pkgLabel(key: string): string {
 // created in the Documents panel and selected here by their document id — they
 // quote exactly like a package (replacing the old free-text ad-hoc flow).
 // Manages its own state + polling.
-function SupplierSearch({ projectId }: { projectId: string }) {
+function SupplierSearch({ projectId, networkNames, onAdded }: { projectId: string; networkNames: Set<string>; onAdded: () => void | Promise<void> }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
   const [boms, setBoms] = useState<CustomBomSummary[]>([])     // custom BOMs on this project
@@ -1163,6 +1221,7 @@ function SupplierSearch({ projectId }: { projectId: string }) {
   const [err, setErr] = useState<string | null>(null)
   const [bom, setBom] = useState<PackageBom | null>(null)   // what we're asking suppliers to quote
   const [bomLoading, setBomLoading] = useState(false)
+  const [savingId, setSavingId] = useState<string | null>(null)   // found supplier currently being added
 
   // Resolve a package key — a preset key or a custom BOM's document id — to its
   // display label. Custom BOMs show their own name.
@@ -1220,6 +1279,26 @@ function SupplierSearch({ projectId }: { projectId: string }) {
 
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }))
   const selectedIds = Object.keys(selected).filter((k) => selected[k])
+
+  // Whether a found supplier is already in the customer's network (by name).
+  const inNetwork = (sup: FoundSupplier) => networkNames.has(sup.name.toLowerCase())
+
+  // Add a discovered supplier to the customer's network, then refresh the list.
+  const add = async (sup: FoundSupplier) => {
+    setSavingId(sup.id); setErr(null)
+    try {
+      await createSupplier({
+        name: sup.name,
+        contact: sup.contactName || '',
+        phone: sup.phone || '',
+        email: sup.email || '',
+        web: sup.website || '',
+        cats: sup.materialCategories || [],
+      })
+      await onAdded()
+    } catch { setErr('Could not add supplier — is the backend running?') }
+    finally { setSavingId(null) }
+  }
 
   const generate = async () => {
     setGenerating(true); setErr(null)
@@ -1345,7 +1424,8 @@ function SupplierSearch({ projectId }: { projectId: string }) {
           </div>
           <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px')}>
             {t.suppliers.map((sup) => (
-              <FoundSupplierCard key={sup.id} sup={sup} checked={!!selected[sup.id]} onToggle={() => toggle(sup.id)} />
+              <FoundSupplierCard key={sup.id} sup={sup} checked={!!selected[sup.id]} onToggle={() => toggle(sup.id)}
+                inNetwork={inNetwork(sup)} saving={savingId === sup.id} onAdd={() => add(sup)} />
             ))}
           </div>
         </div>
@@ -1381,7 +1461,7 @@ function DcBadge(t: string): CSSProperties {
   return css(`display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:${bg};color:${fg}`)
 }
 
-function FoundSupplierCard({ sup, checked, onToggle }: { sup: FoundSupplier; checked: boolean; onToggle: () => void }) {
+function FoundSupplierCard({ sup, checked, onToggle, inNetwork, saving, onAdd }: { sup: FoundSupplier; checked: boolean; onToggle: () => void; inNetwork: boolean; saving: boolean; onAdd: () => void }) {
   const hasEmail = !!sup.email
   return (
     <div style={css(`background:var(--panel);border:1px solid ${checked ? 'var(--primary)' : 'var(--border)'};border-radius:14px;padding:14px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:9px`)}>
@@ -1402,6 +1482,20 @@ function FoundSupplierCard({ sup, checked, onToggle }: { sup: FoundSupplier; che
           : <div style={css('display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--warn);background:var(--warn-soft);padding:2px 8px;border-radius:999px;align-self:flex-start')}>No email found</div>}
         {sup.website && <a href={sup.website} target="_blank" rel="noreferrer" style={css('display:flex;align-items:center;gap:7px;color:var(--primary);text-decoration:none;overflow:hidden')}><Svg size={13} sw={1.9} stroke="var(--primary)" d='<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/>' /><span style={css('overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{sup.website.replace(/^https?:\/\//, '')}</span></a>}
       </div>
+      {inNetwork ? (
+        <div style={css('display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;border-radius:9px;background:var(--success-soft);color:var(--success);font-size:12.5px;font-weight:600')}>
+          <Svg size={14} sw={2.2} d='m20 6-11 11-5-5' />In your network
+        </div>
+      ) : (
+        <Box as="button" onClick={onAdd} disabled={saving}
+          style={css(`display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;border-radius:9px;background:var(--panel);border:1px solid var(--border-strong);color:var(--text);font-size:12.5px;font-weight:600;opacity:${saving ? '.6' : '1'}`)}
+          hover="background:var(--panel-2);border-color:var(--primary);color:var(--primary)">
+          {saving
+            ? <span style={css('width:13px;height:13px;border:2px solid var(--text-3);border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>
+            : <Svg size={14} sw={2.2} d={PLUS} />}
+          {saving ? 'Adding…' : 'Add to network'}
+        </Box>
+      )}
     </div>
   )
 }
@@ -1536,17 +1630,10 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
 }
 
 function TabSuppliers({ m }: MProps) {
-  return (
-    <>
-      <SupplierSearch projectId={m.activeProject.id} />
-      <div style={css('margin-top:26px')}>
-        <div style={css('display:flex;align-items:center;justify-content:space-between;margin-bottom:14px')}><h2 style={css('margin:0;font-size:15px;font-weight:600')}>Saved suppliers <span style={css('color:var(--text-3);font-weight:500')}>· network</span></h2></div>
-        <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px')}>
-          {m.suppliers.map((x, i) => <SupplierCard key={i} x={x} />)}
-        </div>
-      </div>
-    </>
-  )
+  // Names already in the customer's network — the search marks matching results
+  // as "In your network" and adding one refreshes the global list via m.reload.
+  const networkNames = new Set<string>((m.suppliers || []).map((s) => s.name.toLowerCase()))
+  return <SupplierSearch projectId={m.activeProject.id} networkNames={networkNames} onAdded={m.reload} />
 }
 
 /* ----------------------------------------------------------------- RFQs tab */
