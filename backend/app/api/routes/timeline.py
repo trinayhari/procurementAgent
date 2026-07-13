@@ -6,18 +6,24 @@ act on the underlying extracted events themselves.
 """
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.repositories import timeline as timeline_repo
 from app.schemas.timeline import MilestoneDoneResult, MilestoneDoneUpdate
+from app.services import lender_updates
 
 router = APIRouter(prefix="/api/timeline", tags=["timeline"])
 
 
 @router.post("/events/{event_id}/done", response_model=MilestoneDoneResult)
-def set_event_done(event_id: int, payload: MilestoneDoneUpdate, db: Session = Depends(get_db)):
+def set_event_done(
+    event_id: int,
+    payload: MilestoneDoneUpdate,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     """Human check-off for a milestone: the schedule can't know a milestone
     actually happened from dates alone, so completion is confirmed (or undone)
     by the user. Applies to every same-named event in the project, and survives
@@ -27,4 +33,10 @@ def set_event_done(event_id: int, payload: MilestoneDoneUpdate, db: Session = De
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Timeline event not found")
+    # Checking off (not undoing) notifies the project's lenders in the
+    # background — the PRO-16 progress email.
+    if payload.done:
+        background.add_task(
+            lender_updates.send_milestone_update, result["projectId"], result["name"]
+        )
     return {"updated": result["updated"]}

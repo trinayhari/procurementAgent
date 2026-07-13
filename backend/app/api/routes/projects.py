@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
+from app.repositories import lenders as lenders_repo
 from app.repositories import projects as projects_repo
 from app.repositories import quotes as quotes_repo
 from app.repositories import reference as reference_repo
@@ -16,6 +17,7 @@ from app.services.quotes import comparison as comparison_service
 from app.services.quotes import line_comparison as line_comparison_service
 from app.services.sourcing import packages
 from app.schemas.document import Document, LineItemGroup
+from app.schemas.lender import Lender, LenderCreate
 from app.schemas.project import Project, ProjectCreate, ProjectDetail
 from app.schemas.quote import (
     AwardRequest,
@@ -121,6 +123,44 @@ def list_rfqs(project_id: str, db: Session = Depends(get_db)):
 def list_rfq_folders(project_id: str, db: Session = Depends(get_db)):
     _require_project(project_id, db)
     return reference_repo.list_rfq_folders(db)
+
+
+# Lenders: the project's financing contacts. Stored per-project so timeline
+# progress emails (PRO-16) know who to update.
+@router.get("/{project_id}/lenders", response_model=List[Lender])
+def list_lenders(project_id: str, db: Session = Depends(get_db)):
+    _require_project(project_id, db)
+    return lenders_repo.list_for_project(db, project_id)
+
+
+@router.post("/{project_id}/lenders", response_model=Lender, status_code=201)
+def add_lender(project_id: str, payload: LenderCreate, db: Session = Depends(get_db)):
+    _require_project(project_id, db)
+    lender = lenders_repo.create(
+        db,
+        project_id,
+        name=payload.name,
+        email=payload.email,
+        institution=payload.institution,
+        phone=payload.phone,
+    )
+    events_repo.log(
+        db,
+        project_id,
+        title=f"Lender added: {lender['name']}",
+        icon="supplier",
+        tone="blue",
+        meta=lender["institution"] or lender["email"],
+    )
+    return lender
+
+
+@router.delete("/{project_id}/lenders/{lender_id}", status_code=204)
+def remove_lender(project_id: str, lender_id: int, db: Session = Depends(get_db)):
+    _require_project(project_id, db)
+    if lenders_repo.delete(db, project_id, lender_id) is None:
+        raise HTTPException(status_code=404, detail="Lender not found")
+    return None
 
 
 @router.get("/{project_id}/timeline", response_model=Timeline)
