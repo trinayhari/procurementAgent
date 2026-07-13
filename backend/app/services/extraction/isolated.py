@@ -22,6 +22,7 @@ import sys
 import tempfile
 
 from app.services.extraction.service import ExtractionResult
+from app.services.extraction.timeline import TimelineResult
 
 
 def run(path: str, plan_type: str, timeout: float = 900.0) -> ExtractionResult:
@@ -57,6 +58,36 @@ def run(path: str, plan_type: str, timeout: float = 900.0) -> ExtractionResult:
             error=data["error"],
             summary=data["summary"],
         )
+    finally:
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+
+
+def run_timeline(path: str, timeout: float = 600.0) -> TimelineResult:
+    """Extract a document's timeline in a child process (same isolation rationale
+    as `run` — the PDF parse can fault natively)."""
+    fd, out_path = tempfile.mkstemp(suffix=".json", prefix="timeline_")
+    os.close(fd)
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "app.services.extraction.run_timeline", path, out_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+        )
+        if proc.returncode != 0:
+            tail = (proc.stderr or b"").decode("utf-8", "replace").strip()[-500:]
+            raise RuntimeError(
+                f"timeline subprocess exited {proc.returncode} "
+                f"(likely a native crash while parsing the PDF). stderr: {tail or '<none>'}"
+            )
+        with open(out_path) as fh:
+            data = json.load(fh)
+        if not data.get("ok"):
+            raise RuntimeError(data.get("error_fatal", "unknown timeline extraction error"))
+        return TimelineResult(data["events"], error=data["error"], summary=data["summary"])
     finally:
         try:
             os.remove(out_path)

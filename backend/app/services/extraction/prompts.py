@@ -98,6 +98,40 @@ def build_text_prompt(spec: PlanTypeSpec, sheets: List[dict]) -> str:
     return "\n".join(parts)
 
 
+TIMELINE_SYSTEM_PROMPT = (
+    "You are a construction scheduler reading project documents. Extract the project "
+    "timeline: the milestones (point-in-time events like notice to proceed, permit "
+    "approval, substantial completion) and phases (activities with a start and end, like "
+    "grading, foundations, framing) the document states. Only list events the document "
+    "actually gives — do not invent events or dates. Give dates as YYYY-MM-DD when the "
+    "document provides a calendar date; when it only gives relative timing (week numbers, "
+    "durations, 'X days after NTP'), leave the date fields null and put the document's own "
+    "wording in date_text. If the document contains no schedule information, return an "
+    "empty events list."
+)
+
+
+def build_timeline_text_prompt(sheets: List[dict]) -> str:
+    """One-shot timeline prompt over the embedded text of every page."""
+    parts = [
+        "Below is the text extracted from each page of a project document. Extract the "
+        "project timeline — every milestone and phase with its dates.",
+        "",
+    ]
+    for s in sheets:
+        parts.append(f"--- {s['sheet']} ---")
+        parts.append(s["text"])
+        parts.append("")
+    return "\n".join(parts)
+
+
+def build_timeline_vision_prompt() -> str:
+    return (
+        "These are the pages of a project document. Extract the project timeline — "
+        "every milestone and phase with its dates."
+    )
+
+
 def build_consolidation_system_prompt() -> str:
     return (
         "You are a construction estimator. You are given the materials extracted from each "

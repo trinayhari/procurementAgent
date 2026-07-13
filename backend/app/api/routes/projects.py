@@ -10,6 +10,8 @@ from app.repositories import projects as projects_repo
 from app.repositories import quotes as quotes_repo
 from app.repositories import reference as reference_repo
 from app.repositories import suppliers as suppliers_repo
+from app.repositories import timeline as timeline_repo
+from app.services import schedule as schedule_service
 from app.services.quotes import comparison as comparison_service
 from app.services.quotes import line_comparison as line_comparison_service
 from app.services.sourcing import packages
@@ -117,7 +119,13 @@ def list_rfq_folders(project_id: str, db: Session = Depends(get_db)):
 
 @router.get("/{project_id}/timeline", response_model=Timeline)
 def get_timeline(project_id: str, db: Session = Depends(get_db)):
+    """The project schedule, built from timeline events extracted out of the
+    project's documents. Falls back to the demo timeline (present only when
+    demo seeding is enabled) while nothing has been extracted."""
     _require_project(project_id, db)
+    built = schedule_service.build_schedule(timeline_repo.list_for_project(db, project_id))
+    if built is not None:
+        return built
     return reference_repo.get_timeline(db)
 
 

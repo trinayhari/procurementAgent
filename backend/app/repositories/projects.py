@@ -17,6 +17,7 @@ from app.models.found_supplier import FoundSupplier
 from app.models.project import Project
 from app.models.quote import Quote
 from app.models.rfq import Rfq
+from app.models.timeline_event import TimelineEvent
 from app.repositories import seed
 
 # Stage -> badge tone, mirroring the frontend's stageToneMap.
@@ -104,7 +105,7 @@ def delete_project(db: Session, project_id: str) -> bool:
         ).all()
         if p
     ]
-    for model in (Document, Quote, Rfq, FoundSupplier, ProjectEvent):
+    for model in (Document, Quote, Rfq, FoundSupplier, ProjectEvent, TimelineEvent):
         db.execute(sa_delete(model).where(model.project_id == project_id))
     db.delete(project)
     db.commit()

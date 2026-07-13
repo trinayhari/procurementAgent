@@ -51,6 +51,59 @@ class ExtractedBom(BaseModel):
     items: List[ExtractedItem] = Field(default_factory=list)
 
 
+class ExtractedTimelineEvent(BaseModel):
+    """One milestone or phase read off a project document (schedule, contract, plan)."""
+
+    name: str = Field(
+        description=(
+            "What the milestone or phase is, e.g. 'Notice to Proceed', 'Foundation pour', "
+            "'Substantial Completion', 'Framing'."
+        )
+    )
+    start_date: Optional[str] = Field(
+        default=None,
+        description=(
+            "Start date (or the date itself for a point-in-time milestone) as YYYY-MM-DD, "
+            "if the document states or clearly implies a calendar date. Null otherwise."
+        ),
+    )
+    end_date: Optional[str] = Field(
+        default=None,
+        description=(
+            "End date as YYYY-MM-DD for a phase/activity with a duration. Null for a "
+            "point-in-time milestone or when not given."
+        ),
+    )
+    date_text: Optional[str] = Field(
+        default=None,
+        description=(
+            "The document's own scheduling wording when no calendar date is given, e.g. "
+            "'Week 3-8', 'Q2 2027', '60 days after NTP'."
+        ),
+    )
+    description: Optional[str] = Field(
+        default=None, description="Short description of what this event covers, if the document gives one."
+    )
+    source: Optional[str] = Field(
+        default=None, description="Where it was read from: page, section, table, or schedule name."
+    )
+    confidence: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="0-1 confidence this event and its dates are correct."
+    )
+
+
+class TimelineExtraction(BaseModel):
+    """Top-level structured output for timeline extraction from a project document."""
+
+    summary: Optional[str] = Field(
+        default=None, description="One-sentence description of the schedule found (or why none was found)."
+    )
+    events: List[ExtractedTimelineEvent] = Field(
+        default_factory=list,
+        description="Every milestone and phase the document states. Empty if it contains no schedule info.",
+    )
+
+
 class VisionExtraction(BaseModel):
     """Top-level structured output returned by the vision model."""
 

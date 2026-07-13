@@ -237,7 +237,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Timeline */
+        /**
+         * Get Timeline
+         * @description The project schedule, built from timeline events extracted out of the
+         *     project's documents. Falls back to the demo timeline (present only when
+         *     demo seeding is enabled) while nothing has been extracted.
+         */
         get: operations["get_timeline_api_projects__project_id__timeline_get"];
         put?: never;
         post?: never;
@@ -719,7 +724,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze Document
-         * @description Re-run extraction for an already-uploaded document.
+         * @description Re-run extraction (BOM and timeline) for an already-uploaded document.
          */
         post: operations["analyze_document_api_documents__document_id__analyze_post"];
         delete?: never;

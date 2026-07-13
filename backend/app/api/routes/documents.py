@@ -24,6 +24,7 @@ from app.config import settings
 from app.db import SessionLocal, get_db
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
+from app.repositories import timeline as timeline_repo
 from app.schemas.document import (
     Document,
     LineItemGroup,
@@ -209,9 +210,11 @@ async def upload_document(
     if spec.singleton:
         documents_repo.delete_for_plan_type(db, project_id, plan_type)
 
-    # "Additional Document" slots have no BOM categories, so there's nothing to
-    # extract — store them as a reference attachment without running extraction.
+    # "Additional Document" slots have no BOM categories, so there's no BOM to
+    # extract — but every renderable document still goes through TIMELINE
+    # extraction (schedules/contracts usually arrive as additional documents).
     extractable = bool(spec.categories)
+    analyzable = extractable or pages > 0
 
     doc = documents_repo.add(
         db,
@@ -223,8 +226,8 @@ async def upload_document(
         project_id=project_id,
         source_path=dest,
         has_file=True,
-        status="Processing" if extractable else "Analyzed",
-        status_tone="blue" if extractable else "success",
+        status="Processing" if analyzable else "Analyzed",
+        status_tone="blue" if analyzable else "success",
     )
     payload = doc.to_dict()
     events_repo.log(
@@ -235,14 +238,14 @@ async def upload_document(
         tone="blue",
         meta=f"{spec.label}{f' · {pages} pages' if pages else ''}",
     )
-    if extractable:
-        background.add_task(_run_extraction, doc.id, dest, plan_type)
+    if analyzable:
+        background.add_task(_run_pipeline, doc.id, dest, plan_type)
     return payload
 
 
 @router.post("/{document_id}/analyze", response_model=Document)
 def analyze_document(document_id: str, background: BackgroundTasks, db: Session = Depends(get_db)):
-    """Re-run extraction for an already-uploaded document."""
+    """Re-run extraction (BOM and timeline) for an already-uploaded document."""
     doc = documents_repo.get(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -251,11 +254,63 @@ def analyze_document(document_id: str, background: BackgroundTasks, db: Session 
     if not plan_type or not path or not os.path.exists(path):
         raise HTTPException(status_code=409, detail="Document has no source file to re-analyze")
     spec = extraction.registry.get(plan_type)
-    if spec is None or not spec.categories:
-        raise HTTPException(status_code=409, detail="This document type has no BOM to extract")
+    if spec is None:
+        raise HTTPException(status_code=409, detail="This document type cannot be analyzed")
     documents_repo.update_status(db, document_id, status="Processing", status_tone="blue", processing=True)
-    background.add_task(_run_extraction, document_id, path, plan_type)
+    background.add_task(_run_pipeline, document_id, path, plan_type)
     return documents_repo.get(db, document_id).to_dict()
+
+
+def _run_pipeline(document_id: str, path: str, plan_type: str) -> None:
+    """Background worker: run timeline extraction, then BOM extraction.
+
+    Timeline runs FIRST (it's one cheap text call) so that when the BOM pass
+    writes the document's terminal status — the signal the frontend polls on —
+    everything, timeline included, is already in the database and one reload
+    picks it all up. Document types with no BOM categories (additional
+    documents) get their terminal status here instead.
+    """
+    _run_timeline_extraction(document_id, path)
+    spec = extraction.registry.get(plan_type)
+    if spec is not None and spec.categories:
+        _run_extraction(document_id, path, plan_type)
+    else:
+        with SessionLocal() as db:
+            documents_repo.update_status(
+                db, document_id,
+                status="Analyzed", status_tone="success", processing=False,
+            )
+
+
+def _run_timeline_extraction(document_id: str, path: str) -> None:
+    """Extract schedule events from one document into the project timeline.
+
+    Best-effort: the timeline is an enrichment, so a failure here never fails
+    the document — it is logged and the document continues to BOM extraction.
+    On success the document's previous events are replaced (a re-analysis
+    refreshes rather than duplicates); on failure existing events are kept.
+    """
+    logger.info("Timeline extraction started: doc=%s path=%s", document_id, path)
+    try:
+        result = extraction_isolated.run_timeline(path)
+    except Exception:  # noqa: BLE001 — enrichment only, never break the pipeline
+        logger.exception("Timeline extraction crashed: doc=%s", document_id)
+        return
+    if result.error:
+        logger.warning("Timeline extraction failed: doc=%s error=%s", document_id, result.error)
+        return
+    with SessionLocal() as db:
+        doc = documents_repo.get(db, document_id)
+        if doc is None:
+            return
+        n = timeline_repo.replace_for_document(db, doc.project_id, document_id, doc.name, result.events)
+        logger.info("Timeline extraction complete: doc=%s events=%s", document_id, n)
+        if n:
+            events_repo.log(
+                db, doc.project_id,
+                title=f"Timeline extracted — {n} schedule event{'s' if n != 1 else ''}",
+                icon="sparkles", tone="ai", meta=doc.name,
+            )
 
 
 def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
