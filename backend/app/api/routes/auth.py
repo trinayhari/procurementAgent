@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.ratelimit import rate_limit
 from app.core.security import create_access_token, get_current_user, verify_password
 from app.db import get_db
 from app.models.user import User
@@ -11,8 +12,17 @@ from app.schemas.auth import User as UserSchema
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+# Blunt credential stuffing: 10 login attempts / 5 registrations per IP per minute.
+_login_limit = rate_limit("login", limit=10, window_s=60)
+_register_limit = rate_limit("register", limit=5, window_s=60)
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/register",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_register_limit)],
+)
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if users_repo.get_by_email(db, body.email) is not None:
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -23,7 +33,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     return {"accessToken": token, "tokenType": "bearer", "user": user.to_dict()}
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(_login_limit)])
 def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = users_repo.get_by_email(db, body.email)
     if user is None or not verify_password(body.password, user.password_hash):

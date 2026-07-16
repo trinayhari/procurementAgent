@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="PROCUREAI_", extra="ignore")
 
     app_name: str = "ProcureAI API"
+    # "development" or "production". Production refuses to boot with the default
+    # JWT secret and warns when CORS is still localhost-only (see main.py).
+    env: str = "development"
     # Origins allowed to call the API from the browser (the Vite dev server by default).
     cors_origins: List[str] = [
         "http://localhost:5173",

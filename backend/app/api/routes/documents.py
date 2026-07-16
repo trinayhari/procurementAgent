@@ -13,6 +13,7 @@ their extracted BOMs survive a backend restart.
 """
 import logging
 import os
+import uuid
 from datetime import datetime
 from typing import List
 
@@ -21,6 +22,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.security import create_scoped_token, verify_scoped_token
 from app.db import SessionLocal, get_db
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
@@ -37,7 +39,17 @@ from app.services.extraction import isolated as extraction_isolated
 from app.services.extraction import pdf
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+# Signed-URL file serving lives on its own router: it's mounted WITHOUT the
+# app-wide auth dependency (iframes/downloads can't send an Authorization
+# header) and validates a short-lived scoped query token instead.
+file_router = APIRouter(prefix="/api/documents", tags=["documents"])
 logger = logging.getLogger(__name__)
+
+# File types the upload endpoint accepts (plan sets, schedules, material lists).
+_ALLOWED_EXTENSIONS = {".pdf", ".csv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg"}
+
+# Signed file URLs stay valid this long — enough for a preview session.
+_FILE_TOKEN_MINUTES = 15
 
 
 @router.get("/plan-types", response_model=List[PlanType])
@@ -66,24 +78,41 @@ def get_document(document_id: str, db: Session = Depends(get_db)):
     return payload
 
 
-@router.get("/{document_id}/file")
-def get_document_file(document_id: str, db: Session = Depends(get_db)):
-    """Serve the original uploaded file inline so the frontend can preview it.
+@router.get("/{document_id}/file-url")
+def get_document_file_url(document_id: str, db: Session = Depends(get_db)):
+    """Mint a signed, short-lived URL for previewing/downloading the original file.
 
-    Only uploaded documents have a `source_path` on disk; seed/demo docs return
-    404 and the UI falls back to its placeholder."""
+    The frontend loads files in an iframe (no Authorization header possible), so
+    access is granted via a scoped token bound to this one document."""
+    doc = documents_repo.get(db, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not doc.source_path or not os.path.exists(doc.source_path):
+        raise HTTPException(status_code=404, detail="No previewable file for this document")
+    token = create_scoped_token(document_id, f"file:{document_id}", _FILE_TOKEN_MINUTES)
+    return {"url": f"/api/documents/{document_id}/file?token={token}", "expiresInMinutes": _FILE_TOKEN_MINUTES}
+
+
+@file_router.get("/{document_id}/file")
+def get_document_file(document_id: str, token: str = "", db: Session = Depends(get_db)):
+    """Serve the original uploaded file inline, authorized by a signed URL token
+    from GET /{id}/file-url. Only uploaded documents have a `source_path` on
+    disk; seed/demo docs return 404 and the UI falls back to its placeholder."""
+    if not token or verify_scoped_token(token, f"file:{document_id}") is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired file token")
     doc = documents_repo.get(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     path = doc.source_path
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="No previewable file for this document")
-    filename = os.path.basename(path)
-    media_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/octet-stream"
+    ext = os.path.splitext(path)[1].lower()
+    media_type = "application/pdf" if ext == ".pdf" else "application/octet-stream"
+    display_name = f"{doc.name}{ext}" if doc.name else os.path.basename(path)
     return FileResponse(
         path,
         media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": f'inline; filename="{display_name}"'},
     )
 
 
@@ -180,9 +209,19 @@ async def upload_document(
     if spec is None or not spec.enabled:
         raise HTTPException(status_code=400, detail=f"Unsupported or disabled plan type '{plan_type}'")
 
-    os.makedirs(settings.upload_dir, exist_ok=True)
     safe_name = os.path.basename(file.filename or "document")
-    dest = os.path.join(settings.upload_dir, safe_name)
+    ext = os.path.splitext(safe_name)[1].lower()
+    if ext not in _ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext or 'none'}' — allowed: "
+            + ", ".join(sorted(_ALLOWED_EXTENSIONS)),
+        )
+
+    os.makedirs(settings.upload_dir, exist_ok=True)
+    # Unique storage name: two uploads named "plan.pdf" must not overwrite each
+    # other. The document's display name keeps the original filename.
+    dest = os.path.join(settings.upload_dir, f"{uuid.uuid4().hex[:12]}_{safe_name}")
 
     # Stream the upload to disk in chunks rather than reading it all into memory.
     # Plan sets can be ~100MB; a full read held the whole file in RAM (twice, with
