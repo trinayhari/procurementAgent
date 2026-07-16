@@ -89,3 +89,19 @@ def test_login_rate_limit(client):
     r = client.post("/api/auth/login", json={"email": "x@x.com", "password": "wrong-pass"})
     assert r.status_code == 429
     ratelimit._hits.clear()
+
+
+def test_send_test_email_mock(auth):
+    """The config-verification endpoint works in mock mode and reports it."""
+    client, headers = auth
+    # default From (no per-user sender set)
+    r = client.post("/api/auth/test-email", headers=headers)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["mocked"] is True
+    assert data["to"] == "pm@example.com"
+    assert data["messageId"].startswith("mock-")
+    # per-user sender is used as the From address once set
+    client.patch("/api/auth/me", headers=headers, json={"senderEmail": "bids@example.com"})
+    r = client.post("/api/auth/test-email", headers=headers)
+    assert r.json()["fromAddr"] == "bids@example.com"

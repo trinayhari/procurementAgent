@@ -8,14 +8,23 @@ from app.db import get_db
 from app.models.user import User
 from app.repositories import audit as audit_repo
 from app.repositories import users as users_repo
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UpdateMeRequest
+from app.schemas.auth import (
+    LoginRequest,
+    RegisterRequest,
+    TestEmailResult,
+    TokenResponse,
+    UpdateMeRequest,
+)
 from app.schemas.auth import User as UserSchema
+from app.services.rfq import sender as rfq_sender
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 # Blunt credential stuffing: 10 login attempts / 5 registrations per IP per minute.
 _login_limit = rate_limit("login", limit=10, window_s=60)
 _register_limit = rate_limit("register", limit=5, window_s=60)
+# Test emails go through the real Gmail quota when configured — keep it slow.
+_test_email_limit = rate_limit("test-email", limit=3, window_s=60)
 
 
 @router.post(
@@ -58,3 +67,46 @@ def update_me(
 ):
     user = users_repo.set_sender_email(db, current_user, body.senderEmail)
     return user.to_dict()
+
+
+@router.post(
+    "/test-email",
+    response_model=TestEmailResult,
+    dependencies=[Depends(_test_email_limit)],
+)
+def send_test_email(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Verify the email configuration by sending a test message to yourself.
+
+    Uses exactly the same path as an RFQ send: the configured provider (Gmail
+    or the logging mock) and your effective From address (your per-user sender
+    when set, else the workspace default). See docs/email-setup.md.
+    """
+    sender = rfq_sender.get_sender()
+    from_addr = current_user.sender_email or rfq_sender.sender_address()
+    body = (
+        f"This is a test email from ProcureAI.\n\n"
+        f"From address: {from_addr}\n"
+        f"Requested by: {current_user.email}\n\n"
+        "If the From address above is not what your recipients see, add it as a "
+        "verified 'Send mail as' alias on the connected Gmail account — "
+        "see docs/email-setup.md in the repo.\n\n— ProcureAI"
+    )
+    try:
+        sent = sender.send(
+            current_user.email, "ProcureAI test email", body, from_addr=from_addr
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Test send failed: {exc}")
+    audit_repo.log(
+        db, current_user, "email.test_sent", "user", current_user.id,
+        detail={"from": from_addr, "to": current_user.email, "mocked": sender.mocked},
+    )
+    return {
+        "mocked": sender.mocked,
+        "messageId": sent.message_id,
+        "fromAddr": from_addr,
+        "to": current_user.email,
+    }

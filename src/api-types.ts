@@ -73,6 +73,30 @@ export interface paths {
         patch: operations["update_me_api_auth_me_patch"];
         trace?: never;
     };
+    "/api/auth/test-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Test Email
+         * @description Verify the email configuration by sending a test message to yourself.
+         *
+         *     Uses exactly the same path as an RFQ send: the configured provider (Gmail
+         *     or the logging mock) and your effective From address (your per-user sender
+         *     when set, else the workspace default). See docs/email-setup.md.
+         */
+        post: operations["send_test_email_api_auth_test_email_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{document_id}/file": {
         parameters: {
             query?: never;
@@ -2147,6 +2171,20 @@ export interface components {
             /** Suppliers */
             suppliers: components["schemas"]["FoundSupplier"][];
         };
+        /**
+         * TestEmailResult
+         * @description Outcome of POST /api/auth/test-email (config verification).
+         */
+        TestEmailResult: {
+            /** Mocked */
+            mocked: boolean;
+            /** Messageid */
+            messageId: string;
+            /** Fromaddr */
+            fromAddr: string;
+            /** To */
+            to: string;
+        };
         /** ThreadMessage */
         ThreadMessage: {
             /** Dir */
@@ -2375,6 +2413,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_test_email_api_auth_test_email_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestEmailResult"];
                 };
             };
         };

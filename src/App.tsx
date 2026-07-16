@@ -8,7 +8,7 @@ import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  getDocumentFileUrl,
+  getDocumentFileUrl, sendTestEmail,
   listProjectBoms, createSupplier,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
@@ -696,6 +696,25 @@ function Settings({ m }: MProps) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Email-config verification (POST /api/auth/test-email).
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<string | null>(null)
+  const [testErr, setTestErr] = useState<string | null>(null)
+  const runTestEmail = async () => {
+    setTesting(true); setTestResult(null); setTestErr(null)
+    try {
+      const r = await sendTestEmail()
+      setTestResult(
+        r.mocked
+          ? 'Mock mode — no Gmail connected, the send was only logged. See docs/email-setup.md.'
+          : `Sent to ${r.to} from ${r.fromAddr} — check your inbox (and the From address).`,
+      )
+    } catch (ex) {
+      setTestErr(ex instanceof Error ? ex.message : 'Test send failed')
+    } finally {
+      setTesting(false)
+    }
+  }
   const dirty = senderEmail.trim() !== m.userSenderEmail
   const saveSender = async (e: FormEvent) => {
     e.preventDefault()
@@ -745,6 +764,17 @@ function Settings({ m }: MProps) {
               </Box>
             </div>
           </form>
+          <div style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
+            <div style={{ flex: 1 }}>
+              <div style={css('font-size:13.5px;font-weight:600')}>Email delivery</div>
+              <div style={css('font-size:12px;color:var(--text-3)')}>Send yourself a test email through the same path RFQs use. Setup guide: docs/email-setup.md</div>
+              {testResult && <div style={css('font-size:12px;color:var(--success,#16a34a);margin-top:4px')}>{testResult}</div>}
+              {testErr && <div style={css('font-size:12px;color:var(--danger);margin-top:4px')}>{testErr}</div>}
+            </div>
+            <Box as="button" onClick={runTestEmail} disabled={testing} style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;flex:none;${testing ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
+              {testing ? 'Sending…' : 'Send test email'}
+            </Box>
+          </div>
           <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
             <div><div style={css('font-size:13.5px;font-weight:600')}>Default RFQ due window</div><div style={css('font-size:12px;color:var(--text-3)')}>Days suppliers get to respond</div></div>
             <span style={css("font-size:13px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border)")}>7 days</span>

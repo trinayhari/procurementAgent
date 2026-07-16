@@ -176,6 +176,33 @@
         ]
       }
     },
+    "/api/auth/test-email": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Send Test Email",
+        "description": "Verify the email configuration by sending a test message to yourself.\n\nUses exactly the same path as an RFQ send: the configured provider (Gmail\nor the logging mock) and your effective From address (your per-user sender\nwhen set, else the workspace default). See docs/email-setup.md.",
+        "operationId": "send_test_email_api_auth_test_email_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestEmailResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
     "/api/documents/{document_id}/file": {
       "get": {
         "tags": [
@@ -5580,6 +5607,35 @@
           "suppliers"
         ],
         "title": "SupplierTier"
+      },
+      "TestEmailResult": {
+        "properties": {
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked"
+          },
+          "messageId": {
+            "type": "string",
+            "title": "Messageid"
+          },
+          "fromAddr": {
+            "type": "string",
+            "title": "Fromaddr"
+          },
+          "to": {
+            "type": "string",
+            "title": "To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mocked",
+          "messageId",
+          "fromAddr",
+          "to"
+        ],
+        "title": "TestEmailResult",
+        "description": "Outcome of POST /api/auth/test-email (config verification)."
       },
       "ThreadMessage": {
         "properties": {

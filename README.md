@@ -41,6 +41,9 @@ sample data. External providers (OpenAI, Google Maps, Gmail) are optional —
 without keys the app runs on clearly-flagged mocks, end to end. The test
 suite force-blanks all provider credentials so it can never send real email.
 
+To send real RFQ emails (including from a custom From address per user), follow
+the step-by-step guide in [docs/email-setup.md](docs/email-setup.md).
+
 The frontend reads `VITE_API_URL` (default `http://localhost:8000`); copy
 `.env.example` to `.env` to override. On load, `src/api.ts` hydrates the model
 from the API; if a request fails the affected section renders its empty state

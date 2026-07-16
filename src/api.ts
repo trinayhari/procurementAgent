@@ -167,6 +167,13 @@ export async function updateMe(input: { senderEmail: string | null }): Promise<A
   return res.json() as Promise<AuthUser>
 }
 
+// Verify the email configuration: sends a test message to your own account
+// email via the same path an RFQ uses. mocked=true means no Gmail configured.
+export type TestEmailResult = Schemas['TestEmailResult']
+export function sendTestEmail(): Promise<TestEmailResult> {
+  return post<TestEmailResult>('/api/auth/test-email')
+}
+
 export function logout(): void {
   setToken(null)
 }
