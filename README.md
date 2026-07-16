@@ -25,19 +25,26 @@ npm run typecheck  # type-check only
 npm run gen:api    # regenerate src/api-types.ts from the backend OpenAPI schema
 ```
 
-**Backend** (optional — the UI falls back to baked-in data when it's down)
+**Backend** (required — every screen is API-driven and auth-gated)
 
 ```bash
 cd backend
-python3.8 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt pytest
 uvicorn app.main:app --reload --port 8000   # docs at /docs
+python -m pytest tests -q                   # backend test suite (mock providers)
 ```
+
+Every API route requires a login (JWT). Register the first account from the
+login screen, or set `PROCUREAI_SEED_DEMO_DATA=true` for the demo account +
+sample data. External providers (OpenAI, Google Maps, Gmail) are optional —
+without keys the app runs on clearly-flagged mocks, end to end. The test
+suite force-blanks all provider credentials so it can never send real email.
 
 The frontend reads `VITE_API_URL` (default `http://localhost:8000`); copy
 `.env.example` to `.env` to override. On load, `src/api.ts` hydrates the model
-from the API; if the request fails, `src/model.ts` renders its literal data so
-the app always works.
+from the API; if a request fails the affected section renders its empty state
+(there is no fake fallback data).
 
 ## Type generation
 
