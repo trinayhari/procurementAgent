@@ -32,7 +32,7 @@ jobs:
       - run: npm run build
 
   backend:
-    name: Backend · import + migrations
+    name: Backend · tests + migrations
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,13 +44,22 @@ jobs:
           python-version: "3.11.9"
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt pytest
       - name: Import app (no secrets needed — config has safe defaults)
         run: python -c "import app.main; print('app import OK')"
       - name: Apply Alembic migrations against a throwaway SQLite DB
         env:
           PROCUREAI_DATABASE_URL: sqlite:///./ci.db
         run: alembic upgrade head
+      - name: Run backend test suite (mock providers enforced by conftest)
+        run: python -m pytest tests -q
+      - name: Production config guard refuses the default JWT secret
+        run: |
+          if PROCUREAI_ENV=production python -c "import app.main" 2>/dev/null; then
+            echo "::error::app booted in production mode with the default JWT secret"
+            exit 1
+          fi
+          echo "Guard OK: production boot refused without a real secret."
 
   api-types-sync:
     name: API types in sync (openapi.json + api-types.ts)

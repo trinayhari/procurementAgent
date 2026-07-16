@@ -1,5 +1,6 @@
 """Database accessors for background jobs (the durable job/status store)."""
 import json
+import time
 import uuid
 from typing import List, Optional
 
@@ -9,10 +10,17 @@ from sqlalchemy.orm import Session
 from app.models.background_job import BackgroundJob
 
 
+def _new_id() -> str:
+    """Time-prefixed id: lexicographic order == creation order, so 'latest'
+    lookups are unambiguous even for jobs created within the same second
+    (created_at has second granularity)."""
+    return f"{time.time_ns():020d}-{uuid.uuid4().hex[:8]}"
+
+
 def start(db: Session, kind: str, ref: str, detail: Optional[dict] = None) -> dict:
     """Record a job as running and return it (the worker keeps its id)."""
     row = BackgroundJob(
-        id=uuid.uuid4().hex,
+        id=_new_id(),
         kind=kind,
         ref=ref,
         status="running",
@@ -76,18 +84,17 @@ def latest(db: Session, kind: str, ref: str) -> Optional[dict]:
     row = db.scalars(
         select(BackgroundJob)
         .where(BackgroundJob.kind == kind, BackgroundJob.ref == ref)
-        .order_by(BackgroundJob.created_at.desc(), BackgroundJob.id.desc())
+        .order_by(BackgroundJob.id.desc())  # ids are time-ordered (see _new_id)
         .limit(1)
     ).first()
     return row.to_dict() if row else None
 
 
 def list_jobs(db: Session, status: Optional[str] = None, limit: int = 100) -> List[dict]:
-    stmt = select(BackgroundJob).order_by(BackgroundJob.created_at.desc()).limit(limit)
+    stmt = select(BackgroundJob)
     if status:
-        stmt = select(BackgroundJob).where(BackgroundJob.status == status).order_by(
-            BackgroundJob.created_at.desc()
-        ).limit(limit)
+        stmt = stmt.where(BackgroundJob.status == status)
+    stmt = stmt.order_by(BackgroundJob.id.desc()).limit(limit)
     return [r.to_dict() for r in db.scalars(stmt).all()]
 
 
