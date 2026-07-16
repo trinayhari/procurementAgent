@@ -74,9 +74,15 @@ is now enforced (with the test that proves it) and what remains open.
 ## File storage
 - ✅ Upload extension allowlist; uuid-prefixed storage names (no collisions/
   overwrites); signed short-lived preview URLs (`test_uploads.py`).
-- ⚠️ **Open:** files live on local disk — ephemeral on Render/Railway free
-  tiers. Object storage (S3/MinIO) with checksums + versioning is the next
-  infrastructure milestone.
+- ✅ **Object-storage abstraction** (`app/services/storage.py`): local disk
+  (default) or any S3-compatible store (`PROCUREAI_STORAGE_BACKEND=s3` —
+  AWS S3, Cloudflare R2, MinIO). Serving redirects to presigned URLs;
+  extraction materialises a temp copy; backend is chosen per file locator so
+  pre-switch local files keep working (`test_storage.py`, fake S3 client).
+- ✅ SHA-256 checksum recorded on every upload (migration 0015) and stamped
+  into the audit event.
+- ⚠️ **Open:** no document versioning; checksum recorded but not yet used
+  for duplicate detection.
 
 ## Observability
 - ⚠️ **Open:** logging is ad-hoc `logging` calls; no structured logs,

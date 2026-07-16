@@ -66,8 +66,9 @@ def _on_startup() -> None:
         if dead_jobs:
             logger.warning("Failed %d orphaned running job(s): %s", len(dead_jobs), dead_jobs)
         # Documents persist now, but pick up any files dropped into the upload
-        # dir out-of-band so they stay previewable.
-        documents_repo.rehydrate_uploads(db, settings.upload_dir)
+        # dir out-of-band so they stay previewable. Local-disk concept only.
+        if settings.storage_backend != "s3":
+            documents_repo.rehydrate_uploads(db, settings.upload_dir)
 
 
 app.add_middleware(

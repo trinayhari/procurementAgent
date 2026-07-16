@@ -58,11 +58,18 @@ service **and** a managed Postgres database in one shot.
 
 ### A note on uploaded files
 
-The free plan has no persistent disk, so **extracted BOM data persists in
-Postgres** but the **raw uploaded PDFs are lost on each redeploy** (preview /
-re-analyze stop working for old uploads). To keep the files, upgrade the service
-to a paid plan and attach a disk — the exact two-step change is documented inline
-at the bottom of [`render.yaml`](render.yaml).
+By default files are stored on the service's local disk. The free plan has no
+persistent disk, so **extracted BOM data persists in Postgres** but the **raw
+uploaded PDFs are lost on each redeploy**. Two ways to keep them:
+
+1. **Recommended — S3-compatible object storage** (AWS S3, Cloudflare R2, or
+   MinIO): set `PROCUREAI_STORAGE_BACKEND=s3` plus `PROCUREAI_S3_BUCKET`,
+   `PROCUREAI_S3_ACCESS_KEY_ID`, `PROCUREAI_S3_SECRET_ACCESS_KEY`, and (for
+   R2/MinIO) `PROCUREAI_S3_ENDPOINT_URL`. Uploads survive redeploys and
+   previews redirect to short-lived presigned URLs. Files uploaded before the
+   switch keep working (the backend is chosen per file).
+2. Upgrade the service to a paid plan and attach a disk — the exact two-step
+   change is documented inline at the bottom of [`render.yaml`](render.yaml).
 
 ---
 

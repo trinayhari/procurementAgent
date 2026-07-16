@@ -43,6 +43,21 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads"
     max_upload_mb: int = 500
 
+    # -------------------------------------------------------- object storage
+    # "local" (default): files under upload_dir — simple, but ephemeral on
+    # hosts without a persistent disk. "s3": any S3-compatible store (AWS S3,
+    # Cloudflare R2, MinIO) — uploads survive redeploys; serving uses
+    # presigned URLs. Previously stored local files keep working after a
+    # switch (the backend is chosen per file locator).
+    storage_backend: str = "local"
+    s3_bucket: str = ""
+    s3_region: str = ""
+    s3_endpoint_url: str = ""  # set for R2/MinIO; empty for AWS S3
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_prefix: str = "uploads"
+    s3_presign_expiry_s: int = 300
+
     # ------------------------------------------------ GPT-4.1 vision extraction
     # Leave the key empty to run a clearly-flagged mock extraction (no API calls).
     openai_api_key: str = ""

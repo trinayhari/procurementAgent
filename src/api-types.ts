@@ -83,8 +83,8 @@ export interface paths {
         /**
          * Get Document File
          * @description Serve the original uploaded file inline, authorized by a signed URL token
-         *     from GET /{id}/file-url. Only uploaded documents have a `source_path` on
-         *     disk; seed/demo docs return 404 and the UI falls back to its placeholder.
+         *     from GET /{id}/file-url. Local storage streams the file; S3 redirects to a
+         *     short-lived presigned URL. Seed/demo docs have no stored file and 404.
          */
         get: operations["get_document_file_api_documents__document_id__file_get"];
         put?: never;
@@ -1239,6 +1239,8 @@ export interface components {
              * @default false
              */
             edited: boolean;
+            /** Checksum */
+            checksum?: string | null;
         };
         /** FollowupDraft */
         FollowupDraft: {

@@ -182,7 +182,7 @@
           "documents"
         ],
         "summary": "Get Document File",
-        "description": "Serve the original uploaded file inline, authorized by a signed URL token\nfrom GET /{id}/file-url. Only uploaded documents have a `source_path` on\ndisk; seed/demo docs return 404 and the UI falls back to its placeholder.",
+        "description": "Serve the original uploaded file inline, authorized by a signed URL token\nfrom GET /{id}/file-url. Local storage streams the file; S3 redirects to a\nshort-lived presigned URL. Seed/demo docs have no stored file and 404.",
         "operationId": "get_document_file_api_documents__document_id__file_get",
         "parameters": [
           {
@@ -3502,6 +3502,17 @@
             "type": "boolean",
             "title": "Edited",
             "default": false
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum"
           }
         },
         "type": "object",

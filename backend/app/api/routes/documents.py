@@ -13,12 +13,10 @@ their extracted BOMs survive a backend restart.
 """
 import logging
 import os
-import uuid
 from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -36,7 +34,7 @@ from app.schemas.document import (
     ManualBomCreate,
     PlanType,
 )
-from app.services import extraction
+from app.services import extraction, storage
 from app.services.extraction import isolated as extraction_isolated
 from app.services.extraction import pdf
 
@@ -89,7 +87,7 @@ def get_document_file_url(document_id: str, db: Session = Depends(get_db)):
     doc = documents_repo.get(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    if not doc.source_path or not os.path.exists(doc.source_path):
+    if not storage.exists(doc.source_path):
         raise HTTPException(status_code=404, detail="No previewable file for this document")
     token = create_scoped_token(document_id, f"file:{document_id}", _FILE_TOKEN_MINUTES)
     return {"url": f"/api/documents/{document_id}/file?token={token}", "expiresInMinutes": _FILE_TOKEN_MINUTES}
@@ -98,24 +96,19 @@ def get_document_file_url(document_id: str, db: Session = Depends(get_db)):
 @file_router.get("/{document_id}/file")
 def get_document_file(document_id: str, token: str = "", db: Session = Depends(get_db)):
     """Serve the original uploaded file inline, authorized by a signed URL token
-    from GET /{id}/file-url. Only uploaded documents have a `source_path` on
-    disk; seed/demo docs return 404 and the UI falls back to its placeholder."""
+    from GET /{id}/file-url. Local storage streams the file; S3 redirects to a
+    short-lived presigned URL. Seed/demo docs have no stored file and 404."""
     if not token or verify_scoped_token(token, f"file:{document_id}") is None:
         raise HTTPException(status_code=401, detail="Invalid or expired file token")
     doc = documents_repo.get(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    path = doc.source_path
-    if not path or not os.path.exists(path):
+    locator = doc.source_path
+    if not storage.exists(locator):
         raise HTTPException(status_code=404, detail="No previewable file for this document")
-    ext = os.path.splitext(path)[1].lower()
-    media_type = "application/pdf" if ext == ".pdf" else "application/octet-stream"
-    display_name = f"{doc.name}{ext}" if doc.name else os.path.basename(path)
-    return FileResponse(
-        path,
-        media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{display_name}"'},
-    )
+    ext = os.path.splitext(locator)[1].lower()
+    display_name = f"{doc.name}{ext}" if doc.name else os.path.basename(locator)
+    return storage.serve(locator, display_name)
 
 
 @router.get("/{document_id}/line-items", response_model=List[LineItemGroup])
@@ -258,33 +251,21 @@ async def upload_document(
             + ", ".join(sorted(_ALLOWED_EXTENSIONS)),
         )
 
-    os.makedirs(settings.upload_dir, exist_ok=True)
-    # Unique storage name: two uploads named "plan.pdf" must not overwrite each
-    # other. The document's display name keeps the original filename.
-    dest = os.path.join(settings.upload_dir, f"{uuid.uuid4().hex[:12]}_{safe_name}")
-
-    # Stream the upload to disk in chunks rather than reading it all into memory.
-    # Plan sets can be ~100MB; a full read held the whole file in RAM (twice, with
-    # the write buffer) on top of the resident app — enough to OOM a small
-    # container before extraction even started.
-    limit = settings.max_upload_mb * 1024 * 1024
-    size = 0
-    with open(dest, "wb") as fh:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > limit:
-                fh.close()
-                os.remove(dest)
-                raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit")
-            fh.write(chunk)
+    # Stream the upload to a temp file in chunks (hashing as we go) rather than
+    # reading it all into memory — plan sets can be ~100MB and a full read
+    # could OOM a small container. The file then moves into the configured
+    # storage backend (local disk or S3) under a unique, collision-proof name.
+    try:
+        temp = await storage.stream_upload_to_temp(file, settings.max_upload_mb * 1024 * 1024)
+    except storage.UploadTooLarge:
+        raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit")
 
     try:
-        pages = pdf.page_count(dest)
+        pages = pdf.page_count(temp.locator)  # temp is always a local path
     except pdf.UnsupportedDocument:
         pages = 0
+
+    stored = storage.persist_temp(temp, safe_name)
 
     # Single-document slots (site / building / electrical plan) hold one document
     # each — re-uploading that plan type replaces the prior one ("update a slot").
@@ -305,16 +286,21 @@ async def upload_document(
         plan_type=plan_type,
         date=datetime.now().strftime("%b %d, %Y"),
         project_id=project_id,
-        source_path=dest,
+        source_path=stored.locator,
         has_file=True,
         status="Processing" if analyzable else "Analyzed",
         status_tone="blue" if analyzable else "success",
+        checksum_sha256=stored.sha256,
     )
     payload = doc.to_dict()
     audit_repo.log(
         db, current_user, "document.uploaded", "document", doc.id,
         project_id=project_id,
-        detail={"name": payload["name"], "planType": plan_type, "pages": pages, "bytes": size},
+        detail={
+            "name": payload["name"], "planType": plan_type, "pages": pages,
+            "bytes": stored.size, "sha256": stored.sha256,
+            "storage": storage.backend_name(),
+        },
     )
     events_repo.log(
         db,
@@ -325,7 +311,7 @@ async def upload_document(
         meta=f"{spec.label}{f' · {pages} pages' if pages else ''}",
     )
     if analyzable:
-        background.add_task(_run_pipeline, doc.id, dest, plan_type)
+        background.add_task(_run_pipeline, doc.id, stored.locator, plan_type)
     return payload
 
 
@@ -346,7 +332,7 @@ def analyze_document(
     )
     plan_type = doc.plan_type
     path = doc.source_path
-    if not plan_type or not path or not os.path.exists(path):
+    if not plan_type or not storage.exists(path):
         raise HTTPException(status_code=409, detail="Document has no source file to re-analyze")
     spec = extraction.registry.get(plan_type)
     if spec is None:
@@ -356,7 +342,7 @@ def analyze_document(
     return documents_repo.get(db, document_id).to_dict()
 
 
-def _run_pipeline(document_id: str, path: str, plan_type: str) -> None:
+def _run_pipeline(document_id: str, locator: str, plan_type: str) -> None:
     """Background worker: run timeline extraction, then BOM extraction.
 
     Timeline runs FIRST (it's one cheap text call) so that when the BOM pass
@@ -364,17 +350,32 @@ def _run_pipeline(document_id: str, path: str, plan_type: str) -> None:
     everything, timeline included, is already in the database and one reload
     picks it all up. Document types with no BOM categories (additional
     documents) get their terminal status here instead.
+
+    Extraction (PyMuPDF in a subprocess) needs a filesystem path, so the
+    stored file is materialised locally for the duration — a no-op on the
+    local backend, a temp download for S3.
     """
-    _run_timeline_extraction(document_id, path)
-    spec = extraction.registry.get(plan_type)
-    if spec is not None and spec.categories:
-        _run_extraction(document_id, path, plan_type)
-    else:
+    try:
+        with storage.local_copy(locator) as path:
+            _run_timeline_extraction(document_id, path)
+            spec = extraction.registry.get(plan_type)
+            if spec is not None and spec.categories:
+                _run_extraction(document_id, path, plan_type)
+                return
+    except Exception as exc:  # e.g. the S3 download failed
+        logger.exception("Could not materialise stored file: doc=%s", document_id)
         with SessionLocal() as db:
             documents_repo.update_status(
                 db, document_id,
-                status="Analyzed", status_tone="success", processing=False,
+                status="Failed", status_tone="danger", processing=False,
+                items="—", error=f"Could not read the stored file: {exc}",
             )
+        return
+    with SessionLocal() as db:
+        documents_repo.update_status(
+            db, document_id,
+            status="Analyzed", status_tone="success", processing=False,
+        )
 
 
 def _run_timeline_extraction(document_id: str, path: str) -> None:
