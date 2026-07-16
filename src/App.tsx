@@ -10,13 +10,14 @@ import {
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   getDocumentFileUrl,
   listProjectBoms, createSupplier,
+  listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
   getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
-  CustomBomSummary, LineComparison, AwardOption, AuthUser,
+  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -2072,16 +2073,14 @@ function TabTimeline({ m }: MProps) {
     try { await setTimelineEventDone(mm.id, !mm.done) } catch { /* reload shows truth either way */ }
     m.reload()
   }
-  if (m.gantt.length === 0 && m.milestones.length === 0) {
-    return (
-      <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center')}>
+  return (
+    <>
+      {m.gantt.length === 0 && m.milestones.length === 0 && (
+      <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center;margin-bottom:16px')}>
         <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No timeline yet</div>
         <div style={css('font-size:13px;color:var(--text-3)')}>Upload project documents — construction schedules, contracts, or plans with phasing — and the milestones and schedule extracted from them will appear here.</div>
       </div>
-    )
-  }
-  return (
-    <>
+      )}
       {m.gantt.length > 0 && (
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px;margin-bottom:16px')}>
         <h2 style={css('margin:0 0 16px;font-size:15px;font-weight:600')}>Procurement schedule</h2>
@@ -2110,7 +2109,94 @@ function TabTimeline({ m }: MProps) {
         </div>
       </div>
       )}
+      <LendersPanel projectId={m.projectId} />
     </>
+  )
+}
+
+/* --------------------------------------------------------- Lenders panel */
+// The project's financing contacts. Groundwork for PRO-16: these are the
+// recipients of the timeline-driven progress emails, so the panel lives on the
+// Timeline tab next to the schedule the emails will report on.
+function LendersPanel({ projectId }: { projectId: string }) {
+  const [lenders, setLenders] = useState<Lender[]>([])
+  const [name, setName] = useState('')
+  const [institution, setInstitution] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const valid = name.trim().length > 0 && /\S+@\S+\.\S+/.test(email)
+
+  useEffect(() => {
+    let alive = true
+    setLenders([])
+    listLenders(projectId).then((l) => { if (alive) setLenders(l) }).catch(() => {})
+    return () => { alive = false }
+  }, [projectId])
+
+  const add = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!valid || busy) return
+    setBusy(true); setErr(null)
+    try {
+      const lender = await createLender(projectId, { name, institution, email, phone })
+      setLenders((ls) => [...ls, lender])
+      setName(''); setInstitution(''); setEmail(''); setPhone('')
+    } catch {
+      setErr('Could not add lender — check the email address and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (id: number) => {
+    try {
+      await deleteLender(projectId, id)
+      setLenders((ls) => ls.filter((l) => l.id !== id))
+    } catch { /* row stays; nothing to clean up */ }
+  }
+
+  return (
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:20px;margin-top:16px')}>
+      <h2 style={css('margin:0 0 4px;font-size:15px;font-weight:600')}>Lenders</h2>
+      <div style={css('font-size:12.5px;color:var(--text-3);margin-bottom:16px')}>The project's financing contacts — they'll receive progress updates as the schedule advances.</div>
+      <div style={css('display:flex;flex-direction:column;gap:8px;margin-bottom:16px')}>
+        {lenders.map((l) => (
+          <div key={l.id} style={css('display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:11px;background:var(--panel-2)')}>
+            <span style={css('width:32px;height:32px;border-radius:9px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={16} sw={1.9} d='M3 21h18M4 9h16M12 3l8 4H4zM6 12v6M10 12v6M14 12v6M18 12v6' /></span>
+            <div style={css('flex:1;min-width:0')}>
+              <div style={css('font-size:13.5px;font-weight:600')}>{l.name}{l.institution && <span style={css('font-weight:400;color:var(--text-3)')}> · {l.institution}</span>}</div>
+              <div style={css('font-size:12px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{l.email}{l.phone && ` · ${l.phone}`}</div>
+            </div>
+            <Box as="button" onClick={() => remove(l.id)} title="Remove lender" style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={15} sw={2} d='M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12' /></Box>
+          </div>
+        ))}
+        {lenders.length === 0 && (
+          <div style={css('font-size:12.5px;color:var(--text-3);padding:6px 0')}>No lenders yet — add the financing contact below.</div>
+        )}
+      </div>
+      <form onSubmit={add} style={css('display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end')}>
+        <div style={css('flex:1.2;min-width:150px')}>
+          <label style={fieldLabel}>Contact name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sarah Chen" style={fieldInput} />
+        </div>
+        <div style={css('flex:1.2;min-width:150px')}>
+          <label style={fieldLabel}>Institution</label>
+          <input value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="e.g. First National Bank" style={fieldInput} />
+        </div>
+        <div style={css('flex:1.4;min-width:180px')}>
+          <label style={fieldLabel}>Email</label>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@bank.com" style={fieldInput} />
+        </div>
+        <div style={css('flex:1;min-width:120px')}>
+          <label style={fieldLabel}>Phone <span style={css('font-weight:400;color:var(--text-3)')}>(optional)</span></label>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 000-0000" style={fieldInput} />
+        </div>
+        <Box as="button" type="submit" style={{ ...css('display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm);flex:none'), opacity: valid && !busy ? 1 : 0.5, pointerEvents: valid && !busy ? 'auto' : 'none' }} hover="background:var(--primary-2)"><Svg size={15} sw={2.2} d={PLUS} />Add lender</Box>
+      </form>
+      {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:10px')}>{err}</div>}
+    </div>
   )
 }
 

@@ -6,7 +6,7 @@ act on the underlying extracted events themselves.
 """
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
@@ -15,6 +15,7 @@ from app.models.user import User
 from app.repositories import audit as audit_repo
 from app.repositories import timeline as timeline_repo
 from app.schemas.timeline import MilestoneDoneResult, MilestoneDoneUpdate
+from app.services import lender_updates
 
 router = APIRouter(prefix="/api/timeline", tags=["timeline"])
 
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/api/timeline", tags=["timeline"])
 def set_event_done(
     event_id: int,
     payload: MilestoneDoneUpdate,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -39,4 +41,10 @@ def set_event_done(
         db, current_user, "milestone.checked" if payload.done else "milestone.unchecked",
         "timeline_event", str(event_id), detail={"updated": result["updated"]},
     )
+    # Checking off (not undoing) notifies the project's lenders in the
+    # background — the PRO-16 progress email.
+    if payload.done:
+        background.add_task(
+            lender_updates.send_milestone_update, result["projectId"], result["name"]
+        )
     return {"updated": result["updated"]}

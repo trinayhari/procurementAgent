@@ -6,6 +6,7 @@ from app.models.document import Document
 from app.models.event import ProjectEvent
 from app.models.purchase_decision import PurchaseDecision
 from app.models.found_supplier import FoundSupplier
+from app.models.lender import Lender
 from app.models.project import Project
 from app.models.quote import Quote
 from app.models.reference import (
@@ -52,5 +53,6 @@ __all__ = [
     "DemoRfq",
     "DemoQuote",
     "TimelineEvent",
+    "Lender",
     "User",
 ]

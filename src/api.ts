@@ -240,6 +240,28 @@ export async function deleteDocument(docId: string): Promise<void> {
   if (!res.ok) throw new Error(`delete document -> ${res.status}`)
 }
 
+// ------------------------------------------------------------------ lenders
+// A project's financing contacts — the people who'll receive timeline-driven
+// progress emails (PRO-16). Plain per-project CRUD.
+export type Lender = Schemas['Lender']
+export type LenderCreate = Schemas['LenderCreate']
+
+export function listLenders(projectId: string): Promise<Lender[]> {
+  return get<Lender[]>(`/api/projects/${projectId}/lenders`)
+}
+
+export function createLender(projectId: string, payload: LenderCreate): Promise<Lender> {
+  return post<Lender>(`/api/projects/${projectId}/lenders`, payload)
+}
+
+export async function deleteLender(projectId: string, lenderId: number): Promise<void> {
+  const res = await fetch(`${BASE}/api/projects/${projectId}/lenders/${lenderId}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  })
+  if (!res.ok) throw new Error(`delete lender -> ${res.status}`)
+}
+
 // Delete a project and everything scoped to it (documents, quotes, RFQs, suppliers).
 export async function deleteProject(projectId: string): Promise<void> {
   const res = await fetch(`${BASE}/api/projects/${projectId}`, { method: 'DELETE', headers: { ...authHeaders() } })

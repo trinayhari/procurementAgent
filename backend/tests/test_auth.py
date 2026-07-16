@@ -1,4 +1,6 @@
 """Auth flows, the auth wall on every route, rate limiting, token scoping."""
+import re
+
 from app.core import ratelimit
 from app.core.security import create_scoped_token
 from app.main import app
@@ -56,11 +58,7 @@ def test_every_route_requires_auth(client):
         for method in methods - {"HEAD", "OPTIONS"}:
             if (path, method) in public:
                 continue
-            url = path.replace("{document_id}", "x").replace("{project_id}", "x")
-            url = url.replace("{package}", "x").replace("{rfq_id}", "x")
-            url = url.replace("{pkg}", "x").replace("{event_id}", "1")
-            url = url.replace("{quote_id}", "x").replace("{supplier_id}", "x")
-            url = url.replace("{job_id}", "x").replace("{id}", "x")
+            url = re.sub(r"{[^}]+}", "1", path)  # "1" satisfies str and int params
             r = client.request(method, url)
             assert r.status_code == 401, f"{method} {path} -> {r.status_code} (expected 401)"
             checked += 1
