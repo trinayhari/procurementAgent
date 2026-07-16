@@ -31,6 +31,7 @@ class RfqStatus(str, Enum):
     draft = "Draft"
     sent = "Sent"
     awaiting = "Awaiting"
+    send_failed = "Send failed"
     quoted = "Quoted"
 
 

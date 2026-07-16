@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.rfq import Rfq
+from app.services.rfq import state as rfq_state
 
 
 def create_rfq_draft(
@@ -68,12 +69,15 @@ def update_rfq(
 
 
 def mark_rfq_sent(
-    db: Session, rfq_id: str, recipients: List[dict], status: str = "Sent"
+    db: Session, rfq_id: str, recipients: List[dict], status: str = "Awaiting"
 ) -> Optional[dict]:
-    """Persist send results (recipients now carry sentMessageId) and flip status."""
+    """Persist send results (recipients now carry send state) and flip status.
+
+    Raises rfq_state.IllegalTransition when the flip isn't a legal move."""
     row = db.get(Rfq, rfq_id)
     if row is None:
         return None
+    rfq_state.assert_transition(row.status, status)
     row.recipients = json.dumps(recipients)
     row.status = status
     row.sent_at = datetime.now(timezone.utc)
@@ -93,11 +97,11 @@ def delete_rfq(db: Session, rfq_id: str) -> bool:
 
 
 def list_awaiting_rfqs(db: Session, project_id: str) -> List[dict]:
-    """RFQs that have been sent and may have replies to ingest."""
+    """RFQs that have been sent (fully or partially) and may have replies to ingest."""
     rows = db.scalars(
         select(Rfq).where(
             Rfq.project_id == project_id,
-            Rfq.status.in_(["Sent", "Awaiting", "Quoted"]),
+            Rfq.status.in_(["Sent", "Awaiting", "Send failed", "Quoted"]),
         )
     ).all()
     return [r.to_dict() for r in rows]
@@ -107,6 +111,7 @@ def mark_rfq_quoted(db: Session, rfq_id: str) -> Optional[dict]:
     row = db.get(Rfq, rfq_id)
     if row is None:
         return None
+    rfq_state.assert_transition(row.status, "Quoted")
     row.status = "Quoted"
     db.commit()
     db.refresh(row)

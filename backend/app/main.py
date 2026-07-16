@@ -7,6 +7,7 @@ from app.api.routes import (
     auth,
     dashboard,
     documents,
+    jobs,
     projects,
     quotes,
     rfqs,
@@ -18,6 +19,7 @@ from app.config import settings
 from app.core.security import get_current_user
 from app.db import SessionLocal, init_db
 from app.repositories import documents as documents_repo
+from app.repositories import jobs as jobs_repo
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,11 @@ def _on_startup() -> None:
         orphaned = documents_repo.fail_orphaned_processing(db)
         if orphaned:
             logger.warning("Reset %d orphaned 'Processing' document(s): %s", len(orphaned), orphaned)
+        # Likewise, background jobs stuck 'running' from before the restart are
+        # dead — fail them into the exception queue so they can be retried.
+        dead_jobs = jobs_repo.fail_orphaned_running(db)
+        if dead_jobs:
+            logger.warning("Failed %d orphaned running job(s): %s", len(dead_jobs), dead_jobs)
         # Documents persist now, but pick up any files dropped into the upload
         # dir out-of-band so they stay previewable.
         documents_repo.rehydrate_uploads(db, settings.upload_dir)
@@ -84,5 +91,5 @@ app.include_router(documents.file_router)
 
 # Every other route requires an authenticated user.
 _authed = [Depends(get_current_user)]
-for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline):
+for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline, jobs):
     app.include_router(module.router, dependencies=_authed)

@@ -4,7 +4,7 @@ Search runs as a background task (geocode → Places → website email scrape is
 and the frontend polls GET .../suppliers/found, mirroring the document-extraction
 UX. With no Google/Gmail keys the whole flow runs against mocks.
 """
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.db import SessionLocal, get_db
 from app.models.user import User
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
+from app.repositories import jobs as jobs_repo
 from app.repositories import projects as projects_repo
 from app.repositories import reference as reference_repo
 from app.repositories import rfqs as rfqs_repo
@@ -36,17 +37,21 @@ from app.services.quotes import ingest as quotes_ingest
 from app.services.rfq import conversation as rfq_conversation
 from app.services.rfq import generator as rfq_generator
 from app.services.rfq import sender as rfq_sender
+from app.services.rfq import state as rfq_state
 from app.services.sourcing import distance, packages
 from app.services.sourcing import service as sourcing_service
 
 router = APIRouter(prefix="/api/projects", tags=["sourcing"])
 
-# Transient per-(project, package) search status — same approach as document
-# 'Processing' state. Keyed by (project_id, package).
-_SEARCH_STATUS: Dict[Tuple[str, str], dict] = {}
+# Background-task progress is persisted in the background_jobs table (see
+# app.repositories.jobs) so it survives restarts and works under multiple
+# workers. Job kinds used here:
+SEARCH_JOB = "supplier_search"
+INGEST_JOB = "quote_ingest"
 
-# Transient per-project quote-ingest status (mirrors the search status pattern).
-_INGEST_STATUS: Dict[str, dict] = {}
+
+def _search_ref(project_id: str, package: str) -> str:
+    return f"{project_id}:{package}"
 
 
 def _require_project(project_id: str, db: Session) -> dict:
@@ -104,14 +109,28 @@ def search_suppliers(
         keywords = packages.adhoc_keywords(bom.name)
         label = bom.name
 
-    _SEARCH_STATUS[(project_id, package)] = {"status": "searching", "radiusMi": payload.radius_mi}
+    job = jobs_repo.start(
+        db,
+        SEARCH_JOB,
+        _search_ref(project_id, package),
+        {
+            "projectId": project_id,
+            "package": package,
+            "loc": project["loc"],
+            "radiusMi": payload.radius_mi,
+            "keywords": keywords,
+            "label": label,
+        },
+    )
     background.add_task(
-        _run_search, project_id, project["loc"], package, payload.radius_mi, keywords, label
+        run_search_job, job["id"], project_id, project["loc"], package,
+        payload.radius_mi, keywords, label,
     )
     return {"status": "searching", "package": package}
 
 
-def _run_search(
+def run_search_job(
+    job_id: str,
     project_id: str,
     loc: str,
     package: str,
@@ -122,9 +141,9 @@ def _run_search(
     """Background worker: search + persist. Opens its own DB session.
 
     ``keywords``/``label`` are set for ad-hoc searches (free-text query);
-    otherwise the package presets are used.
+    otherwise the package presets are used. Progress is written to the
+    background_jobs row so the poller (and the exception queue) see it.
     """
-    key = (project_id, package)
     db = SessionLocal()
     try:
         cached = sourcing_repo.get_cached_latlng(db, project_id, loc)
@@ -143,20 +162,26 @@ def _run_search(
                 icon="supplier", tone="blue",
                 meta=f"{label or packages.label_for(package)} · within {radius_mi} mi",
             )
-        _SEARCH_STATUS[key] = {"status": "done", "radiusMi": radius_mi, "mocked": mocked}
-    except Exception as exc:  # surface the failure to the poller
-        _SEARCH_STATUS[key] = {"status": "error", "radiusMi": radius_mi, "error": str(exc)}
+        jobs_repo.finish(db, job_id, {"mocked": mocked, "found": len(results)})
+    except Exception as exc:  # surface the failure to the poller + exception queue
+        jobs_repo.fail(db, job_id, str(exc))
     finally:
         db.close()
 
 
+_SEARCH_STATUS_MAP = {"running": "searching", "done": "done", "error": "error"}
+
+
 def _found_suppliers_payload(db: Session, project_id: str, package: str) -> dict:
     """Bucket a project's found suppliers (for one package) into tiers + status."""
-    status_info = _SEARCH_STATUS.get((project_id, package), {})
+    job = jobs_repo.latest(db, SEARCH_JOB, _search_ref(project_id, package)) or {}
+    status_info = dict(job.get("detail") or {})
+    if job.get("error"):
+        status_info["error"] = job["error"]
     rows = sourcing_repo.list_found_suppliers(db, project_id, package)
 
     # Status: prefer the live search status; fall back to done/idle from storage.
-    status = status_info.get("status")
+    status = _SEARCH_STATUS_MAP.get(job.get("status", ""))
     if status is None:
         status = "done" if rows else "idle"
 
@@ -210,12 +235,12 @@ def ingest_quotes(
     'ingesting', then refreshes the quotes table + comparison.
     """
     _require_project(project_id, db)
-    _INGEST_STATUS[project_id] = {"status": "ingesting", "ingested": 0, "total": 0}
-    background.add_task(_run_ingest, project_id)
+    job = jobs_repo.start(db, INGEST_JOB, project_id, {"projectId": project_id})
+    background.add_task(run_ingest_job, job["id"], project_id)
     return {"status": "ingesting", "ingested": 0, "total": 0}
 
 
-def _run_ingest(project_id: str) -> None:
+def run_ingest_job(job_id: str, project_id: str) -> None:
     db = SessionLocal()
     try:
         ingested, total, mocked = quotes_ingest.ingest_quotes(db, project_id)
@@ -226,16 +251,14 @@ def _run_ingest(project_id: str) -> None:
                 icon="quote", tone="violet",
                 meta="Parsed from supplier replies",
             )
-        _INGEST_STATUS[project_id] = {
-            "status": "done",
-            "mocked": mocked,
-            "ingested": ingested,
-            "total": total,
-        }
-    except Exception as exc:  # surface to the poller
-        _INGEST_STATUS[project_id] = {"status": "error", "error": str(exc)}
+        jobs_repo.finish(db, job_id, {"mocked": mocked, "ingested": ingested, "total": total})
+    except Exception as exc:  # surface to the poller + exception queue
+        jobs_repo.fail(db, job_id, str(exc))
     finally:
         db.close()
+
+
+_INGEST_STATUS_MAP = {"running": "ingesting", "done": "done", "error": "error"}
 
 
 @router.get(
@@ -244,15 +267,16 @@ def _run_ingest(project_id: str) -> None:
 )
 def get_ingest_status(project_id: str, db: Session = Depends(get_db)):
     _require_project(project_id, db)
-    info = _INGEST_STATUS.get(project_id)
-    if info is None:
+    job = jobs_repo.latest(db, INGEST_JOB, project_id)
+    if job is None:
         return {"status": "idle", "ingested": 0, "total": 0}
+    detail = job.get("detail") or {}
     return {
-        "status": info.get("status", "idle"),
-        "mocked": info.get("mocked", False),
-        "ingested": info.get("ingested", 0),
-        "total": info.get("total", 0),
-        "error": info.get("error"),
+        "status": _INGEST_STATUS_MAP.get(job.get("status", ""), "idle"),
+        "mocked": detail.get("mocked", False),
+        "ingested": detail.get("ingested", 0),
+        "total": detail.get("total", 0),
+        "error": job.get("error"),
     }
 
 
@@ -448,6 +472,11 @@ def update_generated_rfq(
     existing = rfqs_repo.get_rfq(db, rfq_id)
     if existing is None or existing["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")
+    if existing["status"] not in rfq_state.EDITABLE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"RFQ can no longer be edited (status: {existing['status']})",
+        )
     return rfqs_repo.update_rfq(
         db,
         rfq_id,
@@ -464,34 +493,56 @@ def send_generated_rfq(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Send (or retry) an RFQ. Idempotent and duplicate-safe:
+
+    - Only a Draft or 'Send failed' RFQ can be sent (409 otherwise), so a
+      double-click or replayed request never re-emails suppliers.
+    - Recipients who already received the RFQ successfully are always skipped;
+      a retry only attempts the failed/unsent ones.
+    """
     _require_project(project_id, db)
     rfq = rfqs_repo.get_rfq(db, rfq_id)
     if rfq is None or rfq["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")
+    if rfq["status"] not in rfq_state.SENDABLE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"RFQ was already sent (status: {rfq['status']})",
+        )
 
-    sender = rfq_sender.get_sender()
-    from_addr = current_user.sender_email or rfq_sender.sender_address()
     recipients = rfq["recipients"]
     if not recipients:
         raise HTTPException(status_code=400, detail="RFQ has no recipients")
+    to_send = [r for r in recipients if not rfq_state.recipient_sent(r)]
+    if not to_send:
+        # Every recipient already has a successful send on record (e.g. the
+        # status flip itself failed last time) — just reconcile the status.
+        return rfqs_repo.mark_rfq_sent(db, rfq_id, recipients, status="Awaiting")
 
-    for r in recipients:
+    sender = rfq_sender.get_sender()
+    from_addr = current_user.sender_email or rfq_sender.sender_address()
+    for r in to_send:
         try:
             sent = sender.send(r["email"], rfq["subject"], rfq["body"], from_addr=from_addr)
             r["sentMessageId"] = sent.message_id
             r["threadId"] = sent.thread_id
+            r["sendStatus"] = "sent"
+            r["sendError"] = None
         except Exception as exc:  # record the failure per-recipient, keep going
-            r["sentMessageId"] = f"error: {exc}"
+            r["sendStatus"] = "failed"
+            r["sendError"] = str(exc)
 
-    # Sent → Awaiting (awaiting supplier quotes); the ingest poller flips to Quoted.
-    sent_rfq = rfqs_repo.mark_rfq_sent(db, rfq_id, recipients, status="Awaiting")
-    delivered = sum(
-        1 for r in recipients if not str(r.get("sentMessageId", "")).startswith("error:")
-    )
+    failed = [r for r in recipients if not rfq_state.recipient_sent(r)]
+    status = "Send failed" if failed else "Awaiting"
+    sent_rfq = rfqs_repo.mark_rfq_sent(db, rfq_id, recipients, status=status)
+    delivered = len(recipients) - len(failed)
     events_repo.log(
         db, project_id,
-        title=f"RFQ sent to {delivered} supplier{'s' if delivered != 1 else ''}",
-        icon="rfq", tone="success",
+        title=(
+            f"RFQ sent to {delivered} supplier{'s' if delivered != 1 else ''}"
+            + (f" — {len(failed)} failed" if failed else "")
+        ),
+        icon="rfq", tone="danger" if failed else "success",
         meta=rfq.get("pkg") or rfq.get("subject", ""),
     )
     return sent_rfq

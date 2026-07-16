@@ -33,6 +33,7 @@ class Rfq(Base):
         "Draft": "gray",
         "Sent": "blue",
         "Awaiting": "warn",
+        "Send failed": "danger",
         "Quoted": "success",
     }
 
