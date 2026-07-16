@@ -176,6 +176,57 @@
         ]
       }
     },
+    "/api/documents/{document_id}/file": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get Document File",
+        "description": "Serve the original uploaded file inline, authorized by a signed URL token\nfrom GET /{id}/file-url. Only uploaded documents have a `source_path` on\ndisk; seed/demo docs return 404 and the UI falls back to its placeholder.",
+        "operationId": "get_document_file_api_documents__document_id__file_get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/dashboard": {
       "get": {
         "tags": [
@@ -194,7 +245,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/projects": {
@@ -219,7 +275,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -258,7 +319,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/projects/{project_id}": {
@@ -269,6 +335,11 @@
         "summary": "Delete Project",
         "description": "Delete a project and all of its documents, quotes, RFQs and suppliers.",
         "operationId": "delete_project_api_projects__project_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -302,6 +373,11 @@
         ],
         "summary": "Get Project",
         "operationId": "get_project_api_projects__project_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -344,6 +420,11 @@
         ],
         "summary": "List Documents",
         "operationId": "list_documents_api_projects__project_id__documents_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -390,6 +471,11 @@
         ],
         "summary": "List Line Items",
         "operationId": "list_line_items_api_projects__project_id__line_items_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -436,6 +522,11 @@
         ],
         "summary": "List Project Suppliers",
         "operationId": "list_project_suppliers_api_projects__project_id__suppliers_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -482,6 +573,11 @@
         ],
         "summary": "List Quotes",
         "operationId": "list_quotes_api_projects__project_id__quotes_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -528,6 +624,11 @@
         ],
         "summary": "List Rfqs",
         "operationId": "list_rfqs_api_projects__project_id__rfqs_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -574,6 +675,11 @@
         ],
         "summary": "List Rfq Folders",
         "operationId": "list_rfq_folders_api_projects__project_id__rfq_folders_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -621,6 +727,11 @@
         "summary": "Get Timeline",
         "description": "The project schedule, built from timeline events extracted out of the\nproject's documents. Falls back to the demo timeline (present only when\ndemo seeding is enabled) while nothing has been extracted.",
         "operationId": "get_timeline_api_projects__project_id__timeline_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -663,6 +774,11 @@
         ],
         "summary": "Get Comparison",
         "operationId": "get_comparison_api_projects__project_id__packages__pkg__comparison_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -715,6 +831,11 @@
         "summary": "Get Line Comparison",
         "description": "Line-by-line quote grid + freight-aware mix-and-match award strategies.",
         "operationId": "get_line_comparison_api_projects__project_id__packages__pkg__line_comparison_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -767,6 +888,11 @@
         "summary": "Award Package",
         "description": "Submit a (possibly split) award for a package and issue the purchase orders.",
         "operationId": "award_package_api_projects__project_id__packages__pkg__award_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -821,6 +947,52 @@
         }
       }
     },
+    "/api/projects/{project_id}/purchase-decisions": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Purchase Decisions",
+        "description": "Award records for a project \u2014 who bought what, from whom, decided by whom.",
+        "operationId": "list_purchase_decisions_api_projects__project_id__purchase_decisions_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/packages/{package}/search-suppliers": {
       "post": {
         "tags": [
@@ -828,6 +1000,11 @@
         ],
         "summary": "Search Suppliers",
         "operationId": "search_suppliers_api_projects__project_id__packages__package__search_suppliers_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -889,6 +1066,11 @@
         ],
         "summary": "Get Found Suppliers",
         "operationId": "get_found_suppliers_api_projects__project_id__suppliers_found_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -941,6 +1123,11 @@
         "summary": "Ingest Quotes",
         "description": "Kick off reading supplier quote replies for a project (background task).\n\nThe frontend then polls GET .../quotes/ingest-status until it leaves\n'ingesting', then refreshes the quotes table + comparison.",
         "operationId": "ingest_quotes_api_projects__project_id__quotes_ingest_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -983,6 +1170,11 @@
         ],
         "summary": "Get Ingest Status",
         "operationId": "get_ingest_status_api_projects__project_id__quotes_ingest_status_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1026,6 +1218,11 @@
         "summary": "Get Package Bom",
         "description": "The BOM line items this buy-package will ask suppliers to quote.\n\nPowers the supplier page's \"what are we asking for\" panel \u2014 selecting a\npackage (e.g. Water) shows the exact items pulled from the project's\nextracted plans for that discipline. For a custom BOM the items come straight\nfrom that hand-built document.",
         "operationId": "get_package_bom_api_projects__project_id__packages__package__bom_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1078,6 +1275,11 @@
         "summary": "List Project Boms",
         "description": "The project's hand-built custom BOMs \u2014 the selectable custom packages in\nthe supplier search. Each BOM's document id doubles as its package key.",
         "operationId": "list_project_boms_api_projects__project_id__boms_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1124,6 +1326,11 @@
         ],
         "summary": "Generate Rfq",
         "operationId": "generate_rfq_api_projects__project_id__packages__package__rfqs_generate_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1185,6 +1392,11 @@
         ],
         "summary": "List Generated Rfqs",
         "operationId": "list_generated_rfqs_api_projects__project_id__rfqs_generated_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1231,6 +1443,11 @@
         ],
         "summary": "Get Generated Rfq",
         "operationId": "get_generated_rfq_api_projects__project_id__rfqs__rfq_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1280,6 +1497,11 @@
         ],
         "summary": "Delete Generated Rfq",
         "operationId": "delete_generated_rfq_api_projects__project_id__rfqs__rfq_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1322,6 +1544,11 @@
         ],
         "summary": "Update Generated Rfq",
         "operationId": "update_generated_rfq_api_projects__project_id__rfqs__rfq_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1384,6 +1611,11 @@
         "summary": "Get Rfq Conversation",
         "description": "Full email thread for an RFQ, read live from Gmail when configured.\n\nRead-only: we surface the original Gmail thread (our outbound plus any\nthreaded supplier replies) without changing the RFQ's status.",
         "operationId": "get_rfq_conversation_api_projects__project_id__rfqs__rfq_id__conversation_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1434,6 +1666,7 @@
           "sourcing"
         ],
         "summary": "Send Generated Rfq",
+        "description": "Send (or retry) an RFQ. Idempotent and duplicate-safe:\n\n- Only a Draft or 'Send failed' RFQ can be sent (409 otherwise), so a\n  double-click or replayed request never re-emails suppliers.\n- Recipients who already received the RFQ successfully are always skipped;\n  a retry only attempts the failed/unsent ones.",
         "operationId": "send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post",
         "security": [
           {
@@ -1506,7 +1739,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -1546,7 +1784,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/suppliers/{supplier_id}": {
@@ -1556,6 +1799,11 @@
         ],
         "summary": "Get Supplier",
         "operationId": "get_supplier_api_suppliers__supplier_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "supplier_id",
@@ -1614,7 +1862,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/documents/{document_id}": {
@@ -1624,6 +1877,11 @@
         ],
         "summary": "Get Document",
         "operationId": "get_document_api_documents__document_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1665,6 +1923,11 @@
         "summary": "Delete Document",
         "description": "Delete a document, its extracted BOM, and any uploaded source file.",
         "operationId": "delete_document_api_documents__document_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1693,14 +1956,19 @@
         }
       }
     },
-    "/api/documents/{document_id}/file": {
+    "/api/documents/{document_id}/file-url": {
       "get": {
         "tags": [
           "documents"
         ],
-        "summary": "Get Document File",
-        "description": "Serve the original uploaded file inline so the frontend can preview it.\n\nOnly uploaded documents have a `source_path` on disk; seed/demo docs return\n404 and the UI falls back to its placeholder.",
-        "operationId": "get_document_file_api_documents__document_id__file_get",
+        "summary": "Get Document File Url",
+        "description": "Mint a signed, short-lived URL for previewing/downloading the original file.\n\nThe frontend loads files in an iframe (no Authorization header possible), so\naccess is granted via a scoped token bound to this one document.",
+        "operationId": "get_document_file_url_api_documents__document_id__file_url_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1742,6 +2010,11 @@
         "summary": "Get Document Line Items",
         "description": "BOM groups extracted from one document.",
         "operationId": "get_document_line_items_api_documents__document_id__line_items_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1787,6 +2060,11 @@
         "summary": "Save Document Line Items",
         "description": "Human-in-the-loop: replace a document's BOM with the reviewer's edits.\n\nRecomputes group counts and the document's item total, and flags it as edited.",
         "operationId": "save_document_line_items_api_documents__document_id__line_items_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1844,6 +2122,11 @@
         "summary": "Confirm Document",
         "description": "Human-in-the-loop: mark a document's BOM as reviewed and approved.",
         "operationId": "confirm_document_api_documents__document_id__confirm_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1918,7 +2201,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/documents": {
@@ -1960,7 +2248,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/documents/{document_id}/analyze": {
@@ -1971,6 +2264,11 @@
         "summary": "Analyze Document",
         "description": "Re-run extraction (BOM and timeline) for an already-uploaded document.",
         "operationId": "analyze_document_api_documents__document_id__analyze_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -2013,6 +2311,11 @@
         ],
         "summary": "Get Rfq",
         "operationId": "get_rfq_api_rfqs__rfq_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "rfq_id",
@@ -2056,6 +2359,11 @@
         "summary": "Send Message",
         "description": "Command: post a reply to an RFQ thread.",
         "operationId": "send_message_api_rfqs__rfq_id__messages_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "rfq_id",
@@ -2109,6 +2417,11 @@
         "summary": "Draft Followup",
         "description": "Command: generate an AI follow-up nudge for a non-responsive supplier.\n\nStubbed \u2014 returns a templated message. Replace with an LLM call.",
         "operationId": "draft_followup_api_rfqs__rfq_id__followup_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "rfq_id",
@@ -2151,6 +2464,11 @@
         ],
         "summary": "Get Quote",
         "operationId": "get_quote_api_quotes__quote_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "quote_id",
@@ -2192,6 +2510,11 @@
         "summary": "Select Quote",
         "description": "Command: select a supplier's quote and issue a purchase order.",
         "operationId": "select_quote_api_quotes__quote_id__select_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "quote_id",
@@ -2235,6 +2558,11 @@
         "summary": "Set Event Done",
         "description": "Human check-off for a milestone: the schedule can't know a milestone\nactually happened from dates alone, so completion is confirmed (or undone)\nby the user. Applies to every same-named event in the project, and survives\ndocument re-analysis.",
         "operationId": "set_event_done_api_timeline_events__event_id__done_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "event_id",
@@ -2264,6 +2592,173 @@
                 "schema": {
                   "$ref": "#/components/schemas/MilestoneDoneResult"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "operationId": "list_jobs_api_jobs_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/retry": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Retry Job",
+        "operationId": "retry_job_api_jobs__job_id__retry_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "List Audit Events",
+        "operationId": "list_audit_events_api_audit_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Action"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -3596,6 +4091,11 @@
             "type": "boolean",
             "title": "Custom",
             "default": false
+          },
+          "pendingReview": {
+            "type": "integer",
+            "title": "Pendingreview",
+            "default": 0
           }
         },
         "type": "object",
@@ -4354,6 +4854,28 @@
               }
             ],
             "title": "Threadid"
+          },
+          "sendStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sendstatus"
+          },
+          "sendError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senderror"
           }
         },
         "type": "object",
@@ -4369,6 +4891,7 @@
           "Draft",
           "Sent",
           "Awaiting",
+          "Send failed",
           "Quoted"
         ],
         "title": "RfqStatus"

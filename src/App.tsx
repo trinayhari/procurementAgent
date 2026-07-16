@@ -5,9 +5,10 @@ import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
 import {
-  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
+  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
+  getDocumentFileUrl,
   listProjectBoms, createSupplier,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
@@ -1107,11 +1108,7 @@ function TabDocuments({ m }: MProps) {
             </div>
             <div style={css('position:relative;height:560px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
               {m.doc.hasFile && m.doc.id ? (
-                <iframe
-                  src={documentFileUrl(m.doc.id)}
-                  title={m.doc.name}
-                  style={{ width: '100%', height: '100%', border: 'none', background: 'var(--panel)' }}
-                />
+                <DocPreviewFrame docId={m.doc.id} title={m.doc.name} />
               ) : (
                 <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
               )}
@@ -1128,6 +1125,25 @@ function TabDocuments({ m }: MProps) {
       </div>
     </>
   )
+}
+
+/* Signed-URL document preview: iframes can't send the Authorization header, so
+   the backend mints a short-lived scoped URL we resolve before rendering. */
+function DocPreviewFrame({ docId, title }: { docId: string; title: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setUrl(null); setFailed(false)
+    getDocumentFileUrl(docId).then(
+      (u) => { if (alive) setUrl(u) },
+      () => { if (alive) setFailed(true) },
+    )
+    return () => { alive = false }
+  }, [docId])
+  if (failed) return <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>Preview unavailable</span>
+  if (!url) return <span style={css('font-size:12px;color:var(--text-3)')}>Loading preview…</span>
+  return <iframe src={url} title={title} style={{ width: '100%', height: '100%', border: 'none', background: 'var(--panel)' }} />
 }
 
 /* ------------------------------- AI-extracted materials (human-in-the-loop) */
@@ -1352,7 +1368,10 @@ function SupplierSearch({ projectId, networkNames, onAdded }: { projectId: strin
       const rfq = await generateRfq(projectId, pkg, selectedIds)
       setDraft(rfq)
     } catch (e) {
-      setErr('Could not generate RFQ — selected suppliers may not have a discovered email.')
+      // Surface backend reasons (e.g. the BOM approval gate: "confirm the
+      // extracted BOM first") over the generic fallback.
+      const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      setErr(msg || 'Could not generate RFQ — selected suppliers may not have a discovered email.')
     } finally { setGenerating(false) }
   }
 
@@ -1602,7 +1621,12 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
       setRecipients(out.recipients || [])
       setStatus(out.status)
       loadConversation() // surface the just-sent message as the thread
-    } catch (e) { setErr('Send failed. Is the backend running?') }
+    } catch (e) {
+      // Backend reasons (already sent, no approved BOM items, …) come through
+      // the error message; fall back to the generic hint otherwise.
+      const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      setErr(msg || 'Send failed. Is the backend running?')
+    }
     finally { setBusy(false) }
   }
 

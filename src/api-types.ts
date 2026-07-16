@@ -73,6 +73,28 @@ export interface paths {
         patch: operations["update_me_api_auth_me_patch"];
         trace?: never;
     };
+    "/api/documents/{document_id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Document File
+         * @description Serve the original uploaded file inline, authorized by a signed URL token
+         *     from GET /{id}/file-url. Only uploaded documents have a `source_path` on
+         *     disk; seed/demo docs return 404 and the UI falls back to its placeholder.
+         */
+        get: operations["get_document_file_api_documents__document_id__file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dashboard": {
         parameters: {
             query?: never;
@@ -310,6 +332,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/purchase-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Purchase Decisions
+         * @description Award records for a project — who bought what, from whom, decided by whom.
+         */
+        get: operations["list_purchase_decisions_api_projects__project_id__purchase_decisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/packages/{package}/search-suppliers": {
         parameters: {
             query?: never;
@@ -515,7 +557,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Send Generated Rfq */
+        /**
+         * Send Generated Rfq
+         * @description Send (or retry) an RFQ. Idempotent and duplicate-safe:
+         *
+         *     - Only a Draft or 'Send failed' RFQ can be sent (409 otherwise), so a
+         *       double-click or replayed request never re-emails suppliers.
+         *     - Recipients who already received the RFQ successfully are always skipped;
+         *       a retry only attempts the failed/unsent ones.
+         */
         post: operations["send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post"];
         delete?: never;
         options?: never;
@@ -603,7 +653,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/documents/{document_id}/file": {
+    "/api/documents/{document_id}/file-url": {
         parameters: {
             query?: never;
             header?: never;
@@ -611,13 +661,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Document File
-         * @description Serve the original uploaded file inline so the frontend can preview it.
+         * Get Document File Url
+         * @description Mint a signed, short-lived URL for previewing/downloading the original file.
          *
-         *     Only uploaded documents have a `source_path` on disk; seed/demo docs return
-         *     404 and the UI falls back to its placeholder.
+         *     The frontend loads files in an iframe (no Authorization header possible), so
+         *     access is granted via a scoped token bound to this one document.
          */
-        get: operations["get_document_file_api_documents__document_id__file_get"];
+        get: operations["get_document_file_url_api_documents__document_id__file_url_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -852,6 +902,57 @@ export interface paths {
          *     document re-analysis.
          */
         post: operations["set_event_done_api_timeline_events__event_id__done_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Jobs */
+        get: operations["list_jobs_api_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Job */
+        post: operations["retry_job_api_jobs__job_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Audit Events */
+        get: operations["list_audit_events_api_audit_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1425,6 +1526,11 @@ export interface components {
              * @default false
              */
             custom: boolean;
+            /**
+             * Pendingreview
+             * @default 0
+             */
+            pendingReview: number;
         };
         /** PackageBomItem */
         PackageBomItem: {
@@ -1755,12 +1861,16 @@ export interface components {
             sentMessageId?: string | null;
             /** Threadid */
             threadId?: string | null;
+            /** Sendstatus */
+            sendStatus?: string | null;
+            /** Senderror */
+            sendError?: string | null;
         };
         /**
          * RfqStatus
          * @enum {string}
          */
-        RfqStatus: "Draft" | "Sent" | "Awaiting" | "Quoted";
+        RfqStatus: "Draft" | "Sent" | "Awaiting" | "Send failed" | "Quoted";
         /** RfqUpdate */
         RfqUpdate: {
             /** Subject */
@@ -2183,6 +2293,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_file_api_documents__document_id__file_get: {
+        parameters: {
+            query?: {
+                token?: string;
+            };
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -2633,6 +2776,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AwardResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_purchase_decisions_api_projects__project_id__purchase_decisions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -3233,7 +3407,7 @@ export interface operations {
             };
         };
     };
-    get_document_file_api_documents__document_id__file_get: {
+    get_document_file_url_api_documents__document_id__file_url_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -3639,6 +3813,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MilestoneDoneResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_jobs_api_jobs_get: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_job_api_jobs__job_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_audit_events_api_audit_get: {
+        parameters: {
+            query?: {
+                project_id?: string;
+                action?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

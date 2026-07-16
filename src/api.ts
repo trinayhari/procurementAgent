@@ -97,10 +97,14 @@ export function post<T = unknown>(path: string, body?: unknown): Promise<T> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
-  }).then((r) => {
+  }).then(async (r) => {
     if (!r.ok) {
       onUnauthorized(r.status)
-      throw new Error(`${path} -> ${r.status}`)
+      // Surface the backend's human-readable reason (e.g. "RFQ was already
+      // sent", BOM approval gate) instead of a bare status code.
+      const data = await r.json().catch(() => null)
+      const detail = data && typeof data.detail === 'string' ? data.detail : null
+      throw new Error(detail || `${path} -> ${r.status}`)
     }
     return r.json() as Promise<T>
   })
@@ -190,10 +194,13 @@ export function uploadDocument(
   })
 }
 
-// Absolute URL for previewing/downloading a document's original file. Only
-// uploaded docs have a real file on disk; seed docs 404 (UI shows a placeholder).
-export function documentFileUrl(docId: string): string {
-  return `${BASE}/api/documents/${docId}/file`
+// Signed, short-lived URL for previewing/downloading a document's original
+// file. Iframes can't send the Authorization header, so the backend mints a
+// scoped token bound to this one document (GET /{id}/file-url). Only uploaded
+// docs have a real file on disk; seed docs 404 (UI shows a placeholder).
+export async function getDocumentFileUrl(docId: string): Promise<string> {
+  const data = await get<{ url: string }>(`/api/documents/${docId}/file-url`)
+  return `${BASE}${data.url}`
 }
 
 // BOM groups extracted from a single document.
