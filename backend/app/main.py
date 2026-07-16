@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
+    audit,
     auth,
     dashboard,
     documents,
@@ -91,5 +92,5 @@ app.include_router(documents.file_router)
 
 # Every other route requires an authenticated user.
 _authed = [Depends(get_current_user)]
-for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline, jobs):
+for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline, jobs, audit):
     app.include_router(module.router, dependencies=_authed)

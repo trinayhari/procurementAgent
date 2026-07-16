@@ -3,10 +3,14 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.security import get_current_user
 from app.db import get_db
+from app.models.user import User
+from app.repositories import audit as audit_repo
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
 from app.repositories import projects as projects_repo
+from app.repositories import purchase_decisions as purchase_decisions_repo
 from app.repositories import quotes as quotes_repo
 from app.repositories import reference as reference_repo
 from app.repositories import suppliers as suppliers_repo
@@ -40,13 +44,21 @@ def list_projects(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=Project, status_code=201)
-def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    payload: ProjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     project = projects_repo.create_project(
         db,
         name=payload.name,
         loc=payload.loc,
         value=payload.value,
         stage=payload.stage.value,
+    )
+    audit_repo.log(
+        db, current_user, "project.created", "project", project["id"],
+        project_id=project["id"], detail={"name": project["name"]},
     )
     events_repo.log(
         db,
@@ -60,10 +72,15 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project_id: str, db: Session = Depends(get_db)):
+def delete_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Delete a project and all of its documents, quotes, RFQs and suppliers."""
     if not projects_repo.delete_project(db, project_id):
         raise HTTPException(status_code=404, detail="Project not found")
+    audit_repo.log(db, current_user, "project.deleted", "project", project_id, project_id=project_id)
     return None
 
 
@@ -173,7 +190,11 @@ def get_line_comparison(project_id: str, pkg: str, db: Session = Depends(get_db)
 
 @router.post("/{project_id}/packages/{pkg}/award", response_model=AwardResult)
 def award_package(
-    project_id: str, pkg: str, payload: AwardRequest, db: Session = Depends(get_db)
+    project_id: str,
+    pkg: str,
+    payload: AwardRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Submit a (possibly split) award for a package and issue the purchase orders."""
     _require_project(project_id, db)
@@ -183,11 +204,45 @@ def award_package(
     )
     if summary is None:
         raise HTTPException(status_code=404, detail="No quotes to award for package")
+    if not summary.get("poCount"):
+        raise HTTPException(
+            status_code=409,
+            detail="Nothing to award — the quotes for this package have no priced line items",
+        )
+    if key:
+        pkg_label_for_record = packages.label_for(key)
+    else:
+        # A custom BOM's package key is its document id — record its name.
+        bom_doc = documents_repo.get(db, pkg)
+        pkg_label_for_record = bom_doc.name if bom_doc is not None else pkg
+    # Stage the decision + audit record on the session, then let award_package's
+    # commit persist everything atomically with the quote status flips.
+    decision = purchase_decisions_repo.add_decision(
+        db,
+        project_id=project_id,
+        package=key or pkg,
+        package_label=pkg_label_for_record,
+        summary=summary,
+        selections=payload.selections,
+        strategy=payload.strategy,
+        decided_by=current_user,
+    )
+    audit_repo.log(
+        db, current_user, "package.awarded", "purchase_decision", decision.id,
+        project_id=project_id,
+        detail={
+            "package": key or pkg,
+            "suppliers": summary["suppliers"],
+            "total": summary["total"],
+            "strategy": payload.strategy,
+        },
+        commit=False,
+    )
     quotes_repo.award_package(db, project_id, key or pkg, summary["supplierIds"])
     n = summary["poCount"]
     sup_list = ", ".join(summary["suppliers"])
     po_word = "PO" if n == 1 else "POs"
-    pkg_label = packages.label_for(key) if key else pkg
+    pkg_label = pkg_label_for_record
     message = (
         f"Awarded {pkg_label} for "
         f"${summary['total']:,.0f} — {n} {po_word} to {sup_list}."
@@ -210,6 +265,13 @@ def award_package(
         "suppliers": summary["suppliers"],
         "poCount": n,
     }
+
+
+@router.get("/{project_id}/purchase-decisions")
+def list_purchase_decisions(project_id: str, db: Session = Depends(get_db)):
+    """Award records for a project — who bought what, from whom, decided by whom."""
+    _require_project(project_id, db)
+    return purchase_decisions_repo.list_for_project(db, project_id)
 
 
 def _require_project(project_id: str, db: Session) -> dict:

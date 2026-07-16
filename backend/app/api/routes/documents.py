@@ -22,8 +22,10 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.core.security import create_scoped_token, verify_scoped_token
+from app.core.security import create_scoped_token, get_current_user, verify_scoped_token
 from app.db import SessionLocal, get_db
+from app.models.user import User
+from app.repositories import audit as audit_repo
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
 from app.repositories import timeline as timeline_repo
@@ -126,28 +128,52 @@ def get_document_line_items(document_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{document_id}/line-items", response_model=List[LineItemGroup])
-def save_document_line_items(document_id: str, payload: LineItemsUpdate, db: Session = Depends(get_db)):
+def save_document_line_items(
+    document_id: str,
+    payload: LineItemsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Human-in-the-loop: replace a document's BOM with the reviewer's edits.
 
     Recomputes group counts and the document's item total, and flags it as edited.
     """
-    if documents_repo.get(db, document_id) is None:
+    doc = documents_repo.get(db, document_id)
+    if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     groups = [g.model_dump() for g in payload.groups]
-    return documents_repo.save_line_items(db, document_id, groups)
+    saved = documents_repo.save_line_items(db, document_id, groups)
+    audit_repo.log(
+        db, current_user, "bom.edited", "document", document_id,
+        project_id=doc.project_id,
+        detail={"groups": len(groups), "items": sum(len(g.get("items", [])) for g in groups)},
+    )
+    return saved
 
 
 @router.post("/{document_id}/confirm", response_model=Document)
-def confirm_document(document_id: str, db: Session = Depends(get_db)):
+def confirm_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Human-in-the-loop: mark a document's BOM as reviewed and approved."""
     doc = documents_repo.confirm(db, document_id, datetime.now().strftime("%b %d, %Y"))
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    audit_repo.log(
+        db, current_user, "bom.confirmed", "document", document_id,
+        project_id=doc.project_id, detail={"name": doc.name},
+    )
     return doc.to_dict()
 
 
 @router.post("/manual", response_model=Document, status_code=201)
-def create_manual_bom(payload: ManualBomCreate, db: Session = Depends(get_db)):
+def create_manual_bom(
+    payload: ManualBomCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Create a hand-built custom BOM — a bill of materials the user types by hand.
 
     There's no file and no extraction: it's seeded with one empty group and then
@@ -174,6 +200,10 @@ def create_manual_bom(payload: ManualBomCreate, db: Session = Depends(get_db)):
         db, doc.id, [{"group": name, "count": 0, "tone": "blue", "items": []}]
     )
     documents_repo.update_status(db, doc.id, items="0")
+    audit_repo.log(
+        db, current_user, "bom.created_manual", "document", doc.id,
+        project_id=payload.projectId, detail={"name": name},
+    )
     events_repo.log(
         db,
         payload.projectId,
@@ -186,11 +216,20 @@ def create_manual_bom(payload: ManualBomCreate, db: Session = Depends(get_db)):
 
 
 @router.delete("/{document_id}", status_code=204)
-def delete_document(document_id: str, db: Session = Depends(get_db)):
+def delete_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Delete a document, its extracted BOM, and any uploaded source file."""
     deleted = documents_repo.delete(db, document_id)
     if deleted is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    audit_repo.log(
+        db, current_user, "document.deleted", "document", document_id,
+        project_id=getattr(deleted, "project_id", None) or None,
+        detail={"name": getattr(deleted, "name", "")},
+    )
     return None
 
 
@@ -201,6 +240,7 @@ async def upload_document(
     plan_type: str = Form(default=None),
     project_id: str = Form(default="riverside"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Upload a plan set and kick off background AI extraction. The document is
     attached to `project_id` so each project keeps its own document list."""
@@ -271,6 +311,11 @@ async def upload_document(
         status_tone="blue" if analyzable else "success",
     )
     payload = doc.to_dict()
+    audit_repo.log(
+        db, current_user, "document.uploaded", "document", doc.id,
+        project_id=project_id,
+        detail={"name": payload["name"], "planType": plan_type, "pages": pages, "bytes": size},
+    )
     events_repo.log(
         db,
         project_id,
@@ -285,11 +330,20 @@ async def upload_document(
 
 
 @router.post("/{document_id}/analyze", response_model=Document)
-def analyze_document(document_id: str, background: BackgroundTasks, db: Session = Depends(get_db)):
+def analyze_document(
+    document_id: str,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Re-run extraction (BOM and timeline) for an already-uploaded document."""
     doc = documents_repo.get(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    audit_repo.log(
+        db, current_user, "document.reanalyzed", "document", document_id,
+        project_id=doc.project_id, detail={"name": doc.name},
+    )
     plan_type = doc.plan_type
     path = doc.source_path
     if not plan_type or not path or not os.path.exists(path):
