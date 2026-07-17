@@ -25,7 +25,8 @@ def _compose(project: dict, milestone_name: str, milestones: list) -> tuple:
     nxt = next((m for m in milestones if not m["done"]), None)
     loc = f" ({project['loc']})" if project.get("loc") and project["loc"] != "—" else ""
 
-    subject = f"{project['name']}: milestone complete — {milestone_name}"
+    progress = f" ({done} of {total} milestones)" if total else ""
+    subject = f"{project['name']} — Milestone complete: {milestone_name}{progress}"
     lines = [
         f"Progress update for {project['name']}{loc}:",
         "",
