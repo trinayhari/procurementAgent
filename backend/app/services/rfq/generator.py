@@ -29,18 +29,47 @@ def _format_items(line_items: List[dict]) -> str:
     return "\n".join(lines)
 
 
-def _template_body(project_name: str, package_label: str, items_text: str) -> str:
+def _clean_location(project: dict) -> str:
+    """The project's city of installation, or "" when it isn't set.
+
+    Projects store location as a freeform "City, State" string in `loc` and fall
+    back to the placeholder "—" when unknown; treat that (and blanks) as absent.
+    """
+    loc = (project.get("loc") or "").strip()
+    return "" if loc in ("", "—") else loc
+
+
+def _opening_sentence(location: str) -> str:
+    """Lead sentence for the RFQ body, naming the city of installation when known.
+
+    Suppliers ask for the install location to quote the correct specs, so we state
+    it up front rather than making them reply to ask.
+    """
+    if location:
+        return (
+            f"We are requesting a quote for material to be installed in {location}. "
+            "Please provide unit pricing, current lead times, freight charges, "
+            "available substitution options, and quote validity for the following items:"
+        )
     return (
         "We are requesting a quote. Please provide unit pricing, current lead times, "
         "freight charges, available substitution options, and quote validity for the "
-        "following items:\n\n"
+        "following items:"
+    )
+
+
+def _template_body(items_text: str, location: str) -> str:
+    return (
+        f"{_opening_sentence(location)}\n\n"
         f"{items_text}\n\n"
         "Your prompt response is appreciated. Please let us know if you need "
         "additional information to complete your quote."
     )
 
 
-def _llm_body(project_name: str, package_label: str, items_text: str) -> Optional[str]:
+def _llm_body(
+    project_name: str, package_label: str, items_text: str, location: str
+) -> Optional[str]:
     if not settings.openai_api_key:
         return None
     try:
@@ -50,18 +79,24 @@ def _llm_body(project_name: str, package_label: str, items_text: str) -> Optiona
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url or None,
         )
+        location_instruction = (
+            f"The material will be installed in {location}; state this city of "
+            "installation in the opening sentence so the supplier can quote the "
+            "correct specs. "
+            if location
+            else ""
+        )
         prompt = (
             "Write a concise, professional construction Request-for-Quote email body "
             f"for the '{package_label}' package on project '{project_name}'. "
+            f"{location_instruction}"
             "Open with a single sentence requesting a quote and asking for unit "
             "pricing, current lead times, freight charges, available substitution "
             "options, and quote validity. Then list the line items exactly as a "
             "bullet list (one item per line, '- <description> — <quantity>'). Close "
             "with a brief sentence inviting follow-up if more information is needed. "
             "Do not add a greeting, project header, or signature. Match this style:\n\n"
-            "We are requesting a quote. Please provide unit pricing, current lead "
-            "times, freight charges, available substitution options, and quote "
-            "validity for the following items:\n\n"
+            f"{_opening_sentence(location)}\n\n"
             "- <item> — <qty>\n\n"
             "Your prompt response is appreciated. Please let us know if you need "
             "additional information to complete your quote.\n\n"
@@ -88,11 +123,12 @@ def generate_rfq_draft(
 ) -> RfqDraft:
     """Build subject/body/recipients for an RFQ. Never raises."""
     project_name = project.get("name", "Project")
+    location = _clean_location(project)
     items_text = _format_items(line_items)
     subject = f"RFQ: {package_label} — {project_name}"
 
-    body = _llm_body(project_name, package_label, items_text) or _template_body(
-        project_name, package_label, items_text
+    body = _llm_body(project_name, package_label, items_text, location) or _template_body(
+        items_text, location
     )
 
     recipients = [

@@ -44,6 +44,32 @@ def test_unapproved_bom_blocks_rfq(project):
     assert len(r.json()["lineItems"]) == 1
 
 
+def test_rfq_body_names_city_of_installation(project):
+    """Suppliers ask for the install location to quote the right specs, so the
+    generated RFQ body states the project's city up front."""
+    client, headers, pid = project
+    bom_id = make_confirmed_bom(client, headers, pid)
+    sids = run_supplier_search(client, headers, pid, bom_id)
+    rfq = generate_rfq(client, headers, pid, bom_id, sids[:2])
+    # "Austin, TX" is the project fixture's `loc`.
+    assert "installed in Austin, TX" in rfq["body"]
+
+
+def test_rfq_body_omits_city_when_location_unknown():
+    """When a project has no real location we fall back to the original wording
+    rather than emailing suppliers a placeholder city."""
+    from app.services.rfq.generator import generate_rfq_draft
+
+    draft = generate_rfq_draft(
+        {"name": "Untitled", "loc": "—"},
+        "Water Utilities",
+        [{"n": '12" DI Pipe', "q": "100 LF"}],
+        [{"id": "s1", "name": "Acme", "email": "acme@example.com"}],
+    )
+    assert "installed in" not in draft.body
+    assert draft.body.startswith("We are requesting a quote.")
+
+
 def test_send_is_duplicate_safe(project):
     client, headers, pid = project
     bom_id = make_confirmed_bom(client, headers, pid)
