@@ -49,14 +49,14 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_dev_columns()
     with SessionLocal() as db:
-        # Demo login account (jordan@meridiancivil.com / procureai) so the
-        # auth-gated UI is usable on a fresh checkout. Kept regardless of the
-        # demo-data flag so there's always a way in before registering.
-        users_repo.seed_demo_user(db)
         if not settings.seed_demo_data:
-            # Production default: no prototype/demo data. The app shows only
-            # real, user-generated content (empty states until data exists).
+            # Production default: no prototype/demo data and no demo account.
+            # The app shows only real, user-generated content; use
+            # /api/auth/register to create the first user.
             return
+        # Demo login account (jordan@meridiancivil.com / procureai) so the
+        # auth-gated UI is usable in demo environments without registering.
+        users_repo.seed_demo_user(db)
         projects_repo.seed_starter_projects(db)
         documents_repo.seed_starter_documents(db)
         # Reference/display data (dashboard, suppliers, comparison, timeline, the

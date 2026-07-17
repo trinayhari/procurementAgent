@@ -56,10 +56,40 @@ def create_access_token(subject: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def create_scoped_token(subject: str, scope: str, expires_minutes: int) -> str:
+    """Mint a short-lived JWT restricted to one purpose (e.g. `file:<doc-id>`).
+
+    Used for signed URLs the browser loads outside fetch (iframe/download),
+    where an Authorization header can't be attached."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": subject,
+        "scope": scope,
+        "iat": now,
+        "exp": now + timedelta(minutes=expires_minutes),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def verify_scoped_token(token: str, scope: str) -> Optional[str]:
+    """Return the subject if `token` is valid AND carries exactly `scope`."""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except jwt.PyJWTError:
+        return None
+    if payload.get("scope") != scope:
+        return None
+    sub = payload.get("sub")
+    return sub if isinstance(sub, str) else None
+
+
 def _decode_subject(token: str) -> Optional[str]:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except jwt.PyJWTError:
+        return None
+    if "scope" in payload:
+        # Scoped tokens (signed file URLs) must never double as full API access.
         return None
     sub = payload.get("sub")
     return sub if isinstance(sub, str) else None

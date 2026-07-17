@@ -17,11 +17,13 @@ from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.security import create_scoped_token, get_current_user, verify_scoped_token
 from app.db import SessionLocal, get_db
+from app.models.user import User
+from app.repositories import audit as audit_repo
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
 from app.repositories import timeline as timeline_repo
@@ -32,12 +34,22 @@ from app.schemas.document import (
     ManualBomCreate,
     PlanType,
 )
-from app.services import extraction
+from app.services import extraction, storage
 from app.services.extraction import isolated as extraction_isolated
 from app.services.extraction import pdf
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+# Signed-URL file serving lives on its own router: it's mounted WITHOUT the
+# app-wide auth dependency (iframes/downloads can't send an Authorization
+# header) and validates a short-lived scoped query token instead.
+file_router = APIRouter(prefix="/api/documents", tags=["documents"])
 logger = logging.getLogger(__name__)
+
+# File types the upload endpoint accepts (plan sets, schedules, material lists).
+_ALLOWED_EXTENSIONS = {".pdf", ".csv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg"}
+
+# Signed file URLs stay valid this long — enough for a preview session.
+_FILE_TOKEN_MINUTES = 15
 
 
 @router.get("/plan-types", response_model=List[PlanType])
@@ -66,25 +78,37 @@ def get_document(document_id: str, db: Session = Depends(get_db)):
     return payload
 
 
-@router.get("/{document_id}/file")
-def get_document_file(document_id: str, db: Session = Depends(get_db)):
-    """Serve the original uploaded file inline so the frontend can preview it.
+@router.get("/{document_id}/file-url")
+def get_document_file_url(document_id: str, db: Session = Depends(get_db)):
+    """Mint a signed, short-lived URL for previewing/downloading the original file.
 
-    Only uploaded documents have a `source_path` on disk; seed/demo docs return
-    404 and the UI falls back to its placeholder."""
+    The frontend loads files in an iframe (no Authorization header possible), so
+    access is granted via a scoped token bound to this one document."""
     doc = documents_repo.get(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    path = doc.source_path
-    if not path or not os.path.exists(path):
+    if not storage.exists(doc.source_path):
         raise HTTPException(status_code=404, detail="No previewable file for this document")
-    filename = os.path.basename(path)
-    media_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/octet-stream"
-    return FileResponse(
-        path,
-        media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
-    )
+    token = create_scoped_token(document_id, f"file:{document_id}", _FILE_TOKEN_MINUTES)
+    return {"url": f"/api/documents/{document_id}/file?token={token}", "expiresInMinutes": _FILE_TOKEN_MINUTES}
+
+
+@file_router.get("/{document_id}/file")
+def get_document_file(document_id: str, token: str = "", db: Session = Depends(get_db)):
+    """Serve the original uploaded file inline, authorized by a signed URL token
+    from GET /{id}/file-url. Local storage streams the file; S3 redirects to a
+    short-lived presigned URL. Seed/demo docs have no stored file and 404."""
+    if not token or verify_scoped_token(token, f"file:{document_id}") is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired file token")
+    doc = documents_repo.get(db, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    locator = doc.source_path
+    if not storage.exists(locator):
+        raise HTTPException(status_code=404, detail="No previewable file for this document")
+    ext = os.path.splitext(locator)[1].lower()
+    display_name = f"{doc.name}{ext}" if doc.name else os.path.basename(locator)
+    return storage.serve(locator, display_name)
 
 
 @router.get("/{document_id}/line-items", response_model=List[LineItemGroup])
@@ -97,28 +121,52 @@ def get_document_line_items(document_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{document_id}/line-items", response_model=List[LineItemGroup])
-def save_document_line_items(document_id: str, payload: LineItemsUpdate, db: Session = Depends(get_db)):
+def save_document_line_items(
+    document_id: str,
+    payload: LineItemsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Human-in-the-loop: replace a document's BOM with the reviewer's edits.
 
     Recomputes group counts and the document's item total, and flags it as edited.
     """
-    if documents_repo.get(db, document_id) is None:
+    doc = documents_repo.get(db, document_id)
+    if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     groups = [g.model_dump() for g in payload.groups]
-    return documents_repo.save_line_items(db, document_id, groups)
+    saved = documents_repo.save_line_items(db, document_id, groups)
+    audit_repo.log(
+        db, current_user, "bom.edited", "document", document_id,
+        project_id=doc.project_id,
+        detail={"groups": len(groups), "items": sum(len(g.get("items", [])) for g in groups)},
+    )
+    return saved
 
 
 @router.post("/{document_id}/confirm", response_model=Document)
-def confirm_document(document_id: str, db: Session = Depends(get_db)):
+def confirm_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Human-in-the-loop: mark a document's BOM as reviewed and approved."""
     doc = documents_repo.confirm(db, document_id, datetime.now().strftime("%b %d, %Y"))
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    audit_repo.log(
+        db, current_user, "bom.confirmed", "document", document_id,
+        project_id=doc.project_id, detail={"name": doc.name},
+    )
     return doc.to_dict()
 
 
 @router.post("/manual", response_model=Document, status_code=201)
-def create_manual_bom(payload: ManualBomCreate, db: Session = Depends(get_db)):
+def create_manual_bom(
+    payload: ManualBomCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Create a hand-built custom BOM — a bill of materials the user types by hand.
 
     There's no file and no extraction: it's seeded with one empty group and then
@@ -145,6 +193,10 @@ def create_manual_bom(payload: ManualBomCreate, db: Session = Depends(get_db)):
         db, doc.id, [{"group": name, "count": 0, "tone": "blue", "items": []}]
     )
     documents_repo.update_status(db, doc.id, items="0")
+    audit_repo.log(
+        db, current_user, "bom.created_manual", "document", doc.id,
+        project_id=payload.projectId, detail={"name": name},
+    )
     events_repo.log(
         db,
         payload.projectId,
@@ -157,11 +209,20 @@ def create_manual_bom(payload: ManualBomCreate, db: Session = Depends(get_db)):
 
 
 @router.delete("/{document_id}", status_code=204)
-def delete_document(document_id: str, db: Session = Depends(get_db)):
+def delete_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Delete a document, its extracted BOM, and any uploaded source file."""
     deleted = documents_repo.delete(db, document_id)
     if deleted is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    audit_repo.log(
+        db, current_user, "document.deleted", "document", document_id,
+        project_id=getattr(deleted, "project_id", None) or None,
+        detail={"name": getattr(deleted, "name", "")},
+    )
     return None
 
 
@@ -172,6 +233,7 @@ async def upload_document(
     plan_type: str = Form(default=None),
     project_id: str = Form(default="riverside"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Upload a plan set and kick off background AI extraction. The document is
     attached to `project_id` so each project keeps its own document list."""
@@ -180,32 +242,30 @@ async def upload_document(
     if spec is None or not spec.enabled:
         raise HTTPException(status_code=400, detail=f"Unsupported or disabled plan type '{plan_type}'")
 
-    os.makedirs(settings.upload_dir, exist_ok=True)
     safe_name = os.path.basename(file.filename or "document")
-    dest = os.path.join(settings.upload_dir, safe_name)
+    ext = os.path.splitext(safe_name)[1].lower()
+    if ext not in _ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext or 'none'}' — allowed: "
+            + ", ".join(sorted(_ALLOWED_EXTENSIONS)),
+        )
 
-    # Stream the upload to disk in chunks rather than reading it all into memory.
-    # Plan sets can be ~100MB; a full read held the whole file in RAM (twice, with
-    # the write buffer) on top of the resident app — enough to OOM a small
-    # container before extraction even started.
-    limit = settings.max_upload_mb * 1024 * 1024
-    size = 0
-    with open(dest, "wb") as fh:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > limit:
-                fh.close()
-                os.remove(dest)
-                raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit")
-            fh.write(chunk)
+    # Stream the upload to a temp file in chunks (hashing as we go) rather than
+    # reading it all into memory — plan sets can be ~100MB and a full read
+    # could OOM a small container. The file then moves into the configured
+    # storage backend (local disk or S3) under a unique, collision-proof name.
+    try:
+        temp = await storage.stream_upload_to_temp(file, settings.max_upload_mb * 1024 * 1024)
+    except storage.UploadTooLarge:
+        raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit")
 
     try:
-        pages = pdf.page_count(dest)
+        pages = pdf.page_count(temp.locator)  # temp is always a local path
     except pdf.UnsupportedDocument:
         pages = 0
+
+    stored = storage.persist_temp(temp, safe_name)
 
     # Single-document slots (site / building / electrical plan) hold one document
     # each — re-uploading that plan type replaces the prior one ("update a slot").
@@ -226,12 +286,22 @@ async def upload_document(
         plan_type=plan_type,
         date=datetime.now().strftime("%b %d, %Y"),
         project_id=project_id,
-        source_path=dest,
+        source_path=stored.locator,
         has_file=True,
         status="Processing" if analyzable else "Analyzed",
         status_tone="blue" if analyzable else "success",
+        checksum_sha256=stored.sha256,
     )
     payload = doc.to_dict()
+    audit_repo.log(
+        db, current_user, "document.uploaded", "document", doc.id,
+        project_id=project_id,
+        detail={
+            "name": payload["name"], "planType": plan_type, "pages": pages,
+            "bytes": stored.size, "sha256": stored.sha256,
+            "storage": storage.backend_name(),
+        },
+    )
     events_repo.log(
         db,
         project_id,
@@ -241,19 +311,28 @@ async def upload_document(
         meta=f"{spec.label}{f' · {pages} pages' if pages else ''}",
     )
     if analyzable:
-        background.add_task(_run_pipeline, doc.id, dest, plan_type)
+        background.add_task(_run_pipeline, doc.id, stored.locator, plan_type)
     return payload
 
 
 @router.post("/{document_id}/analyze", response_model=Document)
-def analyze_document(document_id: str, background: BackgroundTasks, db: Session = Depends(get_db)):
+def analyze_document(
+    document_id: str,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Re-run extraction (BOM and timeline) for an already-uploaded document."""
     doc = documents_repo.get(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    audit_repo.log(
+        db, current_user, "document.reanalyzed", "document", document_id,
+        project_id=doc.project_id, detail={"name": doc.name},
+    )
     plan_type = doc.plan_type
     path = doc.source_path
-    if not plan_type or not path or not os.path.exists(path):
+    if not plan_type or not storage.exists(path):
         raise HTTPException(status_code=409, detail="Document has no source file to re-analyze")
     spec = extraction.registry.get(plan_type)
     if spec is None:
@@ -263,7 +342,7 @@ def analyze_document(document_id: str, background: BackgroundTasks, db: Session 
     return documents_repo.get(db, document_id).to_dict()
 
 
-def _run_pipeline(document_id: str, path: str, plan_type: str) -> None:
+def _run_pipeline(document_id: str, locator: str, plan_type: str) -> None:
     """Background worker: run timeline extraction, then BOM extraction.
 
     Timeline runs FIRST (it's one cheap text call) so that when the BOM pass
@@ -271,17 +350,32 @@ def _run_pipeline(document_id: str, path: str, plan_type: str) -> None:
     everything, timeline included, is already in the database and one reload
     picks it all up. Document types with no BOM categories (additional
     documents) get their terminal status here instead.
+
+    Extraction (PyMuPDF in a subprocess) needs a filesystem path, so the
+    stored file is materialised locally for the duration — a no-op on the
+    local backend, a temp download for S3.
     """
-    _run_timeline_extraction(document_id, path)
-    spec = extraction.registry.get(plan_type)
-    if spec is not None and spec.categories:
-        _run_extraction(document_id, path, plan_type)
-    else:
+    try:
+        with storage.local_copy(locator) as path:
+            _run_timeline_extraction(document_id, path)
+            spec = extraction.registry.get(plan_type)
+            if spec is not None and spec.categories:
+                _run_extraction(document_id, path, plan_type)
+                return
+    except Exception as exc:  # e.g. the S3 download failed
+        logger.exception("Could not materialise stored file: doc=%s", document_id)
         with SessionLocal() as db:
             documents_repo.update_status(
                 db, document_id,
-                status="Analyzed", status_tone="success", processing=False,
+                status="Failed", status_tone="danger", processing=False,
+                items="—", error=f"Could not read the stored file: {exc}",
             )
+        return
+    with SessionLocal() as db:
+        documents_repo.update_status(
+            db, document_id,
+            status="Analyzed", status_tone="success", processing=False,
+        )
 
 
 def _run_timeline_extraction(document_id: str, path: str) -> None:

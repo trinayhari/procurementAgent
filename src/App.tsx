@@ -5,9 +5,10 @@ import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
 import {
-  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, documentFileUrl,
+  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
+  getDocumentFileUrl, sendTestEmail,
   listProjectBoms, createSupplier,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
@@ -695,6 +696,25 @@ function Settings({ m }: MProps) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Email-config verification (POST /api/auth/test-email).
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<string | null>(null)
+  const [testErr, setTestErr] = useState<string | null>(null)
+  const runTestEmail = async () => {
+    setTesting(true); setTestResult(null); setTestErr(null)
+    try {
+      const r = await sendTestEmail()
+      setTestResult(
+        r.mocked
+          ? 'Mock mode — no Gmail connected, the send was only logged. See docs/email-setup.md.'
+          : `Sent to ${r.to} from ${r.fromAddr} — check your inbox (and the From address).`,
+      )
+    } catch (ex) {
+      setTestErr(ex instanceof Error ? ex.message : 'Test send failed')
+    } finally {
+      setTesting(false)
+    }
+  }
   const dirty = senderEmail.trim() !== m.userSenderEmail
   const saveSender = async (e: FormEvent) => {
     e.preventDefault()
@@ -744,6 +764,17 @@ function Settings({ m }: MProps) {
               </Box>
             </div>
           </form>
+          <div style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
+            <div style={{ flex: 1 }}>
+              <div style={css('font-size:13.5px;font-weight:600')}>Email delivery</div>
+              <div style={css('font-size:12px;color:var(--text-3)')}>Send yourself a test email through the same path RFQs use. Setup guide: docs/email-setup.md</div>
+              {testResult && <div style={css('font-size:12px;color:var(--success,#16a34a);margin-top:4px')}>{testResult}</div>}
+              {testErr && <div style={css('font-size:12px;color:var(--danger);margin-top:4px')}>{testErr}</div>}
+            </div>
+            <Box as="button" onClick={runTestEmail} disabled={testing} style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;flex:none;${testing ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
+              {testing ? 'Sending…' : 'Send test email'}
+            </Box>
+          </div>
           <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
             <div><div style={css('font-size:13.5px;font-weight:600')}>Default RFQ due window</div><div style={css('font-size:12px;color:var(--text-3)')}>Days suppliers get to respond</div></div>
             <span style={css("font-size:13px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border)")}>7 days</span>
@@ -1108,11 +1139,7 @@ function TabDocuments({ m }: MProps) {
             </div>
             <div style={css('position:relative;height:560px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
               {m.doc.hasFile && m.doc.id ? (
-                <iframe
-                  src={documentFileUrl(m.doc.id)}
-                  title={m.doc.name}
-                  style={{ width: '100%', height: '100%', border: 'none', background: 'var(--panel)' }}
-                />
+                <DocPreviewFrame docId={m.doc.id} title={m.doc.name} />
               ) : (
                 <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
               )}
@@ -1129,6 +1156,25 @@ function TabDocuments({ m }: MProps) {
       </div>
     </>
   )
+}
+
+/* Signed-URL document preview: iframes can't send the Authorization header, so
+   the backend mints a short-lived scoped URL we resolve before rendering. */
+function DocPreviewFrame({ docId, title }: { docId: string; title: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setUrl(null); setFailed(false)
+    getDocumentFileUrl(docId).then(
+      (u) => { if (alive) setUrl(u) },
+      () => { if (alive) setFailed(true) },
+    )
+    return () => { alive = false }
+  }, [docId])
+  if (failed) return <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>Preview unavailable</span>
+  if (!url) return <span style={css('font-size:12px;color:var(--text-3)')}>Loading preview…</span>
+  return <iframe src={url} title={title} style={{ width: '100%', height: '100%', border: 'none', background: 'var(--panel)' }} />
 }
 
 /* ------------------------------- AI-extracted materials (human-in-the-loop) */
@@ -1353,7 +1399,10 @@ function SupplierSearch({ projectId, networkNames, onAdded }: { projectId: strin
       const rfq = await generateRfq(projectId, pkg, selectedIds)
       setDraft(rfq)
     } catch (e) {
-      setErr('Could not generate RFQ — selected suppliers may not have a discovered email.')
+      // Surface backend reasons (e.g. the BOM approval gate: "confirm the
+      // extracted BOM first") over the generic fallback.
+      const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      setErr(msg || 'Could not generate RFQ — selected suppliers may not have a discovered email.')
     } finally { setGenerating(false) }
   }
 
@@ -1603,7 +1652,12 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
       setRecipients(out.recipients || [])
       setStatus(out.status)
       loadConversation() // surface the just-sent message as the thread
-    } catch (e) { setErr('Send failed. Is the backend running?') }
+    } catch (e) {
+      // Backend reasons (already sent, no approved BOM items, …) come through
+      // the error message; fall back to the generic hint otherwise.
+      const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      setErr(msg || 'Send failed. Is the backend running?')
+    }
     finally { setBusy(false) }
   }
 

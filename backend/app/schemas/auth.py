@@ -37,3 +37,12 @@ class TokenResponse(BaseModel):
     accessToken: str
     tokenType: str = "bearer"
     user: User
+
+
+class TestEmailResult(BaseModel):
+    """Outcome of POST /api/auth/test-email (config verification)."""
+
+    mocked: bool  # True → no Gmail configured; the "send" was only logged
+    messageId: str
+    fromAddr: str  # the effective From address used
+    to: str

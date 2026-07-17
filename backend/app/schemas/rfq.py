@@ -54,6 +54,8 @@ class RfqRecipient(BaseModel):
     email: str
     sentMessageId: Optional[str] = None
     threadId: Optional[str] = None  # Gmail thread the send landed in (for conversation fetch)
+    sendStatus: Optional[str] = None  # "sent" | "failed" | None (not yet attempted)
+    sendError: Optional[str] = None  # human-readable failure reason when sendStatus="failed"
 
 
 class RfqLineItem(BaseModel):

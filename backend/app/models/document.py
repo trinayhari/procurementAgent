@@ -35,6 +35,8 @@ class Document(Base):
     processing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     has_file: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # SHA-256 of the uploaded original (integrity + duplicate detection).
+    checksum_sha256: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     plan_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -73,6 +75,7 @@ class Document(Base):
             "mocked": self.mocked,
             "error": self.error,
             "reviewed": self.reviewed,
+            "checksum": self.checksum_sha256,
             "reviewedAt": self.reviewed_at,
             "edited": self.edited,
         }

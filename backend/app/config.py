@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="PROCUREAI_", extra="ignore")
 
     app_name: str = "ProcureAI API"
+    # "development" or "production". Production refuses to boot with the default
+    # JWT secret and warns when CORS is still localhost-only (see main.py).
+    env: str = "development"
     # Origins allowed to call the API from the browser (the Vite dev server by default).
     cors_origins: List[str] = [
         "http://localhost:5173",
@@ -39,6 +42,21 @@ class Settings(BaseSettings):
     # Where uploaded plan sets are stored on disk (created on first upload).
     upload_dir: str = "uploads"
     max_upload_mb: int = 500
+
+    # -------------------------------------------------------- object storage
+    # "local" (default): files under upload_dir — simple, but ephemeral on
+    # hosts without a persistent disk. "s3": any S3-compatible store (AWS S3,
+    # Cloudflare R2, MinIO) — uploads survive redeploys; serving uses
+    # presigned URLs. Previously stored local files keep working after a
+    # switch (the backend is chosen per file locator).
+    storage_backend: str = "local"
+    s3_bucket: str = ""
+    s3_region: str = ""
+    s3_endpoint_url: str = ""  # set for R2/MinIO; empty for AWS S3
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_prefix: str = "uploads"
+    s3_presign_expiry_s: int = 300
 
     # ------------------------------------------------ GPT-4.1 vision extraction
     # Leave the key empty to run a clearly-flagged mock extraction (no API calls).

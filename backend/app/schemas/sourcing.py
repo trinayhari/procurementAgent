@@ -62,6 +62,9 @@ class PackageBom(BaseModel):
     # True when this "package" is actually a hand-built custom BOM document
     # (its items come straight from that document, not a discipline mapping).
     custom: bool = False
+    # Documents that have items for this package but whose BOM hasn't been
+    # human-confirmed yet — those items are withheld until reviewed.
+    pendingReview: int = 0
 
 
 class CustomBomSummary(BaseModel):

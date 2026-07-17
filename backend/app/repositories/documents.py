@@ -76,6 +76,7 @@ def add(
     has_file: bool = False,
     status: str = "Processing",
     status_tone: str = "blue",
+    checksum_sha256: Optional[str] = None,
 ) -> Document:
     """Register an uploaded document and return the persisted row."""
     seq = _next_seq(db)
@@ -93,6 +94,7 @@ def add(
         processing=status == "Processing",
         has_file=has_file,
         source_path=source_path,
+        checksum_sha256=checksum_sha256,
         plan_type=plan_type,
         reviewed=False,
         edited=False,
@@ -114,15 +116,13 @@ def delete(db: Session, doc_id: str) -> Optional[Document]:
     doc = db.get(Document, doc_id)
     if doc is None:
         return None
+    from app.services import storage
+
     path = doc.source_path
     timeline_repo.delete_for_documents(db, [doc_id])
     db.delete(doc)
     db.commit()
-    if path and os.path.exists(path):
-        try:
-            os.remove(path)
-        except OSError:
-            pass  # the record is already gone; leave the orphaned file
+    storage.delete(path)  # best-effort; the record is already gone
     return doc
 
 
@@ -140,16 +140,14 @@ def delete_for_plan_type(db: Session, project_id: str, plan_type: str) -> List[s
             Document.project_id == project_id, Document.plan_type == plan_type
         )
     ).all()
+    from app.services import storage
+
     removed = []
     for doc in rows:
         path = doc.source_path
         removed.append(doc.id)
         db.delete(doc)
-        if path and os.path.exists(path):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+        storage.delete(path)
     if removed:
         timeline_repo.delete_for_documents(db, removed)
         db.commit()

@@ -29,6 +29,8 @@ class Document(BaseModel):
     reviewed: bool = False
     reviewedAt: Optional[str] = None
     edited: bool = False  # True once a human has changed the AI-extracted BOM
+    # SHA-256 of the uploaded original (integrity + duplicate detection).
+    checksum: Optional[str] = None
 
 
 class PlanType(BaseModel):

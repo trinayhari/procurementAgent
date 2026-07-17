@@ -27,6 +27,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      # Production mode: refuse to boot with the default JWT secret, warn on
+      # localhost-only CORS. Also keeps demo data/accounts out of the deploy.
+      - key: PROCUREAI_ENV
+        value: production
       # Postgres DSN, injected from the managed database above. SQLAlchemy maps
       # the `postgresql://` URL to psycopg2 (already in requirements.txt).
       - key: PROCUREAI_DATABASE_URL

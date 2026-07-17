@@ -1,7 +1,10 @@
 """SQLAlchemy ORM models. Importing this package registers every table on
 `Base.metadata` (used by Alembic autogenerate and db.init_db)."""
+from app.models.audit_event import AuditEvent
+from app.models.background_job import BackgroundJob
 from app.models.document import Document
 from app.models.event import ProjectEvent
+from app.models.purchase_decision import PurchaseDecision
 from app.models.found_supplier import FoundSupplier
 from app.models.lender import Lender
 from app.models.project import Project
@@ -26,6 +29,9 @@ from app.models.timeline_event import TimelineEvent
 from app.models.user import User
 
 __all__ = [
+    "AuditEvent",
+    "BackgroundJob",
+    "PurchaseDecision",
     "Project",
     "ProjectEvent",
     "FoundSupplier",

@@ -9,7 +9,10 @@ from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.security import get_current_user
 from app.db import get_db
+from app.models.user import User
+from app.repositories import audit as audit_repo
 from app.repositories import timeline as timeline_repo
 from app.schemas.timeline import MilestoneDoneResult, MilestoneDoneUpdate
 from app.services import lender_updates
@@ -23,6 +26,7 @@ def set_event_done(
     payload: MilestoneDoneUpdate,
     background: BackgroundTasks,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Human check-off for a milestone: the schedule can't know a milestone
     actually happened from dates alone, so completion is confirmed (or undone)
@@ -33,6 +37,10 @@ def set_event_done(
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Timeline event not found")
+    audit_repo.log(
+        db, current_user, "milestone.checked" if payload.done else "milestone.unchecked",
+        "timeline_event", str(event_id), detail={"updated": result["updated"]},
+    )
     # Checking off (not undoing) notifies the project's lenders in the
     # background — the PRO-16 progress email.
     if payload.done:
