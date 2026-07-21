@@ -605,6 +605,7 @@ function SupplierCard({ x }: { x: Model['suppliers'][number] }) {
 function Suppliers({ m }: MProps) {
   const [adding, setAdding] = useState(false)
   return (
+    <>
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
         <div>
@@ -625,8 +626,12 @@ function Suppliers({ m }: MProps) {
         {m.suppliers.map((x, i) => <SupplierCard key={i} x={x} />)}
       </div>
       )}
-      {adding && <AddSupplierModal onClose={() => setAdding(false)} onSaved={async () => { await m.reload(); setAdding(false) }} />}
     </div>
+    {/* Rendered outside the pcUp-animated wrapper: its transform would otherwise
+        become the containing block for the modal's position:fixed overlay,
+        trapping it in the page box instead of the viewport. */}
+    {adding && <AddSupplierModal onClose={() => setAdding(false)} onSaved={async () => { await m.reload(); setAdding(false) }} />}
+    </>
   )
 }
 
