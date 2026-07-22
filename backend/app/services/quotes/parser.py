@@ -12,8 +12,11 @@ from app.services.quotes.models import ParsedQuote
 
 _SYSTEM = (
     "You read construction supplier quotes and extract the commercial terms. "
-    "Return only numbers you are confident are correct; leave a field null if it "
-    "is not clearly stated. Money is USD. Do not invent figures."
+    "Capture every priced line item (description, quantity, unit price, and the "
+    "per-line lead time when stated). Return only numbers the supplier actually "
+    "states; leave a field null if it is not clearly stated. Do NOT compute or sum "
+    "subtotals, material totals, or grand totals yourself — leave material_cost and "
+    "total null unless the supplier states them explicitly. Money is USD."
 )
 
 _MONEY_RE = re.compile(r"\$\s?([\d,]+(?:\.\d{2})?)")

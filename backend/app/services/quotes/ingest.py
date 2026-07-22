@@ -16,6 +16,7 @@ from app.config import settings
 from app.repositories import quotes as quotes_repo
 from app.repositories import rfqs as rfqs_repo
 from app.services.quotes import gmail_reader, parser
+from app.services.quotes.models import ParsedQuote
 from app.services.rfq.sender import is_configured as gmail_configured
 
 logger = logging.getLogger("procureai.quotes.ingest")
@@ -75,6 +76,7 @@ def _ingest_live(db: Session, project_id: str, index: Dict[str, dict]) -> Tuple[
         parsed = parser.parse_quote(msg.combined_text)
         if not parsed.is_quote:
             continue
+        finalize_quote(parsed)
         _persist(db, project_id, meta, parsed, source="gmail", message_id=msg.message_id, email=msg.from_email)
         seen.add(msg.message_id)
         ingested += 1
@@ -111,7 +113,7 @@ def _persist(db, project_id, meta, parsed, *, source, message_id, email=None) ->
             "qty": li.quantity or "",
             "unitPrice": li.unit_price,
             "extended": li.extended,
-            "leadDays": parsed.lead_days,
+            "leadDays": li.lead_days if li.lead_days is not None else parsed.lead_days,
         }
         for li in parsed.line_items
         if li.name
@@ -151,6 +153,57 @@ def _qty_num(qty: str) -> Optional[float]:
         return float(m.group(0).replace(",", ""))
     except ValueError:
         return None
+
+
+def finalize_quote(parsed: ParsedQuote) -> ParsedQuote:
+    """Fill the line and header figures a supplier priced but didn't total up.
+
+    Suppliers routinely reply with unit prices and no material subtotal or grand
+    total, yet the comparison engine needs both a per-line `extended` and header
+    totals to rank a quote (line_comparison.py drops any line missing `extended`).
+    We derive those deterministically here — never in the LLM prompt, whose
+    arithmetic was observed to drift by ~$1 — so a unit-priced reply is comparable:
+
+      - per-line extended = unit_price × quantity  (recomputed in code whenever the
+        quantity is numeric; a supplier-stated extended is kept only when we can't
+        parse the quantity, e.g. "TBD")
+      - material_cost = Σ line extendeds        (only when the supplier omitted it)
+      - total = material_cost + freight         (only when the supplier omitted it)
+      - lead_days = longest per-line lead        (only when no header lead was given)
+
+    Mutates and returns `parsed`. Any header figure we compute is flagged in
+    `notes` so the UI can tell computed values from supplier-stated ones.
+    """
+    for li in parsed.line_items:
+        qty_num = _qty_num(li.quantity or "")
+        if li.unit_price is not None and qty_num is not None:
+            li.extended = round(li.unit_price * qty_num, 2)  # trust code over LLM math
+
+    derived: List[str] = []
+
+    line_exts = [li.extended for li in parsed.line_items if li.extended is not None]
+    if parsed.material_cost is None and line_exts:
+        parsed.material_cost = round(sum(line_exts), 2)
+        derived.append("material subtotal")
+
+    if parsed.total is None and parsed.material_cost is not None:
+        parsed.total = round(parsed.material_cost + (parsed.freight or 0.0), 2)
+        derived.append("total")
+    elif parsed.material_cost is None and parsed.total is not None and parsed.freight is not None:
+        parsed.material_cost = round(parsed.total - parsed.freight, 2)
+        derived.append("material subtotal")
+
+    if parsed.lead_days is None:
+        line_leads = [li.lead_days for li in parsed.line_items if li.lead_days is not None]
+        if line_leads:
+            parsed.lead_days = max(line_leads)
+            derived.append("lead time")
+
+    if derived:
+        tag = "Computed from line items: " + ", ".join(dict.fromkeys(derived)) + "."
+        parsed.notes = f"{parsed.notes}\n{tag}".strip() if parsed.notes else tag
+
+    return parsed
 
 
 def _mock_quote(supplier_name: str, package: str, rfq_lines: Optional[List[dict]] = None):
