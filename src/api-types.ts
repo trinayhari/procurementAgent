@@ -1408,6 +1408,11 @@ export interface components {
             cells: components["schemas"]["LineCompareCell"][];
             /** Bestsupplierid */
             bestSupplierId?: string | null;
+            /**
+             * Pending
+             * @default false
+             */
+            pending: boolean;
         };
         /** LineCompareSupplier */
         LineCompareSupplier: {

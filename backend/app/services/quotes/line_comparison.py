@@ -96,6 +96,19 @@ def build_line_comparison(
                 line_names.append(name)
                 line_meta[name] = {"name": name, "qty": li.get("qty", "")}
 
+    # A line is awardable only if at least one supplier actually priced it (has an
+    # `extended`). Lines no one has priced yet — e.g. a "TBD"-quantity item — are
+    # informational ("quote pending"): shown in the grid but kept out of the award
+    # math below, so they can't force every strategy to come back empty. A
+    # per-supplier gap on a priceable line still disqualifies that supplier for it
+    # (enforced in _cost_of).
+    priceable = [
+        name
+        for name in line_names
+        if any((by_sup[sid].get(name) or {}).get("extended") is not None for sid in sup_ids)
+    ]
+    priceable_set = set(priceable)
+
     lines = []
     for name in line_names:
         cells = []
@@ -118,95 +131,104 @@ def build_line_comparison(
         for c in cells:
             c["best"] = c["supplierId"] == best_id and best_id is not None
         lines.append(
-            {**line_meta[name], "cells": cells, "bestSupplierId": best_id}
+            {
+                **line_meta[name],
+                "cells": cells,
+                "bestSupplierId": best_id,
+                "pending": name not in priceable_set,
+            }
         )
 
-    # ---- strategies -------------------------------------------------------
-    # single: cheapest supplier covering every line.
-    single_sel, single_cost = None, None
-    for sid in sup_ids:
-        sel = {name: sid for name in line_names}
-        cost = _cost_of(sel, line_names, by_sup, freight)
-        if cost and (single_cost is None or cost["total"] < single_cost["total"]):
-            single_sel, single_cost = sel, cost
-
-    # mix: exact over supplier subsets (n is tiny) so freight is respected.
-    mix_sel, mix_cost = single_sel, single_cost
-    for r in range(1, len(sup_ids) + 1):
-        for subset in combinations(sup_ids, r):
-            sel = {}
-            ok = True
-            for name in line_names:
-                cheapest, cheapest_ext = None, None
-                for sid in subset:
-                    li = by_sup[sid].get(name)
-                    ext = li.get("extended") if li else None
-                    if ext is not None and (cheapest_ext is None or ext < cheapest_ext):
-                        cheapest, cheapest_ext = sid, ext
-                if cheapest is None:
-                    ok = False
-                    break
-                sel[name] = cheapest
-            if not ok:
-                continue
-            cost = _cost_of(sel, line_names, by_sup, freight)
-            if cost and (mix_cost is None or cost["total"] < mix_cost["total"]):
-                mix_sel, mix_cost = sel, cost
-
-    # fastest: each line from its quickest supplier (tie-break cheaper).
-    fast_sel = {}
-    for name in line_names:
-        best_sid, best_lead, best_ext = None, None, None
+    # ---- strategies (computed over the priceable lines only) --------------
+    # With no priceable line there is nothing to award; return the grid so the
+    # buyer still sees the pending lines, but with no strategies.
+    options: List[dict] = []
+    if priceable:
+        # single: cheapest supplier covering every priceable line.
+        single_sel, single_cost = None, None
         for sid in sup_ids:
-            li = by_sup[sid].get(name)
-            if not li or li.get("leadDays") is None:
-                continue
-            lead, ext = int(li["leadDays"]), li.get("extended")
-            if best_lead is None or lead < best_lead or (
-                lead == best_lead and ext is not None and (best_ext is None or ext < best_ext)
-            ):
-                best_sid, best_lead, best_ext = sid, lead, ext
-        if best_sid is not None:
-            fast_sel[name] = best_sid
-    fast_cost = _cost_of(fast_sel, line_names, by_sup, freight) if fast_sel else None
+            sel = {name: sid for name in priceable}
+            cost = _cost_of(sel, priceable, by_sup, freight)
+            if cost and (single_cost is None or cost["total"] < single_cost["total"]):
+                single_sel, single_cost = sel, cost
 
-    baseline = single_cost["total"] if single_cost else None
-    dist = {s["id"]: s["distanceMiles"] for s in suppliers}
+        # mix: exact over supplier subsets (n is tiny) so freight is respected.
+        mix_sel, mix_cost = single_sel, single_cost
+        for r in range(1, len(sup_ids) + 1):
+            for subset in combinations(sup_ids, r):
+                sel = {}
+                ok = True
+                for name in priceable:
+                    cheapest, cheapest_ext = None, None
+                    for sid in subset:
+                        li = by_sup[sid].get(name)
+                        ext = li.get("extended") if li else None
+                        if ext is not None and (cheapest_ext is None or ext < cheapest_ext):
+                            cheapest, cheapest_ext = sid, ext
+                    if cheapest is None:
+                        ok = False
+                        break
+                    sel[name] = cheapest
+                if not ok:
+                    continue
+                cost = _cost_of(sel, priceable, by_sup, freight)
+                if cost and (mix_cost is None or cost["total"] < mix_cost["total"]):
+                    mix_sel, mix_cost = sel, cost
 
-    def _option(key, label, sel, cost, note):
-        if not cost:
-            return None
-        savings = round(baseline - cost["total"], 2) if baseline is not None else 0.0
-        used = cost["used"]
-        max_dist = max((dist[s] for s in used if dist.get(s) is not None), default=None)
-        return {
-            "key": key,
-            "label": label,
-            "total": cost["total"],
-            "material": cost["material"],
-            "freight": cost["freight"],
-            "leadDays": cost["leadDays"],
-            "suppliersUsed": cost["suppliersUsed"],
-            "deliveries": cost["suppliersUsed"],
-            "maxDistance": max_dist,
-            "savings": savings,
-            "note": note,
-            "selections": sel,
-        }
+        # fastest: each priceable line from its quickest supplier (tie-break cheaper).
+        fast_sel = {}
+        for name in priceable:
+            best_sid, best_lead, best_ext = None, None, None
+            for sid in sup_ids:
+                li = by_sup[sid].get(name)
+                if not li or li.get("leadDays") is None:
+                    continue
+                lead, ext = int(li["leadDays"]), li.get("extended")
+                if best_lead is None or lead < best_lead or (
+                    lead == best_lead and ext is not None and (best_ext is None or ext < best_ext)
+                ):
+                    best_sid, best_lead, best_ext = sid, lead, ext
+            if best_sid is not None:
+                fast_sel[name] = best_sid
+        fast_cost = _cost_of(fast_sel, priceable, by_sup, freight) if fast_sel else None
 
-    mix_note = (
-        "Split across {n} suppliers for the lowest delivered cost".format(n=mix_cost["suppliersUsed"])
-        if mix_cost and mix_cost["suppliersUsed"] > 1
-        else "One supplier already gives the lowest delivered cost"
-    )
-    options = [
-        _option("mix", "Lowest cost (mix & match)", mix_sel, mix_cost, mix_note),
-        _option("fastest", "Fastest delivery", fast_sel, fast_cost,
-                "Each line from its quickest supplier"),
-        _option("single", "Single supplier", single_sel, single_cost,
-                "Award the whole package to one supplier"),
-    ]
-    options = [o for o in options if o is not None]
+        baseline = single_cost["total"] if single_cost else None
+        dist = {s["id"]: s["distanceMiles"] for s in suppliers}
+
+        def _option(key, label, sel, cost, note):
+            if not cost:
+                return None
+            savings = round(baseline - cost["total"], 2) if baseline is not None else 0.0
+            used = cost["used"]
+            max_dist = max((dist[s] for s in used if dist.get(s) is not None), default=None)
+            return {
+                "key": key,
+                "label": label,
+                "total": cost["total"],
+                "material": cost["material"],
+                "freight": cost["freight"],
+                "leadDays": cost["leadDays"],
+                "suppliersUsed": cost["suppliersUsed"],
+                "deliveries": cost["suppliersUsed"],
+                "maxDistance": max_dist,
+                "savings": savings,
+                "note": note,
+                "selections": sel,
+            }
+
+        mix_note = (
+            "Split across {n} suppliers for the lowest delivered cost".format(n=mix_cost["suppliersUsed"])
+            if mix_cost and mix_cost["suppliersUsed"] > 1
+            else "One supplier already gives the lowest delivered cost"
+        )
+        options = [
+            _option("mix", "Lowest cost (mix & match)", mix_sel, mix_cost, mix_note),
+            _option("fastest", "Fastest delivery", fast_sel, fast_cost,
+                    "Each line from its quickest supplier"),
+            _option("single", "Single supplier", single_sel, single_cost,
+                    "Award the whole package to one supplier"),
+        ]
+        options = [o for o in options if o is not None]
 
     return {
         "pkg": package_label or package,
@@ -245,11 +267,22 @@ def compute_award(
             if li.get("name") and li["name"] not in line_names:
                 line_names.append(li["name"])
 
+    # Only lines at least one supplier priced can be awarded; skip "quote pending"
+    # lines (no supplier has an `extended`) so they don't block the whole basket.
+    priceable = [
+        name
+        for name in line_names
+        if any((lm.get(name) or {}).get("extended") is not None for lm in by_sup.values())
+    ]
+    if not priceable:
+        return None
+
     resolved: Dict[str, str] = {}
-    for name in line_names:
+    for name in priceable:
         sid = selections.get(name)
-        if sid not in by_sup or by_sup[sid].get(name) is None:
-            # fall back to cheapest available supplier for this line
+        if sid not in by_sup or (by_sup[sid].get(name) or {}).get("extended") is None:
+            # Selection missing or that supplier didn't price this line → fall back
+            # to the cheapest supplier that did.
             cheapest, cheapest_ext = None, None
             for s, lm in by_sup.items():
                 li = lm.get(name)
@@ -260,7 +293,7 @@ def compute_award(
         if sid is not None:
             resolved[name] = sid
 
-    cost = _cost_of(resolved, line_names, by_sup, freight)
+    cost = _cost_of(resolved, priceable, by_sup, freight)
     if cost is None:
         return None
     used = cost["used"]

@@ -3904,6 +3904,11 @@
               }
             ],
             "title": "Bestsupplierid"
+          },
+          "pending": {
+            "type": "boolean",
+            "title": "Pending",
+            "default": false
           }
         },
         "type": "object",
