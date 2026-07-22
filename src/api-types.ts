@@ -665,7 +665,11 @@ export interface paths {
         get: operations["get_supplier_api_suppliers__supplier_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Supplier
+         * @description Remove a supplier from the customer's network.
+         */
+        delete: operations["delete_supplier_api_suppliers__supplier_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3542,6 +3546,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SupplierDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_supplier_api_suppliers__supplier_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

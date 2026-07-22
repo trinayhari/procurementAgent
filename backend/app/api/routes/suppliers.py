@@ -39,3 +39,10 @@ def get_supplier(supplier_id: str, db: Session = Depends(get_db)):
     if supplier is None:
         raise HTTPException(status_code=404, detail="Supplier not found")
     return {**supplier, "comms": suppliers_repo.list_comms(db)}
+
+
+@router.delete("/{supplier_id}", status_code=204)
+def delete_supplier(supplier_id: str, db: Session = Depends(get_db)):
+    """Remove a supplier from the customer's network."""
+    if not suppliers_repo.delete_supplier(db, supplier_id):
+        raise HTTPException(status_code=404, detail="Supplier not found")

@@ -870,7 +870,6 @@ function ProjectWorkspace({ m }: MProps) {
         </div>
         <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
           <Box as="button" onClick={m.setDocuments} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)"><Svg size={15} d='M12 16V4M7 9l5-5 5 5" /><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2' />Upload</Box>
-          <Box as="button" onClick={m.setSuppliers} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)"><Svg size={15} sw={2.2} d={PLUS} />Add Supplier</Box>
           <Box as="button" onClick={m.setRfqs} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />Generate RFQs</Box>
           <Box as="button" onClick={() => { if (window.confirm(`Delete “${m.activeProject.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(m.projectId) }} title="Delete project" style={css('display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3)')} hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)"><Svg size={15} sw={1.9} d={TRASH} /></Box>
         </div>
@@ -879,7 +878,7 @@ function ProjectWorkspace({ m }: MProps) {
       <div style={css('display:flex;border-bottom:1px solid var(--border);margin-bottom:22px;overflow-x:auto')}>
         <button onClick={m.setOverview} style={m.tabStyle.overview}><Svg size={15} sw={1.9} d='<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' />Overview</button>
         <button onClick={m.setDocuments} style={m.tabStyle.documents}><Svg size={15} sw={1.9} d='M14 3v5h5" /><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z' />Documents</button>
-        <button onClick={m.setSuppliers} style={m.tabStyle.suppliers}><Svg size={15} sw={1.9} d='<rect x="5" y="3" width="14" height="18" rx="1.6"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M10 21v-3h4v3"/>' />Suppliers</button>
+        <button onClick={m.setSuppliers} style={m.tabStyle.suppliers}><Svg size={15} sw={1.9} d='<rect x="5" y="3" width="14" height="18" rx="1.6"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M10 21v-3h4v3"/>' />Supplier Search</button>
         <button onClick={m.setRfqs} style={m.tabStyle.rfqs}><Svg size={15} sw={1.9} d='<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 5.5L20.5 7"/>' />RFQs</button>
         <button onClick={m.setQuotes} style={m.tabStyle.quotes}><Svg size={15} sw={1.9} d='M12 3v18M6 21h12" /><path d="M5 8h14" /><path d="m5 8-2.3 5a3 3 0 0 0 5.6 0z" /><path d="m19 8 2.3 5a3 3 0 0 1-5.6 0z' />Quotes</button>
         <button onClick={m.setTimeline} style={m.tabStyle.timeline}><Svg size={15} sw={1.9} d='M4 7h9M4 12h13M4 17h6' />Timeline</button>
@@ -1307,7 +1306,7 @@ function pkgLabel(key: string): string {
 // created in the Documents panel and selected here by their document id — they
 // quote exactly like a package (replacing the old free-text ad-hoc flow).
 // Manages its own state + polling.
-function SupplierSearch({ projectId, networkNames, onAdded }: { projectId: string; networkNames: Set<string>; onAdded: () => void | Promise<void> }) {
+function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<void> }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
   const [boms, setBoms] = useState<CustomBomSummary[]>([])     // custom BOMs on this project
@@ -1418,6 +1417,48 @@ function SupplierSearch({ projectId, networkNames, onAdded }: { projectId: strin
 
   return (
     <>
+      {/* Saved suppliers — the customer's network, always shown so they can
+          reuse known vendors without re-running a search. */}
+      <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
+        <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:12px')}>
+          <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>Saved suppliers</h2>
+          <span style={{ ...DcBadge('gray') }}>{saved.length}</span>
+        </div>
+        {saved.length === 0 ? (
+          <div style={css('font-size:12.5px;color:var(--text-3)')}>None saved yet — add discovered suppliers below to build your network.</div>
+        ) : (
+          <>
+            <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>Select a supplier to include them in an RFQ for {subjectLabel}.</div>
+            <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px')}>
+              {saved.map((s) => {
+                const has = !!s.email
+                const on = !!selected[s.id]
+                return (
+                  <Box as="button" key={s.id} onClick={() => has && toggle(s.id)} disabled={!has}
+                    title={has ? 'Select for RFQ' : 'No email on file — cannot RFQ'}
+                    style={css(`text-align:left;display:flex;align-items:flex-start;gap:10px;border:1px solid ${on ? 'var(--primary)' : 'var(--border)'};background:${on ? 'var(--primary-soft)' : 'var(--panel)'};border-radius:12px;padding:11px 13px;cursor:${has ? 'pointer' : 'not-allowed'};opacity:${has ? '1' : '.6'}`)}
+                    hover={has ? 'border-color:var(--primary)' : ''}>
+                    <input type="checkbox" checked={on} disabled={!has} readOnly
+                      style={{ marginTop: 3, accentColor: 'var(--primary)', pointerEvents: 'none', flex: 'none' }} />
+                    <div style={s.logoStyle}>{s.logo}</div>
+                    <div style={css('flex:1;min-width:0')}>
+                      <div style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{s.name}</div>
+                      {s.contact && <div style={css('font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{s.contact}</div>}
+                      {!has && <div style={css('font-size:10.5px;font-weight:600;color:var(--warn)')}>No email on file</div>}
+                      {s.cats.length > 0 && (
+                        <div style={css('display:flex;gap:5px;flex-wrap:wrap;margin-top:6px')}>
+                          {s.cats.slice(0, 3).map((cat, i) => <span key={i} style={css('font-size:10.5px;font-weight:500;color:var(--text-2);background:var(--panel-3);padding:1px 7px;border-radius:5px')}>{cat}</span>)}
+                        </div>
+                      )}
+                    </div>
+                  </Box>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Controls */}
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
         <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:13px')}>
@@ -1739,7 +1780,7 @@ function TabSuppliers({ m }: MProps) {
   // Names already in the customer's network — the search marks matching results
   // as "In your network" and adding one refreshes the global list via m.reload.
   const networkNames = new Set<string>((m.suppliers || []).map((s) => s.name.toLowerCase()))
-  return <SupplierSearch projectId={m.activeProject.id} networkNames={networkNames} onAdded={m.reload} />
+  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} />
 }
 
 /* ----------------------------------------------------------------- RFQs tab */
@@ -2274,6 +2315,14 @@ function SupplierDrawer({ m }: MProps) {
                 <div style={css('font-size:12.5px;color:var(--text-3)')}>No communication yet.</div>
               )}
             </div>
+          </div>
+          <div style={css('border-top:1px solid var(--border);padding-top:18px')}>
+            <Box as="button"
+              onClick={() => { if (window.confirm(`Remove “${a.name}” from your network? This won't affect RFQs already sent.`)) m.deleteSupplier(a.id) }}
+              style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3);font-size:13px;font-weight:600')}
+              hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)">
+              <Svg size={15} sw={1.9} d={TRASH} />Remove from network
+            </Box>
           </div>
         </div>
       </div>
