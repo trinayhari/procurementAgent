@@ -91,6 +91,16 @@ def create_supplier(
     return row.to_dict()
 
 
+def delete_supplier(db: Session, supplier_id: str) -> bool:
+    """Remove a supplier from the directory. Returns False if it didn't exist."""
+    row = db.get(Supplier, supplier_id)
+    if row is None:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
 def list_comms(db: Session) -> List[dict]:
     rows = db.scalars(select(SupplierComm).order_by(SupplierComm.seq)).all()
     return [c.to_dict() for c in rows]

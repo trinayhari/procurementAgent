@@ -20,6 +20,7 @@ from app.repositories import projects as projects_repo
 from app.repositories import reference as reference_repo
 from app.repositories import rfqs as rfqs_repo
 from app.repositories import sourcing as sourcing_repo
+from app.repositories import suppliers as suppliers_repo
 from app.schemas.quote import QuoteIngestResult
 from app.schemas.rfq import (
     PersistedRfq,
@@ -420,9 +421,20 @@ def generate_rfq(
     _require_package(package, project_id, db)
     label = _package_label(db, project_id, package)
 
+    # Recipients can be freshly-discovered suppliers or ones already saved to the
+    # customer's network. Resolve found suppliers first, then fill any remaining
+    # ids from the supplier directory so a saved supplier can be RFQ'd directly.
     suppliers = sourcing_repo.get_found_suppliers_by_ids(db, payload.supplier_ids)
+    resolved = {s.get("id") for s in suppliers}
+    for sid in payload.supplier_ids:
+        if sid in resolved:
+            continue
+        saved = suppliers_repo.get_supplier(db, sid)
+        if saved:
+            suppliers.append(saved)
+            resolved.add(sid)
     if not suppliers:
-        raise HTTPException(status_code=400, detail="No matching found suppliers")
+        raise HTTPException(status_code=400, detail="No matching suppliers")
 
     # Approval gate: an RFQ only ever quotes human-confirmed BOM items.
     line_items, _seeded, pending = _line_items_for_package(

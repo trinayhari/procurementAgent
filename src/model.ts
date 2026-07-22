@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { tone, badge, chip, bar, ic, lb } from './lib'
-import { post, deleteProject as apiDeleteProject } from './api'
+import { post, deleteProject as apiDeleteProject, deleteSupplier as apiDeleteSupplier } from './api'
 import type { ModelData, PlanType, LineItemGroup, AuthUser } from './api'
 
 // ---- App state threaded through buildModel (held in App.tsx's useState) ----
@@ -448,6 +448,17 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     comparePackage: (pkg: string) => set({ compare: true, comparePkg: pkg }),
     projectId: s.projectId || activeProject.id || '', comparePkg: s.comparePkg || '',
     closeSupplier: () => set({ supplierId: null }),
+    // Remove a supplier from the network, then refresh the directory and close
+    // the drawer if the removed supplier was open.
+    deleteSupplier: async (id: string) => {
+      try {
+        await apiDeleteSupplier(id)
+        if (s.supplierId === id) set({ supplierId: null })
+        if (props && props.reload) await props.reload()
+      } catch {
+        set({ projError: 'Couldn’t remove the supplier — is the backend running?' })
+      }
+    },
     badgeBlue: badge('blue'), badgeSuccess: badge('success'), badgeWarn: badge('warn'),
     badgeDanger: badge('danger'), badgeViolet: badge('violet'), badgeGray: badge('gray'),
   }

@@ -319,6 +319,16 @@ export function createSupplier(payload: SupplierCreate): Promise<Supplier> {
   return post<Supplier>('/api/suppliers', payload)
 }
 
+// Remove a supplier from the customer's network.
+export function deleteSupplier(supplierId: string): Promise<void> {
+  return fetch(`${BASE}/api/suppliers/${supplierId}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  }).then((r) => {
+    if (!r.ok) throw new Error(`delete supplier -> ${r.status}`)
+  })
+}
+
 // ------------------------------------------------------------- generated RFQs
 // Generate a draft RFQ for a package from the chosen found-supplier ids.
 export function generateRfq(
