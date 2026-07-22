@@ -9,7 +9,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from email.mime.text import MIMEText
-from typing import Protocol
+from typing import Optional, Protocol
 
 from app.config import settings
 
@@ -41,29 +41,62 @@ class SentMessage:
 class EmailSender(Protocol):
     mocked: bool
 
-    def send(self, to: str, subject: str, body: str, *, from_addr: str) -> SentMessage:
-        """Send one email and return its Gmail message + thread ids."""
+    def send(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        *,
+        from_addr: str,
+        thread_id: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+    ) -> SentMessage:
+        """Send one email and return its Gmail message + thread ids.
+
+        `thread_id` (a Gmail thread id) and `in_reply_to` (the RFC822 Message-ID of
+        the message being replied to) make the email land inside an existing thread
+        — e.g. an award reply in the supplier's original RFQ conversation.
+        """
         ...
 
 
-def _build_mime(to: str, subject: str, body: str, from_addr: str) -> str:
+def _build_mime(
+    to: str,
+    subject: str,
+    body: str,
+    from_addr: str,
+    in_reply_to: Optional[str] = None,
+) -> str:
     msg = MIMEText(body)
     msg["To"] = to
     msg["From"] = from_addr
     msg["Subject"] = subject
+    if in_reply_to:
+        # Both headers so replying clients (and Gmail) thread it under the RFQ.
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
     return base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
 
 class MockSender:
     mocked = True
 
-    def send(self, to: str, subject: str, body: str, *, from_addr: str) -> SentMessage:
+    def send(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        *,
+        from_addr: str,
+        thread_id: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+    ) -> SentMessage:
         mid = f"mock-{uuid.uuid4().hex[:12]}"
         logger.info(
-            "[MOCK SEND] id=%s from=%s to=%s subject=%r (%d chars)",
-            mid, from_addr, to, subject, len(body),
+            "[MOCK SEND] id=%s from=%s to=%s subject=%r thread=%s (%d chars)",
+            mid, from_addr, to, subject, thread_id or "-", len(body),
         )
-        return SentMessage(message_id=mid, thread_id=mid)
+        return SentMessage(message_id=mid, thread_id=thread_id or mid)
 
 
 class GmailSender:
@@ -92,14 +125,26 @@ class GmailSender:
             raise GmailUnavailable(f"Gmail token refresh failed: {exc}") from exc
         return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
-    def send(self, to: str, subject: str, body: str, *, from_addr: str) -> SentMessage:
+    def send(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        *,
+        from_addr: str,
+        thread_id: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+    ) -> SentMessage:
         service = self._service()
-        raw = _build_mime(to, subject, body, from_addr)
+        raw = _build_mime(to, subject, body, from_addr, in_reply_to)
+        message: dict = {"raw": raw}
+        if thread_id:
+            message["threadId"] = thread_id
         try:
             sent = (
                 service.users()
                 .messages()
-                .send(userId="me", body={"raw": raw})
+                .send(userId="me", body=message)
                 .execute()
             )
         except Exception as exc:

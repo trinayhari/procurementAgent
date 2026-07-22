@@ -58,6 +58,26 @@ def test_line_comparison_and_award_records_decision(project):
     assert r.json()[0]["suppliers"] == r.json()[1]["suppliers"]
 
 
+def test_award_emails_suppliers_and_records_it(project):
+    client, headers, pid = project
+    bom_id, _rfq = _run_flow_to_quotes(client, headers, pid)
+
+    r = client.post(
+        f"/api/projects/{pid}/packages/{bom_id}/award",
+        headers=headers,
+        json={"selections": {}, "strategy": "mix"},
+    )
+    assert r.status_code == 200
+    assert "notified" in r.json()["message"]  # award message reports the notifications
+
+    events = client.get("/api/audit", headers=headers).json()
+    notified = [e for e in events if e["action"] == "package.award_notified"]
+    assert notified, "expected a package.award_notified audit event"
+    detail = notified[0]["detail"]
+    assert detail["mock"] is True  # tests never hit real Gmail
+    assert detail["awarded"]  # at least one awarded supplier was emailed
+
+
 def test_audit_covers_the_whole_workflow(project):
     client, headers, pid = project
     bom_id, _rfq = _run_flow_to_quotes(client, headers, pid)
