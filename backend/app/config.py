@@ -66,6 +66,17 @@ class Settings(BaseSettings):
     # the tile grid already recovers small-text legibility.
     vision_tile_dpi: int = 150
     vision_tile_overlap: float = 0.08
+    # Denser tile grid for TARGETED vision passes (text-pass escalation and
+    # category top-up read only a few matched sheets, so the extra tiles are
+    # affordable). Small plan symbols — receptacles, fixtures, switches — blur
+    # at the standard grid on 48x36 sheets; the dense grid keeps them countable.
+    vision_dense_tile_cols: int = 4
+    vision_dense_tile_rows: int = 3
+    # Text-first escape hatch: when the one-shot text pass returns fewer items
+    # than this, the text layer clearly didn't carry the discipline's content
+    # (symbols, not text — e.g. electrical devices on MEP sheets), so the
+    # pipeline escalates to the per-sheet vision path on the relevant sheets.
+    text_pass_min_items: int = 3
 
     # ------------------------------------------------ Google Maps Platform
     # Geocoding (project loc → lat/lng) + Places Text Search/Details (supplier

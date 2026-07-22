@@ -126,10 +126,19 @@ def extract_timeline_images(images_b64: List[str]) -> TimelineExtraction:
     return _parse(_client(), messages, response_format=TimelineExtraction)
 
 
-def consolidate(spec: PlanTypeSpec, per_sheet_items: List[dict]) -> VisionExtraction:
-    """Text-only pass: merge sheet-by-sheet items into one deduplicated BOM."""
+def consolidate(
+    spec: PlanTypeSpec, per_sheet_items: List[dict], sheet_contexts: List[str] = None
+) -> VisionExtraction:
+    """Text-only pass: merge sheet-by-sheet items into one deduplicated BOM.
+
+    `sheet_contexts` carries each sheet's self-description (what it draws, how
+    many units, which are annotated) so the merge can scale typical-unit counts.
+    """
     messages = [
         {"role": "system", "content": build_consolidation_system_prompt()},
-        {"role": "user", "content": build_consolidation_user_prompt(spec, per_sheet_items)},
+        {
+            "role": "user",
+            "content": build_consolidation_user_prompt(spec, per_sheet_items, sheet_contexts),
+        },
     ]
     return _parse(_client(), messages)

@@ -49,6 +49,12 @@ class PlanTypeSpec(BaseModel):
     # are destroyed. For these, force the per-sheet VISION path even though a text
     # layer exists, so the model reads the schedules/plans as legible images.
     prefer_vision: bool = False
+    # Which drawing disciplines (see sheets.DISCIPLINE_KEYWORDS) this plan type
+    # reads. Uploaded sets are often COMBINED (an "approval plan" bundles
+    # architectural + MEP + energy sheets), so each plan type extracts only from
+    # its own sheets: pages whose title/text matches another discipline are
+    # skipped, unclassifiable pages are kept. Empty = read every sheet.
+    sheet_disciplines: List[str] = []
     enabled: bool = True  # disabled specs appear greyed-out / "coming soon" in the UI
     # A "slot" plan type — a project holds at most ONE document of this type, so
     # re-uploading replaces the prior one (see documents_repo / the upload route).

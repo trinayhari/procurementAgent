@@ -45,6 +45,7 @@ register(
             "the item but set quantity to null and write 'shown as TYP., count not "
             "specified' in `assumptions` — do not guess a count and do not omit it."
         ),
+        sheet_disciplines=["civil"],
         categories=[
             BomCategory(
                 key="water",
@@ -220,9 +221,17 @@ register(
             "estimate that number from the plan when it is not stated and note the "
             "basis. Capture precast, post-tensioning, and applied fireproofing only "
             "when the drawings show them. Estimate from the geometry, but never "
-            "fabricate a precise figure you cannot trace back to something drawn."
+            "fabricate a precise figure you cannot trace back to something drawn.\n"
+            "GENERAL NOTES state DEFAULTS and MINIMUMS ('all concrete 3,000 psi min "
+            "U.N.O.'), not separate materials: when a plan callout or schedule gives "
+            "the governing value for an element, emit ONE line with that value — do "
+            "not also emit the note's minimum as its own line. Never list design "
+            "ALTERNATES as if both are being built (a post-tensioned AND a "
+            "conventionally-reinforced slab): extract the system the plans actually "
+            "detail and mention the alternate in `assumptions`."
         ),
         prefer_vision=True,  # CAD building text layer is scrambled — read sheets as images
+        sheet_disciplines=["structural"],
         categories=[
             BomCategory(
                 key="concrete",
@@ -419,8 +428,14 @@ register(
             "stated, list the item with quantity null and say 'shown as TYP., count "
             "not specified'. Deduplicate runs/feeders that appear on more than one "
             "sheet (plan + one-line + riser) — count each once. Never invent a "
-            "quantity."
+            "quantity.\n"
+            "RESIDENTIAL / COMBINED SETS: electrical scope often lives on 'MEP' "
+            "sheets that mix electrical with plumbing and HVAC. Extract ONLY the "
+            "electrical items from them. Dwelling-unit plans use NM cable (Romex) "
+            "home runs rather than conduit; devices and fixtures are still counted "
+            "from the plan symbols per unit."
         ),
+        sheet_disciplines=["electrical"],
         categories=[
             BomCategory(
                 key="raceway",
@@ -531,6 +546,10 @@ register(
                     "12\"x12\"x6\" Pull Box",
                 ],
                 typical_units=["EA", "LF"],
+                # Devices are SYMBOLS counted against a legend — the text layer
+                # has no counts. Vision the power/MEP sheets when empty.
+                vision_fallback=True,
+                sheet_keywords=["POWER PLAN", "ELECTRICAL PLAN", "MEP", "ELETRICAL"],
             ),
             BomCategory(
                 key="lighting",
@@ -558,9 +577,10 @@ register(
                 typical_units=["EA"],
                 # Lighting/power plans are graphical — fixtures and devices are
                 # symbols counted against a legend, not text — so the text layer
-                # often carries no counts. Vision the lighting/power sheets.
+                # often carries no counts. Vision the lighting/power/MEP sheets
+                # ("ELETRICAL" is a real-world title-block misspelling).
                 vision_fallback=True,
-                sheet_keywords=["LIGHTING PLAN", "POWER PLAN", "ELECTRICAL PLAN"],
+                sheet_keywords=["LIGHTING PLAN", "POWER PLAN", "ELECTRICAL PLAN", "MEP", "ELETRICAL"],
             ),
             BomCategory(
                 key="grounding",
