@@ -26,7 +26,9 @@ SYSTEM_PROMPT = (
     "The BOM is for the WHOLE project: scale typical-unit counts by the number of units "
     "they apply to, state that math in `assumptions` (e.g. '12 per unit × 8 units'), and "
     "keep end-unit vs interior-unit variants separate when the plans distinguish them. "
-    "Do NOT collapse eight repeated units into a count for one."
+    "Do NOT collapse eight repeated units into a count for one. Conversely, when the set "
+    "draws a single unit or building with no stated repetition, extract as drawn — do "
+    "not scale anything."
 )
 
 

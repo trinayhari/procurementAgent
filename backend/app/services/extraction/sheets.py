@@ -48,8 +48,7 @@ DISCIPLINE_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
         "strong": ["STRUCTURAL", "STRUCUTRAL", "FRAMING", "FOUNDATION"],
         "weak": ["FLOOR PLAN", "ROOF PLAN", "ELEVATION", "CROSS SECTION",
                  "WALL SECTION", "FOOTING", "SHEAR WALL", "BRACE WALL", "TRUSS",
-                 "JOIST", "RAFTER", "STUD", "LVL", "SHEATHING", "COVER SHEET",
-                 "DRAWING INDEX"],
+                 "JOIST", "RAFTER", "STUD", "LVL", "SHEATHING"],
     },
     "electrical": {
         "strong": ["ELECTRICAL", "ELETRICAL", "MEP", "LUMINAIRE", "PANELBOARD",
@@ -78,6 +77,30 @@ MEP_FAMILY = ("electrical", "plumbing", "mechanical")
 # Base disciplines whose words also appear as MEP-sheet background.
 BASE_FAMILY = ("structural", "civil")
 
+# Sheet-NUMBER prefixes — the industry convention commercial sets rely on
+# (E-101 electrical, S2.1 structural, C3.01 civil, M-1 mechanical, P-201
+# plumbing) where title text may be sparse or graphic-only. Matched only in
+# unambiguous forms — hyphenated (E-1), 2-3 digits (E101), or dotted (C3.01) —
+# so letter+single-digit tokens that mean OTHER things on drawings (S1/S3
+# switch labels, E4/C2 column-grid bubbles) never count. 'A' is deliberately
+# unmapped: residential sets number EVERY sheet A-x, MEP included (both test
+# sets do), so it carries no discipline signal.
+SHEET_NUMBER_PREFIXES = {
+    "E": "electrical",
+    "S": "structural",
+    "C": "civil",
+    "M": "mechanical",
+    "P": "plumbing",
+}
+_SHEET_NUMBER_RE = re.compile(r"\b([ESMPC])(?:-\d{1,3}(?:\.\d{1,2})?|\d{2,3}(?:\.\d{1,2})?|\d\.\d{1,2})\b")
+
+# Cover / drawing-index pages enumerate EVERY discipline's sheets, so
+# discipline scoring inherently misfires on them. They carry project-wide data
+# (building data, unit counts) useful to all disciplines, so they classify as
+# "general" and are kept for every plan type, excluded from none.
+COVER_MARKERS = ["COVER SHEET", "DRAWING INDEX", "SHEET INDEX", "CVR"]
+GENERAL = "general"
+
 
 def _score(text_upper: str, tiers: Dict[str, List[str]]) -> int:
     score = 0
@@ -88,13 +111,34 @@ def _score(text_upper: str, tiers: Dict[str, List[str]]) -> int:
     return score
 
 
+def _prefix_tokens(text_upper: str) -> Dict[str, set]:
+    """Distinct sheet-number tokens found, grouped by their discipline."""
+    tokens: Dict[str, set] = {}
+    for m in _SHEET_NUMBER_RE.finditer(text_upper):
+        tokens.setdefault(SHEET_NUMBER_PREFIXES[m.group(1)], set()).add(m.group(0))
+    return tokens
+
+
 def _scores(text: str) -> Dict[str, int]:
     up = text.upper()
-    return {d: _score(up, tiers) for d, tiers in DISCIPLINE_KEYWORDS.items()}
+    scores = {d: _score(up, tiers) for d, tiers in DISCIPLINE_KEYWORDS.items()}
+    # Sheet-number prefix signal, 2 per DISTINCT token, capped at 4 per
+    # discipline — cross-references ("SEE E-1") name other sheets, so this
+    # signal may tip a sparse page but never drown title/content words.
+    for d, toks in _prefix_tokens(up).items():
+        scores[d] += min(len(toks) * 2, 4)
+    return scores
 
 
 def classify_page(text: str) -> Optional[str]:
-    """Primary discipline of one page's text, or None when unclassifiable."""
+    """Primary discipline of one page's text, GENERAL for cover/index pages,
+    or None when unclassifiable."""
+    up = text.upper()
+    # Sheet numbers spanning 3+ disciplines = a drawing index, whatever else
+    # the page says (an actual working sheet references 1-2 other disciplines
+    # at most).
+    if any(k in up for k in COVER_MARKERS) or len(_prefix_tokens(up)) >= 3:
+        return GENERAL
     scores = _scores(text)
     if not any(scores.values()):
         return None
@@ -152,7 +196,9 @@ def select_sheets(spec: PlanTypeSpec, pages: List[dict], total_pages: int) -> Sh
         ):
             matched.append(p["index"])
 
-    unknown = [i for i in all_indices if primary.get(i) is None]  # no text or no hits
+    # Neutral pages are kept for every plan type: no text / no keyword hits,
+    # and cover/index pages (project-wide data serves all disciplines).
+    unknown = [i for i in all_indices if primary.get(i) in (None, GENERAL)]
     excluded = [i for i in all_indices if i not in matched and i not in unknown]
 
     # Nothing positively matched → classification has no signal for this spec on
