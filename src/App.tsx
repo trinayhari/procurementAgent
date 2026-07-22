@@ -2011,7 +2011,10 @@ function TabCompare({ m }: MProps) {
     if (opt) { setSel({ ...opt.selections }); setStrategy(key); setMsg(null) }
   }
   const pick = (line: string, supId: string) => {
-    setSel((p) => ({ ...p, [line]: supId })); setStrategy('custom'); setMsg(null)
+    // Toggle: clicking the already-selected supplier unselects the line (empty
+    // string = "dropped from the award"; the backend leaves an explicitly-cleared
+    // line out rather than auto-filling it).
+    setSel((p) => ({ ...p, [line]: p[line] === supId ? '' : supId })); setStrategy('custom'); setMsg(null)
   }
 
   const back = (
@@ -2034,6 +2037,7 @@ function TabCompare({ m }: MProps) {
   }
   const budgetPct = lc.budget ? Math.min(100, (sum.total / lc.budget) * 100) : null
   const overBudget = lc.budget != null && sum.total > lc.budget
+  const nothingSelected = sum.deliveries === 0
 
   return (
     <>
@@ -2082,11 +2086,19 @@ function TabCompare({ m }: MProps) {
                 </div>
               ))}
             </div>
-            {lc.lines.map((line) => (
+            {lc.lines.map((line) => {
+              const assigned = !!sel[line.name]
+              return (
               <div key={line.name} style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('border-bottom:1px solid var(--border)') }}>
                 <div style={css('padding:12px 16px;display:flex;flex-direction:column;justify-content:center;gap:2px')}>
                   <span style={css('font-size:12.5px;font-weight:600;line-height:1.25')}>{line.name}</span>
                   <span style={css('font-size:11px;color:var(--text-3)')}>{line.qty}</span>
+                  {!assigned && (
+                    <span style={css(`display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;margin-top:2px;color:${line.pending ? 'var(--text-3)' : 'var(--warn)'}`)}>
+                      <span style={css(`width:5px;height:5px;border-radius:999px;background:${line.pending ? 'var(--text-3)' : 'var(--warn)'}`)} />
+                      {line.pending ? 'Quote pending' : 'Not awarded'}
+                    </span>
+                  )}
                 </div>
                 {lc.suppliers.map((su) => {
                   const cell = line.cells.find((c) => c.supplierId === su.id)
@@ -2107,7 +2119,8 @@ function TabCompare({ m }: MProps) {
                   )
                 })}
               </div>
-            ))}
+              )
+            })}
           </div></div>
         </div>
 
@@ -2132,7 +2145,7 @@ function TabCompare({ m }: MProps) {
             </div>
             {sum.savings > 0 && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>Saves {money(sum.savings)} vs. the best single supplier.</div>}
             {msg && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{msg}</div>}
-            <button onClick={busy ? undefined : submit} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy ? 'opacity:.6' : ''}`)}>{busy ? 'Submitting…' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            <button onClick={busy || nothingSelected ? undefined : submit} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : nothingSelected ? 'Select at least one line' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
           </div>
         </div>
       </div>

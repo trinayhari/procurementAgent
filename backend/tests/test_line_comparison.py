@@ -112,6 +112,40 @@ def test_compute_award_ignores_pending_lines(monkeypatch):
     assert award["poCount"] == 2
 
 
+def test_compute_award_drops_explicitly_unselected_line(monkeypatch):
+    quotes = [
+        _quote("a", "Alpha", 100.0, 20.0, [_line("Pipe", 10, 1000, 10), _line("Valve", 50, 500, 20), dict(PENDING)]),
+        _quote("b", "Beta", 80.0, 40.0, [_line("Pipe", 12, 1200, 5), _line("Valve", 45, 450, 8), dict(PENDING)]),
+    ]
+    _patch_quotes(monkeypatch, quotes)
+
+    # Pipe explicitly cleared ("" — the panel's unselect); Valve → Beta.
+    award = lc.compute_award(db=None, project_id="p", package="water", selections={"Pipe": "", "Valve": "b"})
+    assert award is not None
+    assert "Pipe" not in award["selections"] and award["selections"]["Valve"] == "b"
+    assert award["material"] == 450.0
+    assert award["freight"] == 80.0  # only Beta's freight
+    assert award["total"] == 530.0
+    assert award["poCount"] == 1
+
+    # A *missing* Pipe key still auto-fills cheapest — strategy/partial path unchanged.
+    keep = lc.compute_award(db=None, project_id="p", package="water", selections={"Valve": "b"})
+    assert keep["selections"]["Pipe"] == "a"  # cheapest
+    assert keep["material"] == 1450.0 and keep["poCount"] == 2
+
+
+def test_compute_award_all_lines_unselected_costs_nothing(monkeypatch):
+    quotes = [
+        _quote("a", "Alpha", 100.0, 20.0, [_line("Pipe", 10, 1000, 10), _line("Valve", 50, 500, 20)]),
+        _quote("b", "Beta", 80.0, 40.0, [_line("Pipe", 12, 1200, 5), _line("Valve", 45, 450, 8)]),
+    ]
+    _patch_quotes(monkeypatch, quotes)
+
+    award = lc.compute_award(db=None, project_id="p", package="water", selections={"Pipe": "", "Valve": ""})
+    assert award is not None
+    assert award["selections"] == {} and award["poCount"] == 0 and award["total"] == 0
+
+
 def test_all_lines_pending_yields_no_award(monkeypatch):
     quotes = [
         _quote("a", "Alpha", 100.0, 20.0, [dict(PENDING)]),

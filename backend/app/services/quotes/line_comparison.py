@@ -246,9 +246,11 @@ def compute_award(
 ) -> Optional[dict]:
     """Cost/lead/supplier summary for a submitted {line: supplierId} selection.
 
-    Returns None when there are no quotes. Unknown lines are ignored; lines left
-    unassigned fall back to that package's cheapest available supplier so a partial
-    submission still produces a complete, awardable basket.
+    Returns None when there are no quotes. A line the buyer explicitly cleared
+    (empty-string selection — the panel's "unselect") is dropped from the award; a
+    line simply left unassigned (missing key) falls back to that package's cheapest
+    available supplier, so a strategy or partial submission still produces a
+    complete, awardable basket.
     """
     quotes = quotes_repo.list_quotes(db, project_id, package)
     if not quotes:
@@ -279,6 +281,12 @@ def compute_award(
 
     resolved: Dict[str, str] = {}
     for name in priceable:
+        # An explicit empty selection ("" — the panel's unselect) means the buyer
+        # deliberately dropped this line: leave it out of the award. A *missing* key
+        # still auto-fills the cheapest supplier, so strategy/partial submissions
+        # remain complete.
+        if name in selections and not selections[name]:
+            continue
         sid = selections.get(name)
         if sid not in by_sup or (by_sup[sid].get(name) or {}).get("extended") is None:
             # Selection missing or that supplier didn't price this line → fall back
@@ -293,7 +301,9 @@ def compute_award(
         if sid is not None:
             resolved[name] = sid
 
-    cost = _cost_of(resolved, priceable, by_sup, freight)
+    # Cost only the lines that resolved to a supplier (drops user-cleared lines) so
+    # a valid partial award still costs out; _cost_of requires every line it's given.
+    cost = _cost_of(resolved, list(resolved), by_sup, freight)
     if cost is None:
         return None
     used = cost["used"]
