@@ -2019,6 +2019,45 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "suppliers"
+        ],
+        "summary": "Delete Supplier",
+        "description": "Remove a supplier from the customer's network.",
+        "operationId": "delete_supplier_api_suppliers__supplier_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "supplier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Supplier Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/documents/plan-types": {
