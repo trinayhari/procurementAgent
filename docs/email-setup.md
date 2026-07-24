@@ -36,7 +36,7 @@ how to verify it end to end.
    **"Google Auth Platform → Branding/Audience"** in the new console).
 2. User type: **External** (unless the account is in your own Google
    Workspace org — then **Internal** is simpler and skips Step 2.5).
-3. Fill the required fields (app name e.g. `ProcureAI`, support email,
+3. Fill the required fields (app name e.g. `Proq`, support email,
    developer email). No logo/domains needed.
 4. **Scopes**: you can skip adding scopes here — the token-mint script
    requests them directly. (Adding `.../auth/gmail.send` and
@@ -60,7 +60,7 @@ how to verify it end to end.
 3. On your machine:
 
    ```bash
-   cd backend
+   cd apps/api
    .venv/bin/python scripts/mint_gmail_token.py path/to/client_secret_xxx.json
    ```
 
@@ -74,7 +74,7 @@ how to verify it end to end.
 
 ## Step 4 — Configure the backend `.env`
 
-Edit `backend/.env` (create it from `backend/.env.example` if needed):
+Edit `apps/api/.env` (create it from `apps/api/.env.example` if needed):
 
 ```bash
 PROCUREAI_GMAIL_CLIENT_ID=<from the script output>

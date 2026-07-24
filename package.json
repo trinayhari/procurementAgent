@@ -2,26 +2,18 @@
   "name": "proq",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "gen:api": "(cd backend && ${PYTHON:-.venv/bin/python} scripts/export_openapi.py) && openapi-typescript backend/openapi.json -o src/api-types.ts"
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "dev": "npm run dev --workspace @proq/web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "gen:api": "(cd apps/api && ${PYTHON:-.venv/bin/python} scripts/export_openapi.py) && openapi-typescript apps/api/openapi.json -o apps/web/src/api-types.ts"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^4.3.4",
     "openapi-typescript": "^7.13.0",
-    "playwright": "^1.61.0",
-    "typescript": "^6.0.3",
-    "vite": "^5.4.11"
+    "playwright": "^1.61.0"
   }
 }

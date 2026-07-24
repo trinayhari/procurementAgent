@@ -65,7 +65,7 @@ def main() -> int:
         return 1
 
     print("\n" + "=" * 64)
-    print("SUCCESS — paste these into backend/.env")
+    print("SUCCESS — paste these into apps/api/.env")
     print("=" * 64)
     print(f"PROCUREAI_GMAIL_CLIENT_ID={client_id}")
     print(f"PROCUREAI_GMAIL_CLIENT_SECRET={client_secret}")

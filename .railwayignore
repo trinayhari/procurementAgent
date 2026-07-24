@@ -1,0 +1,22 @@
+# Railway build context, uploaded by `railway up` from the repo root.
+#
+# The CD job deploys from the repo root (not apps/api) so that the service's
+# dashboard "Root Directory" setting — apps/api — applies identically to CLI
+# uploads and GitHub-triggered deploys. Railway scopes the build to that
+# directory; everything stripped below just keeps the upload small.
+#
+# .gitignore is respected too, so node_modules/, .venv/, *.db, dist/ and
+# apps/api/uploads/ are already excluded and are not repeated here.
+
+# Other workspaces — the backend build never reads them.
+apps/web/
+
+# Docs, fixtures and local tooling.
+docs/
+sample-docs/
+design.md
+DEPLOYMENT.md
+README.md
+.github/
+.claude/
+.vercel/

@@ -1,6 +1,6 @@
-# ProcureAI Backend
+# Proq Backend
 
-FastAPI REST/JSON API for the ProcureAI procurement OS. **All data is persisted**
+FastAPI REST/JSON API for the Proq procurement OS. **All data is persisted**
 via SQLAlchemy (schema owned by Alembic) — projects, documents, suppliers, quotes,
 RFQs, plus the dashboard/comparison/timeline/RFQ-inbox reference data. On first run
 each table is seeded from the literals in `app/repositories/seed.py`; after that the
@@ -11,9 +11,9 @@ The default database is a zero-config local **SQLite** file. A production-grade
 **PostgreSQL** service is part of the stack via `docker-compose.yml`:
 
 ```bash
-cd backend
+cd apps/api
 docker compose up -d                 # start Postgres
-# then in backend/.env:
+# then in apps/api/.env:
 # PROCUREAI_DATABASE_URL=postgresql+psycopg2://procureai:procureai@localhost:5432/procureai
 alembic upgrade head                 # create the schema in Postgres
 ```
@@ -30,7 +30,7 @@ the app still runs without Docker.
 ## Setup
 
 ```bash
-cd backend
+cd apps/api
 python3.8 -m venv .venv          # or any Python >=3.8
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -122,7 +122,7 @@ scripts/             dev scripts — export_openapi.py dumps openapi.json for th
   the frontend's BOM groups.
 - **Offline mode.** With no `PROCUREAI_OPENAI_API_KEY`, a clearly-flagged mock
   extraction runs so the upload UX works without API access. Set the key for live
-  extraction. See `backend/.env.example` for all tunables (model, DPI, page cap).
+  extraction. See `apps/api/.env.example` for all tunables (model, DPI, page cap).
 - **Human-in-the-loop.** AI extraction is a first draft. An estimator reviews the
   BOM in the Documents tab, edits items/quantities (`PUT …/line-items`, which
   recomputes counts and flags the doc `edited`), and approves it (`POST …/confirm`,

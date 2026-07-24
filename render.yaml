@@ -1,6 +1,6 @@
-# Render Blueprint — provisions the ProcureAI backend as a long-running uvicorn
+# Render Blueprint — provisions the Proq backend as a long-running uvicorn
 # service plus a managed Postgres database. Render reads this file from the repo
-# root; the `rootDir` below scopes the build/start to the backend/ folder.
+# root; the `rootDir` below scopes the build/start to the apps/api/ folder.
 #
 # Deploy: https://dashboard.render.com → New → Blueprint → pick this repo.
 # After the first deploy, set the secret env vars marked `sync: false` in the
@@ -16,7 +16,7 @@ services:
   - type: web
     name: procureai-api
     runtime: python
-    rootDir: backend
+    rootDir: apps/api
     plan: free # free web services sleep after inactivity; `starter` to keep warm
     buildCommand: pip install -r requirements.txt
     # Apply migrations, then serve. Running alembic before uvicorn starts means

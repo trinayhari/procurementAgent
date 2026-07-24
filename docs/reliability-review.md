@@ -23,7 +23,7 @@ is now enforced (with the test that proves it) and what remains open.
 - ✅ `PROCUREAI_ENV=production` refuses to boot with the default JWT secret
   (CI verifies this) and warns when CORS is localhost-only.
 - ✅ `render.yaml` sets production mode + a generated secret.
-- ⚠️ Local `backend/.env` previously held live credentials that were exercised
+- ⚠️ Local `apps/api/.env` previously held live credentials that were exercised
   during development; they should be **rotated** (OpenRouter key, Google Maps
   key, and especially the Gmail refresh token).
 

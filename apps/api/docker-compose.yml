@@ -1,6 +1,6 @@
-# Postgres for the ProcureAI backend — the "proper DB system" that's part of the
-# stack. Start it with `docker compose up -d` from the backend/ directory, then
-# point the app at it by setting (in backend/.env):
+# Postgres for the Proq backend — the "proper DB system" that's part of the
+# stack. Start it with `docker compose up -d` from the apps/api/ directory, then
+# point the app at it by setting (in apps/api/.env):
 #
 #   PROCUREAI_DATABASE_URL=postgresql+psycopg2://procureai:procureai@localhost:5432/procureai
 #

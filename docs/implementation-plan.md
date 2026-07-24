@@ -55,7 +55,7 @@ actions record *who* did them. Everything else from
 ### M4 — Frontend
 - Central fetch wrapper attaches `Authorization: Bearer` to every call;
   401 → clear token, return to login.
-- Regenerate `src/api-types.ts`; surface duplicate-send / not-sendable
+- Regenerate `apps/web/src/api-types.ts`; surface duplicate-send / not-sendable
   errors in the RFQ modal.
 
 ### M5 — Tests + CI
