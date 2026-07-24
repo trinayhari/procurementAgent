@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -29,12 +30,13 @@ from app.repositories import events as events_repo
 from app.repositories import timeline as timeline_repo
 from app.schemas.document import (
     Document,
+    DocumentPreview,
     LineItemGroup,
     LineItemsUpdate,
     ManualBomCreate,
     PlanType,
 )
-from app.services import extraction, storage
+from app.services import extraction, preview, storage
 from app.services.extraction import isolated as extraction_isolated
 from app.services.extraction import pdf
 
@@ -91,6 +93,75 @@ def get_document_file_url(document_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No previewable file for this document")
     token = create_scoped_token(document_id, f"file:{document_id}", _FILE_TOKEN_MINUTES)
     return {"url": f"/api/documents/{document_id}/file?token={token}", "expiresInMinutes": _FILE_TOKEN_MINUTES}
+
+
+@router.get("/{document_id}/preview", response_model=DocumentPreview)
+def get_document_preview(document_id: str, db: Session = Depends(get_db)):
+    """Page count + signed URLs for previewing a document.
+
+    The panel renders server-side page images rather than embedding the original
+    file, so it doesn't depend on the browser shipping a PDF viewer (embedded
+    webviews don't have one — see services/preview.py). `pageUrl` carries a
+    `{page}` placeholder the client fills in per page.
+    """
+    doc = documents_repo.get(db, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    locator = doc.source_path
+    if not storage.exists(locator):
+        raise HTTPException(status_code=404, detail="No previewable file for this document")
+
+    token = create_scoped_token(document_id, f"file:{document_id}", _FILE_TOKEN_MINUTES)
+    file_url = f"/api/documents/{document_id}/file?token={token}"
+
+    pages = preview.page_count(locator, known=doc.pages or 0) if preview.is_renderable(locator) else 0
+    # Probing costs a subprocess; persist what we learn so older rows (uploaded
+    # before the count was recorded) only pay it once.
+    if pages and pages != doc.pages:
+        documents_repo.update_status(db, document_id, pages=pages)
+    return {
+        "pages": pages,
+        "pageUrl": f"/api/documents/{document_id}/page/{{page}}?token={token}" if pages else None,
+        "fileUrl": file_url,
+        "expiresInMinutes": _FILE_TOKEN_MINUTES,
+    }
+
+
+@file_router.get("/{document_id}/page/{page}")
+def get_document_page(document_id: str, page: int, token: str = "", db: Session = Depends(get_db)):
+    """Serve one page of a document as an image, authorized by the same signed
+    token as /file (an <img> tag can't send an Authorization header either).
+
+    Rendering is isolated in a child process and cached on disk, so a malformed
+    PDF can't take down the API and a page is only rasterised once."""
+    if not token or verify_scoped_token(token, f"file:{document_id}") is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired file token")
+    doc = documents_repo.get(db, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    locator = doc.source_path
+    if not storage.exists(locator) or not preview.is_renderable(locator):
+        raise HTTPException(status_code=404, detail="No previewable file for this document")
+    # Reject an impossible page before rendering: each miss otherwise costs a
+    # subprocess, so /page/999999 in a loop would be a cheap way to load the box.
+    if page < 0 or (doc.pages and page >= doc.pages):
+        raise HTTPException(status_code=404, detail=f"Page {page} does not exist in this document")
+    try:
+        rendered = preview.render_page(
+            locator, page, cache_key=doc.checksum_sha256 or locator,
+        )
+    except preview.PageOutOfRange:
+        raise HTTPException(status_code=404, detail=f"Page {page} does not exist in this document")
+    except preview.RenderFailed as exc:
+        logger.warning("Preview render failed: doc=%s page=%s error=%s", document_id, page, exc)
+        raise HTTPException(status_code=502, detail="Could not render this page")
+    # Pages are immutable for a given document + width, and the URL is already
+    # scoped to a short-lived token, so let the browser keep them.
+    return Response(
+        content=rendered.data,
+        media_type=rendered.media_type,
+        headers={"Cache-Control": f"private, max-age={_FILE_TOKEN_MINUTES * 60}"},
+    )
 
 
 @file_router.get("/{document_id}/file")

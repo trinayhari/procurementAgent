@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties, DragEvent, FormEvent, MouseEvent } from 'react'
+import type { CSSProperties, DragEvent, FormEvent, MouseEvent, ReactNode } from 'react'
 import { Box, DcIcon, css, ic, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
@@ -8,7 +8,7 @@ import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  getDocumentFileUrl, sendTestEmail,
+  getDocumentPreview, sendTestEmail,
   listProjectBoms, createSupplier,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
@@ -106,8 +106,8 @@ function parseHash(): Partial<State> {
     // stuck on and the URL mirror would immediately rewrite the compare hash.
     return { nav: 'project', projectId: seg[1], tab: seg[2] || 'overview', compare: false, comparePkg: undefined }
   }
-  if (['projects', 'suppliers', 'settings', 'ds', 'dashboard'].includes(seg[0])) {
-    return { nav: seg[0], compare: false, comparePkg: undefined }
+  if (['projects', 'suppliers', 'settings', 'dashboard'].includes(seg[0])) {
+    return { nav: seg[0] }
   }
   return {}
 }
@@ -335,7 +335,6 @@ export default function App() {
           {m.isProjects && <Projects m={m} />}
           {m.isSuppliers && <Suppliers m={m} />}
           {m.isSettings && <Settings m={m} />}
-          {m.isDS && <DesignSystem m={m} />}
           {m.isProject && <ProjectWorkspace m={m} />}
         </main>
       </div>
@@ -374,10 +373,6 @@ function Sidebar({ m }: MProps) {
         </Box>
       </nav>
       <div style={{ flex: 1 }}></div>
-      <Box as="button" onClick={m.goDS} style={m.navStyle.ds} hover="background:var(--panel-2)">
-        <Svg sw={1.9} d='<circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="13" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="14.5" r="2.5"/><path d="M12 22a5 5 0 0 1-3-9"/>' />
-        <span style={css('flex:1;text-align:left')}>Design System</span>
-      </Box>
       <div style={css('display:flex;align-items:center;gap:10px;margin-top:8px;padding:9px 8px;border-top:1px solid var(--border)')}>
         <div style={css('width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none')}>{m.userInitials}</div>
         <div style={css('display:flex;flex-direction:column;line-height:1.2;min-width:0;flex:1')}>
@@ -490,7 +485,7 @@ function Dashboard({ m }: MProps) {
             <span style={css('width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px var(--success-soft)')}></span>
           </div>
           <div style={css('padding:6px 8px')}>
-            {m.activity.map((a, i) => (
+            {m.activity.slice(0, 6).map((a, i) => (
               <Box key={i} style={css('display:flex;gap:11px;padding:10px;border-radius:10px')} hover="background:var(--panel-2)">
                 <div style={a.chipStyle}><IconHtml html={a.iconHtml} /></div>
                 <div style={css('flex:1;min-width:0')}>
@@ -778,62 +773,6 @@ function Settings({ m }: MProps) {
           <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
             <div><div style={css('font-size:13.5px;font-weight:600')}>Email notifications</div><div style={css('font-size:12px;color:var(--text-3)')}>Quote received & risk alerts</div></div>
             <span style={toggleOn}><span style={css('position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff')}></span></span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------- DesignSystem */
-function DesignSystem({ m }: MProps) {
-  const swatch = (bg: string, label: string, extra?: CSSProperties) => (
-    <div><div style={{ height: 46, borderRadius: 9, background: bg, ...(extra || {}) }}></div><div style={css('font-size:10.5px;color:var(--text-3);margin-top:5px')}>{label}</div></div>
-  )
-  return (
-    <div style={css('animation:pcUp .25s ease both')}>
-      <h1 style={css('margin:0 0 4px;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>Design System</h1>
-      <p style={css('margin:0 0 24px;font-size:14px;color:var(--text-2)')}>The primitives behind Proq — Manrope + JetBrains Mono, the Proq blue palette, and AI-native components</p>
-      <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px')}>
-        <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
-          <div style={css('font-size:13px;font-weight:700;margin-bottom:14px')}>Color</div>
-          <div style={css('display:grid;grid-template-columns:repeat(4,1fr);gap:9px')}>
-            {swatch('var(--primary)', 'Primary')}{swatch('var(--success)', 'Success')}{swatch('var(--warn)', 'Warning')}{swatch('var(--danger)', 'Danger')}
-            {swatch('var(--violet)', 'Accent')}{swatch('var(--text)', 'Ink')}{swatch('var(--panel-3)', 'Subtle')}{swatch('var(--bg)', 'Canvas', { border: '1px solid var(--border)' })}
-          </div>
-        </div>
-        <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
-          <div style={css('font-size:13px;font-weight:700;margin-bottom:14px')}>Typography</div>
-          <div style={css('display:flex;flex-direction:column;gap:11px')}>
-            <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:26px;font-weight:700;letter-spacing:-.02em')}>Display</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>Manrope 700 · 26</span></div>
-            <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:18px;font-weight:600')}>Heading</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>600 · 18</span></div>
-            <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:13.5px')}>Body text</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>400 · 13.5</span></div>
-            <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css("font-size:15px;font-weight:600;font-family:'JetBrains Mono',monospace")}>$145,472</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>Mono · data</span></div>
-          </div>
-        </div>
-        <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
-          <div style={css('font-size:13px;font-weight:700;margin-bottom:14px')}>Status badges</div>
-          <div style={css('display:flex;flex-wrap:wrap;gap:8px')}>
-            <span style={m.badgeBlue}>RFQs Out</span><span style={m.badgeSuccess}>Quoted</span><span style={m.badgeWarn}>Awaiting</span><span style={m.badgeDanger}>High Risk</span><span style={m.badgeViolet}>Quotes In</span><span style={m.badgeGray}>Draft</span>
-          </div>
-          <div style={css('font-size:13px;font-weight:700;margin:18px 0 12px')}>Progress</div>
-          <div style={css('height:8px;border-radius:999px;background:var(--panel-3);overflow:hidden;margin-bottom:9px')}><div style={css('width:90%;height:100%;border-radius:999px;background:var(--success)')}></div></div>
-          <div style={css('height:8px;border-radius:999px;background:var(--panel-3);overflow:hidden')}><div style={css('width:40%;height:100%;border-radius:999px;background:var(--primary)')}></div></div>
-        </div>
-        <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
-          <div style={css('font-size:13px;font-weight:700;margin-bottom:14px')}>Buttons & inputs</div>
-          <div style={css('display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-bottom:14px')}>
-            <span style={css('display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600')}>Primary</span>
-            <span style={css('display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);font-size:13px;font-weight:600')}>Secondary</span>
-            <span style={css('display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:9px;color:var(--primary);font-size:13px;font-weight:600')}>Ghost</span>
-          </div>
-          <div style={css('display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:9px;background:var(--panel-2);border:1px solid var(--border);color:var(--text-3);font-size:13px')}><Svg size={15} d='<circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/>' />Input field</div>
-        </div>
-        <div style={css('grid-column:1/-1;background:var(--primary-softer);border:1px solid var(--primary-soft);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
-          <div style={css('font-size:13px;font-weight:700;margin-bottom:12px')}>AI insight component</div>
-          <div style={css('display:flex;align-items:flex-start;gap:11px')}>
-            <span style={css('width:28px;height:28px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={16} fill d='M12 2l1.7 4.6L18 8l-4.3 1.4L12 14l-1.7-4.6L6 8l4.3-1.4z' /></span>
-            <div><div style={css('font-size:13px;font-weight:700;color:var(--primary);margin-bottom:3px')}>Proq suggests</div><div style={css('font-size:13px;line-height:1.5;color:var(--text)')}>A consistent blue-tinted surface, the sparkle mark, and a primary label distinguish anything AI-generated from human-entered data across the product.</div></div>
           </div>
         </div>
       </div>
@@ -1130,7 +1069,7 @@ function TabDocuments({ m }: MProps) {
             </div>
             <div style={css('position:relative;height:560px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
               {m.doc.hasFile && m.doc.id ? (
-                <DocPreviewFrame docId={m.doc.id} title={m.doc.name} />
+                <DocPreview docId={m.doc.id} title={m.doc.name} />
               ) : (
                 <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
               )}
@@ -1149,23 +1088,86 @@ function TabDocuments({ m }: MProps) {
   )
 }
 
-/* Signed-URL document preview: iframes can't send the Authorization header, so
-   the backend mints a short-lived scoped URL we resolve before rendering. */
-function DocPreviewFrame({ docId, title }: { docId: string; title: string }) {
-  const [url, setUrl] = useState<string | null>(null)
+/* Document preview: the backend rasterises pages and serves them as images,
+   which we page through here. Embedding the original file in an <iframe>
+   instead only works in browsers that ship a PDF viewer plugin — embedded
+   webviews don't have one and rendered a blank panel (or offered a download),
+   so previews depended on where the app was opened. Images render everywhere,
+   and non-PDF uploads (scans) get a real preview too.
+
+   Both the page images and the "open original" link are signed, short-lived
+   URLs: <img> can't send an Authorization header any more than an iframe can. */
+type PreviewInfo = { pages: number; pageUrl: (page: number) => string; fileUrl: string }
+
+function DocPreview({ docId, title }: { docId: string; title: string }) {
+  const [info, setInfo] = useState<PreviewInfo | null>(null)
   const [failed, setFailed] = useState(false)
+  const [page, setPage] = useState(0)
+  // Rendering a page runs a subprocess on the backend the first time (it's
+  // cached after), so a page can take a beat — show its own loading state.
+  const [pageLoaded, setPageLoaded] = useState(false)
+  const [pageFailed, setPageFailed] = useState(false)
+
   useEffect(() => {
     let alive = true
-    setUrl(null); setFailed(false)
-    getDocumentFileUrl(docId).then(
-      (u) => { if (alive) setUrl(u) },
+    setInfo(null); setFailed(false); setPage(0)
+    getDocumentPreview(docId).then(
+      (r) => { if (alive) setInfo(r) },
       () => { if (alive) setFailed(true) },
     )
     return () => { alive = false }
   }, [docId])
-  if (failed) return <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>Preview unavailable</span>
-  if (!url) return <span style={css('font-size:12px;color:var(--text-3)')}>Loading preview…</span>
-  return <iframe src={url} title={title} style={{ width: '100%', height: '100%', border: 'none', background: 'var(--panel)' }} />
+
+  useEffect(() => { setPageLoaded(false); setPageFailed(false) }, [docId, page])
+
+  if (failed) return <PreviewNote>Preview unavailable</PreviewNote>
+  if (!info) return <PreviewNote muted>Loading preview…</PreviewNote>
+  // Nothing renderable (a CSV/XLSX upload, or a PDF we couldn't rasterise) —
+  // the original file is still one click away.
+  if (!info.pages || pageFailed) {
+    return (
+      <div style={css('display:flex;flex-direction:column;align-items:center;gap:10px')}>
+        <PreviewNote>{pageFailed ? 'Could not render this page' : previewFileName(title)}</PreviewNote>
+        <a href={info.fileUrl} target="_blank" rel="noreferrer" style={css('font-size:12px;font-weight:600;color:var(--primary)')}>Open original ↗</a>
+      </div>
+    )
+  }
+
+  const last = info.pages - 1
+  const go = (next: number) => setPage(Math.min(last, Math.max(0, next)))
+  const navStyle = (disabled: boolean) => css(
+    `font-size:12px;font-weight:600;padding:4px 9px;border-radius:7px;border:1px solid var(--border);background:var(--panel);` +
+    `color:${disabled ? 'var(--text-3)' : 'var(--text)'};cursor:${disabled ? 'default' : 'pointer'}`,
+  )
+
+  return (
+    <>
+      <img
+        key={`${docId}-${page}`}
+        src={info.pageUrl(page)}
+        alt={`${title} — page ${page + 1}`}
+        onLoad={() => setPageLoaded(true)}
+        onError={() => setPageFailed(true)}
+        style={{
+          maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block',
+          background: '#fff', boxShadow: 'var(--shadow-md)', opacity: pageLoaded ? 1 : 0,
+        }}
+      />
+      {!pageLoaded && <div style={css('position:absolute;font-size:12px;color:var(--text-3)')}>Rendering page {page + 1}…</div>}
+      {info.pages > 1 && (
+        <div style={css('position:absolute;right:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:6px 10px;border-radius:10px')}>
+          <button onClick={() => go(page - 1)} disabled={page === 0} style={navStyle(page === 0)} aria-label="Previous page">‹</button>
+          <span style={css('font-size:12px;color:var(--text-2);white-space:nowrap')}>Page {page + 1} of {info.pages}</span>
+          <button onClick={() => go(page + 1)} disabled={page === last} style={navStyle(page === last)} aria-label="Next page">›</button>
+        </div>
+      )}
+    </>
+  )
+}
+
+function PreviewNote({ children, muted }: { children: ReactNode; muted?: boolean }) {
+  if (muted) return <span style={css('font-size:12px;color:var(--text-3)')}>{children}</span>
+  return <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{children}</span>
 }
 
 /* ------------------------------- AI-extracted materials (human-in-the-loop) */
@@ -2343,8 +2345,6 @@ function MobileNav({ m }: MProps) {
         <Box as="button" onClick={m.goProjects} style={m.navStyle.projects} hover="background:var(--panel-2)"><Svg sw={1.9} d='M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' /><span style={css('flex:1;text-align:left')}>Projects</span></Box>
         <Box as="button" onClick={m.goSuppliers} style={m.navStyle.suppliers} hover="background:var(--panel-2)"><Svg sw={1.9} d='<rect x="5" y="3" width="14" height="18" rx="1.6"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M10 21v-3h4v3"/>' /><span style={css('flex:1;text-align:left')}>Suppliers</span></Box>
         <Box as="button" onClick={m.goSettings} style={m.navStyle.settings} hover="background:var(--panel-2)"><Svg sw={1.9} d='<circle cx="12" cy="12" r="3"/>' /><span style={css('flex:1;text-align:left')}>Settings</span></Box>
-        <div style={{ flex: 1 }}></div>
-        <Box as="button" onClick={m.goDS} style={m.navStyle.ds} hover="background:var(--panel-2)"><Svg sw={1.9} d='<circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="13" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="14.5" r="2.5"/><path d="M12 22a5 5 0 0 1-3-9"/>' /><span style={css('flex:1;text-align:left')}>Design System</span></Box>
       </aside>
     </div>
   )

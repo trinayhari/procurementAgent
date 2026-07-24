@@ -20,6 +20,10 @@ class UnsupportedDocument(Exception):
     """Raised for file types the vision pipeline cannot rasterise (DWG, ZIP, …)."""
 
 
+class PageOutOfRange(Exception):
+    """Raised when a requested page index doesn't exist in the document."""
+
+
 def page_count(path: str) -> int:
     ext = os.path.splitext(path)[1].lower()
     if ext in IMAGE_EXTS:
@@ -59,6 +63,33 @@ def to_base64_images(path: str, *, dpi: int = 150, max_pages: int = 12) -> List[
         return images
 
     raise UnsupportedDocument(f"Unsupported document type '{ext}' for vision extraction")
+
+
+def render_page_png(path: str, page_index: int, *, width: int = 1400) -> bytes:
+    """Render one PDF page to PNG bytes, scaled so the page is ~`width` px wide.
+
+    Feeds the in-app document preview (see services/preview.py). Scaling to a
+    target width rather than a fixed DPI keeps a 36x24 plan sheet and a
+    letter-size schedule at comparable byte sizes — a fixed DPI would make the
+    plan sheet many times heavier for no extra legibility on screen.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in PDF_EXTS:
+        raise UnsupportedDocument(f"Cannot render '{ext}' pages")
+
+    import fitz  # PyMuPDF
+
+    with fitz.open(path) as doc:
+        if page_index < 0 or page_index >= doc.page_count:
+            raise PageOutOfRange(f"page {page_index} of a {doc.page_count}-page document")
+        page = doc[page_index]
+        # Clamp the zoom so a pathological page box can't produce a huge pixmap.
+        zoom = max(0.1, min(4.0, width / max(1.0, page.rect.width)))
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        data = pix.tobytes("png")
+        pix = None  # release the raw pixmap immediately — it dwarfs the PNG
+    gc.collect()
+    return data
 
 
 def has_text_layer(path: str, min_chars: int = 500) -> bool:

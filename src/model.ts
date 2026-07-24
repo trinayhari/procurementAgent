@@ -137,7 +137,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   }
   const navStyle = {
     dashboard: navStyleFor('dashboard'), projects: navStyleFor('projects'),
-    suppliers: navStyleFor('suppliers'), settings: navStyleFor('settings'), ds: navStyleFor('ds'),
+    suppliers: navStyleFor('suppliers'), settings: navStyleFor('settings'),
   }
 
   const metricsRaw: MetricInput[] = D.metrics || []
@@ -333,7 +333,6 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   if (s.nav === 'projects') crumbMain = 'Projects'
   else if (s.nav === 'suppliers') crumbMain = 'Suppliers'
   else if (s.nav === 'settings') crumbMain = 'Settings'
-  else if (s.nav === 'ds') crumbMain = 'Design System'
   else if (isProject) { crumbMain = 'Projects'; crumbSub = activeProject.name; hasSub = true }
 
   return {
@@ -345,7 +344,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     logout: (props && props.onLogout) || (() => {}),
     onUserUpdated: (props && props.onUserUpdated) || (() => {}),
     isDashboard: s.nav === 'dashboard', isProjects: s.nav === 'projects', isSuppliers: s.nav === 'suppliers',
-    isSettings: s.nav === 'settings', isDS: s.nav === 'ds', isProject,
+    isSettings: s.nav === 'settings', isProject,
     crumbMain, crumbSub, hasSub,
     metrics, activity, projectActivity, projects, projectCount,
     newProjOpen: !!s.newProjOpen,
@@ -403,7 +402,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       }
     },
     goDashboard: () => go('dashboard'), goProjects: () => go('projects'),
-    goSuppliers: () => go('suppliers'), goSettings: () => go('settings'), goDS: () => go('ds'),
+    goSuppliers: () => go('suppliers'), goSettings: () => go('settings'),
     openProject: (p?: { id?: string }) => set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }),
     toggleMnav: () => set({ mnav: !s.mnav }),
     mnavOpen: s.mnav, closeMnav: () => set({ mnav: false }),
