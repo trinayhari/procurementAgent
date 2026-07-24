@@ -101,10 +101,13 @@ function parseHash(): Partial<State> {
     if (seg[2] === 'quotes' && seg[3] === 'compare') {
       return { nav: 'project', projectId: seg[1], tab: 'quotes', compare: true, comparePkg: seg[4] || undefined }
     }
-    return { nav: 'project', projectId: seg[1], tab: seg[2] || 'overview' }
+    // Reset compare/comparePkg explicitly: each branch must return the full
+    // nav slice, or going Back from the compare view would leave `compare`
+    // stuck on and the URL mirror would immediately rewrite the compare hash.
+    return { nav: 'project', projectId: seg[1], tab: seg[2] || 'overview', compare: false, comparePkg: undefined }
   }
   if (['projects', 'suppliers', 'settings', 'ds', 'dashboard'].includes(seg[0])) {
-    return { nav: seg[0] }
+    return { nav: seg[0], compare: false, comparePkg: undefined }
   }
   return {}
 }
@@ -160,19 +163,27 @@ export default function App() {
   // project shows its own documents/quotes/etc. instead of the last one's.
   useEffect(() => { if (s.projectId) reload(s.projectId) }, [s.projectId])
 
-  // Mirror the active page into the URL hash so a reload restores it. replaceState
-  // (not pushState) keeps tab/page switches out of history so Back still leaves the
-  // app rather than stepping through every internal navigation.
+  // Mirror the active page into the URL hash. In-app navigations push a real
+  // history entry so browser Back/Forward walk through them instead of leaving
+  // the site; we only rewrite in place when the current URL already denotes
+  // this page (initial load, or normalizing a hand-typed/partial hash) so
+  // those cases don't add spurious entries.
   useEffect(() => {
+    if (typeof window === 'undefined') return
     const h = hashFor(s)
-    if (typeof window !== 'undefined' && window.location.hash !== h) {
+    if (window.location.hash === h) return
+    if (hashFor({ ...s, ...parseHash() }) === h) {
       window.history.replaceState(null, '', h)
+    } else {
+      window.history.pushState(null, '', h)
     }
   }, [s.nav, s.projectId, s.tab, s.compare, s.comparePkg])
 
   // Honour manual hash edits and browser back/forward by re-syncing state.
+  // Transient chrome (mobile drawer, open supplier) is dropped so arriving at
+  // a page via history behaves like navigating to it.
   useEffect(() => {
-    const onHash = () => set(parseHash())
+    const onHash = () => set({ mnav: false, supplierId: null, ...parseHash() })
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
