@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties, DragEvent, FormEvent, MouseEvent } from 'react'
+import type { CSSProperties, DragEvent, FormEvent, MouseEvent, ReactNode } from 'react'
 import { Box, DcIcon, css, ic, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
@@ -8,7 +8,7 @@ import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  getDocumentFileUrl, sendTestEmail,
+  getDocumentPreview, sendTestEmail,
   listProjectBoms, createSupplier,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
@@ -1058,7 +1058,7 @@ function TabDocuments({ m }: MProps) {
             </div>
             <div style={css('position:relative;height:560px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
               {m.doc.hasFile && m.doc.id ? (
-                <DocPreviewFrame docId={m.doc.id} title={m.doc.name} />
+                <DocPreview docId={m.doc.id} title={m.doc.name} />
               ) : (
                 <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
               )}
@@ -1077,23 +1077,86 @@ function TabDocuments({ m }: MProps) {
   )
 }
 
-/* Signed-URL document preview: iframes can't send the Authorization header, so
-   the backend mints a short-lived scoped URL we resolve before rendering. */
-function DocPreviewFrame({ docId, title }: { docId: string; title: string }) {
-  const [url, setUrl] = useState<string | null>(null)
+/* Document preview: the backend rasterises pages and serves them as images,
+   which we page through here. Embedding the original file in an <iframe>
+   instead only works in browsers that ship a PDF viewer plugin — embedded
+   webviews don't have one and rendered a blank panel (or offered a download),
+   so previews depended on where the app was opened. Images render everywhere,
+   and non-PDF uploads (scans) get a real preview too.
+
+   Both the page images and the "open original" link are signed, short-lived
+   URLs: <img> can't send an Authorization header any more than an iframe can. */
+type PreviewInfo = { pages: number; pageUrl: (page: number) => string; fileUrl: string }
+
+function DocPreview({ docId, title }: { docId: string; title: string }) {
+  const [info, setInfo] = useState<PreviewInfo | null>(null)
   const [failed, setFailed] = useState(false)
+  const [page, setPage] = useState(0)
+  // Rendering a page runs a subprocess on the backend the first time (it's
+  // cached after), so a page can take a beat — show its own loading state.
+  const [pageLoaded, setPageLoaded] = useState(false)
+  const [pageFailed, setPageFailed] = useState(false)
+
   useEffect(() => {
     let alive = true
-    setUrl(null); setFailed(false)
-    getDocumentFileUrl(docId).then(
-      (u) => { if (alive) setUrl(u) },
+    setInfo(null); setFailed(false); setPage(0)
+    getDocumentPreview(docId).then(
+      (r) => { if (alive) setInfo(r) },
       () => { if (alive) setFailed(true) },
     )
     return () => { alive = false }
   }, [docId])
-  if (failed) return <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>Preview unavailable</span>
-  if (!url) return <span style={css('font-size:12px;color:var(--text-3)')}>Loading preview…</span>
-  return <iframe src={url} title={title} style={{ width: '100%', height: '100%', border: 'none', background: 'var(--panel)' }} />
+
+  useEffect(() => { setPageLoaded(false); setPageFailed(false) }, [docId, page])
+
+  if (failed) return <PreviewNote>Preview unavailable</PreviewNote>
+  if (!info) return <PreviewNote muted>Loading preview…</PreviewNote>
+  // Nothing renderable (a CSV/XLSX upload, or a PDF we couldn't rasterise) —
+  // the original file is still one click away.
+  if (!info.pages || pageFailed) {
+    return (
+      <div style={css('display:flex;flex-direction:column;align-items:center;gap:10px')}>
+        <PreviewNote>{pageFailed ? 'Could not render this page' : previewFileName(title)}</PreviewNote>
+        <a href={info.fileUrl} target="_blank" rel="noreferrer" style={css('font-size:12px;font-weight:600;color:var(--primary)')}>Open original ↗</a>
+      </div>
+    )
+  }
+
+  const last = info.pages - 1
+  const go = (next: number) => setPage(Math.min(last, Math.max(0, next)))
+  const navStyle = (disabled: boolean) => css(
+    `font-size:12px;font-weight:600;padding:4px 9px;border-radius:7px;border:1px solid var(--border);background:var(--panel);` +
+    `color:${disabled ? 'var(--text-3)' : 'var(--text)'};cursor:${disabled ? 'default' : 'pointer'}`,
+  )
+
+  return (
+    <>
+      <img
+        key={`${docId}-${page}`}
+        src={info.pageUrl(page)}
+        alt={`${title} — page ${page + 1}`}
+        onLoad={() => setPageLoaded(true)}
+        onError={() => setPageFailed(true)}
+        style={{
+          maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block',
+          background: '#fff', boxShadow: 'var(--shadow-md)', opacity: pageLoaded ? 1 : 0,
+        }}
+      />
+      {!pageLoaded && <div style={css('position:absolute;font-size:12px;color:var(--text-3)')}>Rendering page {page + 1}…</div>}
+      {info.pages > 1 && (
+        <div style={css('position:absolute;right:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:6px 10px;border-radius:10px')}>
+          <button onClick={() => go(page - 1)} disabled={page === 0} style={navStyle(page === 0)} aria-label="Previous page">‹</button>
+          <span style={css('font-size:12px;color:var(--text-2);white-space:nowrap')}>Page {page + 1} of {info.pages}</span>
+          <button onClick={() => go(page + 1)} disabled={page === last} style={navStyle(page === last)} aria-label="Next page">›</button>
+        </div>
+      )}
+    </>
+  )
+}
+
+function PreviewNote({ children, muted }: { children: ReactNode; muted?: boolean }) {
+  if (muted) return <span style={css('font-size:12px;color:var(--text-3)')}>{children}</span>
+  return <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{children}</span>
 }
 
 /* ------------------------------- AI-extracted materials (human-in-the-loop) */

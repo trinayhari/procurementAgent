@@ -201,13 +201,25 @@ export function uploadDocument(
   })
 }
 
-// Signed, short-lived URL for previewing/downloading a document's original
-// file. Iframes can't send the Authorization header, so the backend mints a
-// scoped token bound to this one document (GET /{id}/file-url). Only uploaded
-// docs have a real file on disk; seed docs 404 (UI shows a placeholder).
-export async function getDocumentFileUrl(docId: string): Promise<string> {
-  const data = await get<{ url: string }>(`/api/documents/${docId}/file-url`)
-  return `${BASE}${data.url}`
+// Page count + signed URLs for the document preview. Pages are rendered to
+// images server-side (embedded webviews have no PDF plugin, so an <iframe> of
+// the original renders blank there), and `pageUrl` is a template we fill per
+// page. `pages: 0` means nothing renderable — the UI offers the original file.
+export type DocumentPreview = Schemas['DocumentPreview']
+
+export async function getDocumentPreview(docId: string): Promise<{
+  pages: number
+  pageUrl: (page: number) => string
+  fileUrl: string
+}> {
+  const data = await get<DocumentPreview>(`/api/documents/${docId}/preview`)
+  const template = data.pageUrl
+  return {
+    pages: data.pages,
+    pageUrl: (page: number) =>
+      template ? `${BASE}${template.replace('{page}', String(page))}` : '',
+    fileUrl: `${BASE}${data.fileUrl}`,
+  }
 }
 
 // BOM groups extracted from a single document.

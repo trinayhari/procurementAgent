@@ -97,6 +97,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/page/{page}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Document Page
+         * @description Serve one page of a document as an image, authorized by the same signed
+         *     token as /file (an <img> tag can't send an Authorization header either).
+         *
+         *     Rendering is isolated in a child process and cached on disk, so a malformed
+         *     PDF can't take down the API and a page is only rasterised once.
+         */
+        get: operations["get_document_page_api_documents__document_id__page__page__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{document_id}/file": {
         parameters: {
             query?: never;
@@ -739,6 +763,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Document Preview
+         * @description Page count + signed URLs for previewing a document.
+         *
+         *     The panel renders server-side page images rather than embedding the original
+         *     file, so it doesn't depend on the browser shipping a PDF viewer (embedded
+         *     webviews don't have one — see services/preview.py). `pageUrl` carries a
+         *     `{page}` placeholder the client fills in per page.
+         */
+        get: operations["get_document_preview_api_documents__document_id__preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{document_id}/line-items": {
         parameters: {
             query?: never;
@@ -1269,6 +1318,24 @@ export interface components {
             edited: boolean;
             /** Checksum */
             checksum?: string | null;
+        };
+        /**
+         * DocumentPreview
+         * @description Everything the preview panel needs to page through a document.
+         *
+         *     Pages are rendered server-side to images, so `pageUrl` is a template with a
+         *     `{page}` placeholder the client substitutes (0-based) — one signed token
+         *     covers every page of this document for the life of the preview session.
+         */
+        DocumentPreview: {
+            /** Pages */
+            pages: number;
+            /** Pageurl */
+            pageUrl?: string | null;
+            /** Fileurl */
+            fileUrl: string;
+            /** Expiresinminutes */
+            expiresInMinutes: number;
         };
         /** FollowupDraft */
         FollowupDraft: {
@@ -2442,6 +2509,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TestEmailResult"];
+                };
+            };
+        };
+    };
+    get_document_page_api_documents__document_id__page__page__get: {
+        parameters: {
+            query?: {
+                token?: string;
+            };
+            header?: never;
+            path: {
+                document_id: string;
+                page: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3690,6 +3791,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_preview_api_documents__document_id__preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentPreview"];
                 };
             };
             /** @description Validation Error */

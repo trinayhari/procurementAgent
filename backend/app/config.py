@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads"
     max_upload_mb: int = 500
 
+    # ------------------------------------------------------ document previews
+    # Preview pages are rasterised server-side (see services/preview.py) so the
+    # panel doesn't depend on the browser having a PDF viewer. Width in CSS
+    # pixels of a rendered page; rendered pages are cached under
+    # preview_cache_dir (empty → a directory in the system temp dir).
+    preview_width_px: int = 1400
+    preview_cache_dir: str = ""
+
     # -------------------------------------------------------- object storage
     # "local" (default): files under upload_dir — simple, but ephemeral on
     # hosts without a persistent disk. "s3": any S3-compatible store (AWS S3,
