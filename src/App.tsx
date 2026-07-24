@@ -479,7 +479,7 @@ function Dashboard({ m }: MProps) {
             <span style={css('width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px var(--success-soft)')}></span>
           </div>
           <div style={css('padding:6px 8px')}>
-            {m.activity.map((a, i) => (
+            {m.activity.slice(0, 6).map((a, i) => (
               <Box key={i} style={css('display:flex;gap:11px;padding:10px;border-radius:10px')} hover="background:var(--panel-2)">
                 <div style={a.chipStyle}><IconHtml html={a.iconHtml} /></div>
                 <div style={css('flex:1;min-width:0')}>
