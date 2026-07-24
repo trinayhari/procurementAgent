@@ -87,16 +87,16 @@ def send_test_email(
     sender = rfq_sender.get_sender()
     from_addr = current_user.sender_email or rfq_sender.sender_address()
     body = (
-        f"This is a test email from ProcureAI.\n\n"
+        f"This is a test email from Proq.\n\n"
         f"From address: {from_addr}\n"
         f"Requested by: {current_user.email}\n\n"
         "If the From address above is not what your recipients see, add it as a "
         "verified 'Send mail as' alias on the connected Gmail account — "
-        "see docs/email-setup.md in the repo.\n\n— ProcureAI"
+        "see docs/email-setup.md in the repo.\n\n— Proq"
     )
     try:
         sent = sender.send(
-            current_user.email, "ProcureAI test email", body, from_addr=from_addr
+            current_user.email, "Proq test email", body, from_addr=from_addr
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Test send failed: {exc}")

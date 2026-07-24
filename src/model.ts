@@ -294,9 +294,9 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const rfqSel = rfqs[s.rfqIdx]
   const rfqFolders = D.rfqFolders || []
   const thread = (!rfqSel ? [] : [
-    { dir: 'out', who: 'You · ProcureAI', initials: 'JM', time: 'Jun 12 · 11:05 AM', subject: 'RFQ: ' + rfqSel.pkg + ' — Riverside WTP', body: 'Please find attached our request for quote covering the ' + rfqSel.pkg + ' package for the Riverside Water Treatment Plant. Quotes due Jun 20. Let us know if any specs need clarification.', attach: 'RFQ-Riverside-' + rfqSel.pkg.split(' ')[0] + '.pdf' },
+    { dir: 'out', who: 'You · Proq', initials: 'JM', time: 'Jun 12 · 11:05 AM', subject: 'RFQ: ' + rfqSel.pkg + ' — Riverside WTP', body: 'Please find attached our request for quote covering the ' + rfqSel.pkg + ' package for the Riverside Water Treatment Plant. Quotes due Jun 20. Let us know if any specs need clarification.', attach: 'RFQ-Riverside-' + rfqSel.pkg.split(' ')[0] + '.pdf' },
     { dir: 'in', who: rfqSel.sup, initials: rfqSel.logo, logoBg: rfqSel.logoBg, time: 'Jun 13 · 2:30 PM', body: 'Thanks — reviewing now. Can you confirm specs on the priced line items?' },
-    { dir: 'out', who: 'You · ProcureAI', initials: 'JM', time: 'Jun 13 · 3:10 PM', body: 'Confirmed per spec section 02510. Appreciate the quick turnaround.' },
+    { dir: 'out', who: 'You · Proq', initials: 'JM', time: 'Jun 13 · 3:10 PM', body: 'Confirmed per spec section 02510. Appreciate the quick turnaround.' },
     { dir: 'in', who: rfqSel.sup, initials: rfqSel.logo, logoBg: rfqSel.logoBg, time: 'Today · 9:42 AM', body: 'Quote attached — ' + rfqSel.preview.replace('Quote attached — ', '') + '.', attach: 'Quote-RV-' + rfqSel.pkg.split(' ')[0] + '.pdf' },
   ] as ThreadInput[]).map((t) => ({
     ...t, isOut: t.dir === 'out', isIn: t.dir === 'in', hasAttach: !!t.attach, hasSubject: !!t.subject,

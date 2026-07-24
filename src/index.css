@@ -1,8 +1,8 @@
 :root{
   --bg:#f6f7f9;--panel:#ffffff;--panel-2:#f2f4f7;--panel-3:#eaedf2;
   --border:#e7e9ee;--border-strong:#d5d8e0;
-  --text:#171a1f;--text-2:#5e636e;--text-3:#959aa4;
-  --primary:#2563eb;--primary-2:#1d4ed8;--primary-soft:#e9f1ff;--primary-softer:#f3f8ff;
+  --text:#1b2025;--text-2:#5e636e;--text-3:#959aa4;
+  --primary:#2784d5;--primary-2:#1f6cb0;--primary-soft:#e6f1fb;--primary-softer:#f2f8fd;
   --violet:#7c3aed;--violet-soft:#f0eafe;
   --success:#15a34a;--success-soft:#e6f7ed;--warn:#b6790c;--warn-soft:#f8f0db;--danger:#dc2626;--danger-soft:#fbe9e9;
   --on-primary:#ffffff;
@@ -15,7 +15,7 @@
   --bg:#0a0b0d;--panel:#131418;--panel-2:#191b20;--panel-3:#202329;
   --border:#262931;--border-strong:#383c46;
   --text:#eef0f3;--text-2:#9398a3;--text-3:#646a76;
-  --primary:#3b82f6;--primary-2:#60a5fa;--primary-soft:#152138;--primary-softer:#101725;
+  --primary:#52a9fe;--primary-2:#7cbcff;--primary-soft:#14273c;--primary-softer:#101b28;
   --violet:#a78bfa;--violet-soft:#231a3c;
   --success:#34d399;--success-soft:#102a1e;--warn:#e0a93b;--warn-soft:#2b2210;--danger:#f87171;--danger-soft:#2c1616;
   --shadow-sm:0 1px 2px rgba(0,0,0,.4);
@@ -31,11 +31,11 @@
 [data-theme="dark"][data-accent="violet"]{--primary:#a78bfa;--primary-2:#c4b5fd;--primary-soft:#221a3d}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
-body{font-family:'Figtree',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{font-family:'Manrope',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 button{font:inherit;color:inherit;cursor:pointer;border:none;background:none;padding:0}
 input{font:inherit;outline:none}
 a{color:inherit;text-decoration:none}
-::selection{background:rgba(37,99,235,.16)}
+::selection{background:rgba(39,132,213,.18)}
 *::-webkit-scrollbar{width:11px;height:11px}
 *::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:10px;border:3px solid var(--bg);background-clip:padding-box}
 *::-webkit-scrollbar-thumb:hover{background:var(--text-3)}

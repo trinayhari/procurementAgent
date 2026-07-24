@@ -24,7 +24,7 @@ def send_message(rfq_id: str, payload: MessageCreate, db: Session = Depends(get_
         raise HTTPException(status_code=404, detail="RFQ not found")
     return {
         "dir": "out",
-        "who": "You · ProcureAI",
+        "who": "You · Proq",
         "initials": "JM",
         "time": "Just now",
         "body": payload.body,

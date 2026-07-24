@@ -114,7 +114,7 @@ def fetch_website_pages(website: Optional[str]) -> List[str]:
         return []
 
     base = website if urlparse(website).scheme else f"https://{website}"
-    headers = {"User-Agent": "Mozilla/5.0 (ProcureAI supplier sourcing)"}
+    headers = {"User-Agent": "Mozilla/5.0 (Proq supplier sourcing)"}
     pages: List[str] = []
 
     with httpx.Client(
