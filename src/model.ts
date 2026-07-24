@@ -11,7 +11,6 @@ export interface State {
   docIdx: number
   rfqIdx: number
   supplierId: string | null
-  theme: string
   vw: number
   mnav: boolean
   data: ModelData | null
@@ -294,9 +293,9 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const rfqSel = rfqs[s.rfqIdx]
   const rfqFolders = D.rfqFolders || []
   const thread = (!rfqSel ? [] : [
-    { dir: 'out', who: 'You · ProcureAI', initials: 'JM', time: 'Jun 12 · 11:05 AM', subject: 'RFQ: ' + rfqSel.pkg + ' — Riverside WTP', body: 'Please find attached our request for quote covering the ' + rfqSel.pkg + ' package for the Riverside Water Treatment Plant. Quotes due Jun 20. Let us know if any specs need clarification.', attach: 'RFQ-Riverside-' + rfqSel.pkg.split(' ')[0] + '.pdf' },
+    { dir: 'out', who: 'You · Proq', initials: 'JM', time: 'Jun 12 · 11:05 AM', subject: 'RFQ: ' + rfqSel.pkg + ' — Riverside WTP', body: 'Please find attached our request for quote covering the ' + rfqSel.pkg + ' package for the Riverside Water Treatment Plant. Quotes due Jun 20. Let us know if any specs need clarification.', attach: 'RFQ-Riverside-' + rfqSel.pkg.split(' ')[0] + '.pdf' },
     { dir: 'in', who: rfqSel.sup, initials: rfqSel.logo, logoBg: rfqSel.logoBg, time: 'Jun 13 · 2:30 PM', body: 'Thanks — reviewing now. Can you confirm specs on the priced line items?' },
-    { dir: 'out', who: 'You · ProcureAI', initials: 'JM', time: 'Jun 13 · 3:10 PM', body: 'Confirmed per spec section 02510. Appreciate the quick turnaround.' },
+    { dir: 'out', who: 'You · Proq', initials: 'JM', time: 'Jun 13 · 3:10 PM', body: 'Confirmed per spec section 02510. Appreciate the quick turnaround.' },
     { dir: 'in', who: rfqSel.sup, initials: rfqSel.logo, logoBg: rfqSel.logoBg, time: 'Today · 9:42 AM', body: 'Quote attached — ' + rfqSel.preview.replace('Quote attached — ', '') + '.', attach: 'Quote-RV-' + rfqSel.pkg.split(' ')[0] + '.pdf' },
   ] as ThreadInput[]).map((t) => ({
     ...t, isOut: t.dir === 'out', isIn: t.dir === 'in', hasAttach: !!t.attach, hasSubject: !!t.subject,
@@ -338,7 +337,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   else if (isProject) { crumbMain = 'Projects'; crumbSub = activeProject.name; hasSub = true }
 
   return {
-    theme: s.theme, accent: (props && props.accent) || 'blue', isDark: s.theme === 'dark', isLight: s.theme !== 'dark',
+    accent: (props && props.accent) || 'blue',
     desktop, mobile: !desktop, navStyle,
     // Signed-in user identity + sign-out (see App.tsx Sidebar/Settings/Dashboard).
     userName, userCompany, userEmail, userInitials, firstName, greeting,
@@ -406,7 +405,6 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     goDashboard: () => go('dashboard'), goProjects: () => go('projects'),
     goSuppliers: () => go('suppliers'), goSettings: () => go('settings'), goDS: () => go('ds'),
     openProject: (p?: { id?: string }) => set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }),
-    toggleTheme: () => set({ theme: s.theme === 'dark' ? 'light' : 'dark' }),
     toggleMnav: () => set({ mnav: !s.mnav }),
     mnavOpen: s.mnav, closeMnav: () => set({ mnav: false }),
     activeProject, tabStyle,

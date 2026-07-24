@@ -66,6 +66,9 @@ class LineCompareRow(BaseModel):
     qty: str = ""
     cells: List[LineCompareCell]
     bestSupplierId: Optional[str] = None
+    # True when no supplier has priced this line yet ("quote pending"): shown for
+    # reference but excluded from the award strategies.
+    pending: bool = False
 
 
 class AwardOption(BaseModel):

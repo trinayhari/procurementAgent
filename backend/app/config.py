@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="PROCUREAI_", extra="ignore")
 
-    app_name: str = "ProcureAI API"
+    app_name: str = "Proq API"
     # "development" or "production". Production refuses to boot with the default
     # JWT secret and warns when CORS is still localhost-only (see main.py).
     env: str = "development"

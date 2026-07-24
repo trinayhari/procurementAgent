@@ -113,7 +113,7 @@ def _emails_to_thread(emails: List[gmail_reader.ThreadEmail], our_addrs: set) ->
     thread: List[dict] = []
     for i, e in enumerate(emails):
         is_out = e.from_email in our_addrs
-        who = "You · ProcureAI" if is_out else (e.from_name or e.from_email)
+        who = "You · Proq" if is_out else (e.from_name or e.from_email)
         thread.append({
             "dir": "out" if is_out else "in",
             "who": who,
@@ -132,7 +132,7 @@ def _fallback_thread(db: Session, rfq: dict) -> List[dict]:
     """Offline thread: the sent RFQ, plus any ingested quotes as inbound replies."""
     thread: List[dict] = [{
         "dir": "out",
-        "who": "You · ProcureAI",
+        "who": "You · Proq",
         "initials": "YOU",
         "time": "Sent" if rfq["status"] != "Draft" else "Draft",
         "subject": rfq.get("subject"),

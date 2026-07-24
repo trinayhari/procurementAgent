@@ -4,16 +4,12 @@ import { Box, css } from './lib'
 import { login, register } from './api'
 import type { AuthUser } from './api'
 
-const LOGO = 'M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4" /><path d="M3 17l9 4 9-4'
-
 // Standalone auth screen shown until a valid session exists. Calls onAuthed
 // with the signed-in user once login/register succeeds.
 export default function Login({
   onAuthed,
-  theme = 'light',
 }: {
   onAuthed: (user: AuthUser) => void
-  theme?: string
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
@@ -49,20 +45,14 @@ export default function Login({
 
   return (
     <div
-      data-theme={theme}
       style={{
         ...css('min-height:100vh;background:var(--bg);color:var(--text);display:flex;align-items:center;justify-content:center;padding:24px'),
       }}
     >
       <div style={css('width:100%;max-width:400px;animation:pcUp .25s ease both')}>
         <div style={css('display:flex;align-items:center;gap:11px;justify-content:center;margin-bottom:22px')}>
-          <div style={css('width:38px;height:38px;border-radius:10px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-sm)')}>
-            <svg width={21} height={21} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: `<path d="${LOGO}" />` }} />
-          </div>
-          <div style={css('display:flex;flex-direction:column;line-height:1.1')}>
-            <span style={css('font-size:18px;font-weight:700;letter-spacing:-.01em')}>ProcureAI</span>
-            <span style={css('font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.04em')}>PROCUREMENT OS</span>
-          </div>
+          <img src="/proq-icon.png" alt="Proq" width={38} height={38} style={css('flex:none')} />
+          <span style={css('font-size:18px;font-weight:800;letter-spacing:-.01em')}>Proq</span>
         </div>
 
         <form

@@ -42,7 +42,7 @@ def _compose(project: dict, milestone_name: str, milestones: list) -> tuple:
         "",
         "You're receiving this because you're listed as a lender contact on this project.",
         "",
-        "— ProcureAI",
+        "— Proq",
     ]
     return subject, "\n".join(lines)
 

@@ -1,4 +1,4 @@
-// Thin client for the ProcureAI FastAPI backend. Returns the raw data bundle
+// Thin client for the Proq FastAPI backend. Returns the raw data bundle
 // that buildModel() consumes; the model decorates it with styles. If the API is
 // unavailable, callers fall back to the literals baked into model.ts.
 //

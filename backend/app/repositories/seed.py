@@ -176,12 +176,12 @@ def _thread_for(rfq: dict) -> List[dict]:
     lines = _PKG_LINES.get(pkg, 42)
     stub = pkg.split()[0]
     thread = [
-        {"dir": "out", "who": "You · ProcureAI", "initials": "JM", "time": "Jun 12 · 11:05 AM", "subject": "RFQ: " + pkg + " — Riverside WTP", "body": f"Please find attached our request for quote covering the {pkg} package for the Riverside Water Treatment Plant. {lines} line items, quotes due Jun 20. Let us know if any specs need clarification.", "attach": f"RFQ-Riverside-{stub}.pdf"},
+        {"dir": "out", "who": "You · Proq", "initials": "JM", "time": "Jun 12 · 11:05 AM", "subject": "RFQ: " + pkg + " — Riverside WTP", "body": f"Please find attached our request for quote covering the {pkg} package for the Riverside Water Treatment Plant. {lines} line items, quotes due Jun 20. Let us know if any specs need clarification.", "attach": f"RFQ-Riverside-{stub}.pdf"},
     ]
     if rfq.get("qTotal"):
         thread += [
             {"dir": "in", "who": sup, "initials": logo, "logoBg": logo_bg, "time": "Jun 13 · 2:30 PM", "body": "Thanks — reviewing now. Can you confirm specs on the priced line items?"},
-            {"dir": "out", "who": "You · ProcureAI", "initials": "JM", "time": "Jun 13 · 3:10 PM", "body": "Confirmed per spec section 02510. Appreciate the quick turnaround."},
+            {"dir": "out", "who": "You · Proq", "initials": "JM", "time": "Jun 13 · 3:10 PM", "body": "Confirmed per spec section 02510. Appreciate the quick turnaround."},
             {"dir": "in", "who": sup, "initials": logo, "logoBg": logo_bg, "time": "Today · 9:42 AM", "body": f"Quote attached. Total comes to {rfq['qTotal']} with a {rfq['qLead']} lead time.", "attach": f"Quote-RV-{stub}.pdf"},
         ]
     else:

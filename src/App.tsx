@@ -112,7 +112,7 @@ function parseHash(): Partial<State> {
 export default function App() {
   const [s, setS] = useState<State>({
     nav: 'dashboard', tab: 'overview', compare: false, docIdx: 0, rfqIdx: 0,
-    supplierId: null, theme: 'light', vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
+    supplierId: null, vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
     data: null,
     planTypes: null, planType: 'site_plan', uploading: false, uploadError: null, docLineItems: null,
     editBom: false, bomDraft: null, bomBusy: false,
@@ -303,16 +303,16 @@ export default function App() {
 
   // Until the stored token is validated, render nothing (avoids a login flash).
   if (!authReady) {
-    return <div data-theme={s.theme} style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
   }
   // Gate the whole app behind authentication.
   if (!user) {
-    return <Login theme={s.theme} onAuthed={(u) => setUser(u)} />
+    return <Login onAuthed={(u) => setUser(u)} />
   }
 
   return (
     <div
-      data-theme={m.theme} data-accent={m.accent}
+      data-accent={m.accent}
       style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'flex' }}
     >
       {m.desktop && <Sidebar m={m} />}
@@ -340,14 +340,8 @@ export default function App() {
 function Sidebar({ m }: MProps) {
   return (
     <aside style={css('position:sticky;top:0;align-self:flex-start;height:100vh;width:248px;flex:none;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;padding:16px 12px;z-index:20')}>
-      <div style={css('display:flex;align-items:center;gap:10px;padding:6px 8px 16px')}>
-        <div style={css('width:30px;height:30px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-sm)')}>
-          <Svg size={17} sw={2.2} d='M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4" /><path d="M3 17l9 4 9-4' />
-        </div>
-        <div style={css('display:flex;flex-direction:column;line-height:1.1')}>
-          <span style={css('font-size:15px;font-weight:700;letter-spacing:-.01em')}>ProcureAI</span>
-          <span style={css('font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.04em')}>PROCUREMENT OS</span>
-        </div>
+      <div style={css('padding:6px 8px 16px')}>
+        <img src="/proq-lockup.png" alt="Proq" style={css('width:96px;height:auto;display:block')} />
       </div>
       <nav style={css('display:flex;flex-direction:column;gap:2px')}>
         <Box as="button" onClick={m.goDashboard} style={m.navStyle.dashboard} hover="background:var(--panel-2)">
@@ -405,20 +399,6 @@ function Header({ m }: MProps) {
           </>
         )}
       </div>
-      <div style={{ flex: 1 }}></div>
-      {m.desktop && (
-        <div style={css('display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:8px;background:var(--panel-2);border:1px solid var(--border);color:var(--text-3);min-width:200px')}>
-          <Svg size={15} d='<circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/>' />
-          <span style={css('font-size:13px')}>Search projects, suppliers…</span>
-          <span style={{ flex: 1 }}></span>
-          <span style={css('font-size:11px;border:1px solid var(--border-strong);border-radius:5px;padding:1px 5px')}>⌘K</span>
-        </div>
-      )}
-      <Box as="button" onClick={m.toggleTheme} title="Toggle theme" style={css('width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);color:var(--text-2)')} hover="background:var(--panel-2)">
-        {m.isDark
-          ? <Svg d='<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>' />
-          : <Svg d='M21 12.5A8.5 8.5 0 1 1 11.5 3a6.5 6.5 0 0 0 9.5 9.5z' />}
-      </Box>
     </header>
   )
 }
@@ -526,7 +506,7 @@ function Projects({ m }: MProps) {
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
         <div>
           <h1 style={css('margin:0;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>Projects</h1>
-          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>{m.projectCount} active · everything in ProcureAI lives inside a project</p>
+          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>{m.projectCount} active · everything in Proq lives inside a project</p>
         </div>
         <Box as="button" onClick={m.openNewProject} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)">
           <Svg size={16} sw={2.2} d={PLUS} />New project
@@ -746,11 +726,7 @@ function Settings({ m }: MProps) {
           <Box as="button" onClick={m.logout} style={css('height:34px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600')} hover="background:var(--panel-2)">Sign out</Box>
         </div>
         <div style={css('padding:8px 0')}>
-          <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px')}>
-            <div><div style={css('font-size:13.5px;font-weight:600')}>Appearance</div><div style={css('font-size:12px;color:var(--text-3)')}>Theme used across the workspace</div></div>
-            <Box as="button" onClick={m.toggleTheme} style={css('height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px')} hover="background:var(--panel-2)">{m.isDark ? 'Dark' : 'Light'}</Box>
-          </div>
-          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
+          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px')}>
             <div style={{ flex: 1 }}>
               <div style={css('font-size:13.5px;font-weight:600')}>RFQ sender address</div>
               <div style={css('font-size:12px;color:var(--text-3)')}>Outgoing RFQs are sent from this address. Must be a verified send-as alias on the connected Gmail account, or Gmail rewrites it.</div>
@@ -806,7 +782,7 @@ function DesignSystem({ m }: MProps) {
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <h1 style={css('margin:0 0 4px;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>Design System</h1>
-      <p style={css('margin:0 0 24px;font-size:14px;color:var(--text-2)')}>The primitives behind ProcureAI — Figtree + JetBrains Mono, an enterprise-blue palette, and AI-native components</p>
+      <p style={css('margin:0 0 24px;font-size:14px;color:var(--text-2)')}>The primitives behind Proq — Manrope + JetBrains Mono, the Proq blue palette, and AI-native components</p>
       <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px')}>
         <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
           <div style={css('font-size:13px;font-weight:700;margin-bottom:14px')}>Color</div>
@@ -818,7 +794,7 @@ function DesignSystem({ m }: MProps) {
         <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:18px')}>
           <div style={css('font-size:13px;font-weight:700;margin-bottom:14px')}>Typography</div>
           <div style={css('display:flex;flex-direction:column;gap:11px')}>
-            <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:26px;font-weight:700;letter-spacing:-.02em')}>Display</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>Figtree 700 · 26</span></div>
+            <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:26px;font-weight:700;letter-spacing:-.02em')}>Display</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>Manrope 700 · 26</span></div>
             <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:18px;font-weight:600')}>Heading</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>600 · 18</span></div>
             <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css('font-size:13.5px')}>Body text</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>400 · 13.5</span></div>
             <div style={css('display:flex;align-items:baseline;gap:12px')}><span style={css("font-size:15px;font-weight:600;font-family:'JetBrains Mono',monospace")}>$145,472</span><span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>Mono · data</span></div>
@@ -846,7 +822,7 @@ function DesignSystem({ m }: MProps) {
           <div style={css('font-size:13px;font-weight:700;margin-bottom:12px')}>AI insight component</div>
           <div style={css('display:flex;align-items:flex-start;gap:11px')}>
             <span style={css('width:28px;height:28px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={16} fill d='M12 2l1.7 4.6L18 8l-4.3 1.4L12 14l-1.7-4.6L6 8l4.3-1.4z' /></span>
-            <div><div style={css('font-size:13px;font-weight:700;color:var(--primary);margin-bottom:3px')}>ProcureAI suggests</div><div style={css('font-size:13px;line-height:1.5;color:var(--text)')}>A consistent blue-tinted surface, the sparkle mark, and a primary label distinguish anything AI-generated from human-entered data across the product.</div></div>
+            <div><div style={css('font-size:13px;font-weight:700;color:var(--primary);margin-bottom:3px')}>Proq suggests</div><div style={css('font-size:13px;line-height:1.5;color:var(--text)')}>A consistent blue-tinted surface, the sparkle mark, and a primary label distinguish anything AI-generated from human-entered data across the product.</div></div>
           </div>
         </div>
       </div>
@@ -2011,7 +1987,10 @@ function TabCompare({ m }: MProps) {
     if (opt) { setSel({ ...opt.selections }); setStrategy(key); setMsg(null) }
   }
   const pick = (line: string, supId: string) => {
-    setSel((p) => ({ ...p, [line]: supId })); setStrategy('custom'); setMsg(null)
+    // Toggle: clicking the already-selected supplier unselects the line (empty
+    // string = "dropped from the award"; the backend leaves an explicitly-cleared
+    // line out rather than auto-filling it).
+    setSel((p) => ({ ...p, [line]: p[line] === supId ? '' : supId })); setStrategy('custom'); setMsg(null)
   }
 
   const back = (
@@ -2034,6 +2013,7 @@ function TabCompare({ m }: MProps) {
   }
   const budgetPct = lc.budget ? Math.min(100, (sum.total / lc.budget) * 100) : null
   const overBudget = lc.budget != null && sum.total > lc.budget
+  const nothingSelected = sum.deliveries === 0
 
   return (
     <>
@@ -2082,11 +2062,19 @@ function TabCompare({ m }: MProps) {
                 </div>
               ))}
             </div>
-            {lc.lines.map((line) => (
+            {lc.lines.map((line) => {
+              const assigned = !!sel[line.name]
+              return (
               <div key={line.name} style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('border-bottom:1px solid var(--border)') }}>
                 <div style={css('padding:12px 16px;display:flex;flex-direction:column;justify-content:center;gap:2px')}>
                   <span style={css('font-size:12.5px;font-weight:600;line-height:1.25')}>{line.name}</span>
                   <span style={css('font-size:11px;color:var(--text-3)')}>{line.qty}</span>
+                  {!assigned && (
+                    <span style={css(`display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;margin-top:2px;color:${line.pending ? 'var(--text-3)' : 'var(--warn)'}`)}>
+                      <span style={css(`width:5px;height:5px;border-radius:999px;background:${line.pending ? 'var(--text-3)' : 'var(--warn)'}`)} />
+                      {line.pending ? 'Quote pending' : 'Not awarded'}
+                    </span>
+                  )}
                 </div>
                 {lc.suppliers.map((su) => {
                   const cell = line.cells.find((c) => c.supplierId === su.id)
@@ -2107,7 +2095,8 @@ function TabCompare({ m }: MProps) {
                   )
                 })}
               </div>
-            ))}
+              )
+            })}
           </div></div>
         </div>
 
@@ -2132,7 +2121,7 @@ function TabCompare({ m }: MProps) {
             </div>
             {sum.savings > 0 && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>Saves {money(sum.savings)} vs. the best single supplier.</div>}
             {msg && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{msg}</div>}
-            <button onClick={busy ? undefined : submit} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy ? 'opacity:.6' : ''}`)}>{busy ? 'Submitting…' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            <button onClick={busy || nothingSelected ? undefined : submit} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : nothingSelected ? 'Select at least one line' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
           </div>
         </div>
       </div>
@@ -2337,8 +2326,7 @@ function MobileNav({ m }: MProps) {
       <div onClick={m.closeMnav} style={css('position:absolute;inset:0;background:rgba(15,20,30,.45)')}></div>
       <aside style={css('position:relative;width:262px;height:100%;background:var(--panel);box-shadow:var(--shadow-lg);padding:16px 12px;display:flex;flex-direction:column;animation:pcUp .2s ease both')}>
         <div style={css('display:flex;align-items:center;gap:10px;padding:6px 8px 18px')}>
-          <div style={css('width:30px;height:30px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={17} sw={2.2} d='M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4" /><path d="M3 17l9 4 9-4' /></div>
-          <span style={css('font-size:15px;font-weight:700')}>ProcureAI</span>
+          <img src="/proq-lockup.png" alt="Proq" style={css('width:88px;height:auto;display:block')} />
         </div>
         <Box as="button" onClick={m.goDashboard} style={m.navStyle.dashboard} hover="background:var(--panel-2)"><Svg sw={1.9} d='<rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/>' /><span style={css('flex:1;text-align:left')}>Dashboard</span></Box>
         <Box as="button" onClick={m.goProjects} style={m.navStyle.projects} hover="background:var(--panel-2)"><Svg sw={1.9} d='M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' /><span style={css('flex:1;text-align:left')}>Projects</span></Box>
@@ -2375,7 +2363,7 @@ function NewProjectModal({ m }: MProps) {
           <span style={css('width:34px;height:34px;border-radius:9px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={18} sw={2.2} d={PLUS} /></span>
           <div style={css('flex:1;min-width:0')}>
             <div style={css('font-size:16px;font-weight:700;letter-spacing:-.01em')}>New project</div>
-            <div style={css('font-size:12.5px;color:var(--text-3);margin-top:1px')}>Everything in ProcureAI lives inside a project</div>
+            <div style={css('font-size:12.5px;color:var(--text-3);margin-top:1px')}>Everything in Proq lives inside a project</div>
           </div>
           <Box as="button" type="button" onClick={m.closeNewProject} style={css('width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={18} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
