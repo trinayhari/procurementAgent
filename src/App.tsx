@@ -340,9 +340,8 @@ export default function App() {
 function Sidebar({ m }: MProps) {
   return (
     <aside style={css('position:sticky;top:0;align-self:flex-start;height:100vh;width:248px;flex:none;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;padding:16px 12px;z-index:20')}>
-      <div style={css('display:flex;flex-direction:column;gap:5px;padding:6px 8px 16px')}>
+      <div style={css('padding:6px 8px 16px')}>
         <img src="/proq-lockup.png" alt="Proq" style={css('width:96px;height:auto;display:block')} />
-        <span style={css('font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.04em')}>PROCUREMENT OS</span>
       </div>
       <nav style={css('display:flex;flex-direction:column;gap:2px')}>
         <Box as="button" onClick={m.goDashboard} style={m.navStyle.dashboard} hover="background:var(--panel-2)">

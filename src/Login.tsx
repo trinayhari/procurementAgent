@@ -52,10 +52,7 @@ export default function Login({
       <div style={css('width:100%;max-width:400px;animation:pcUp .25s ease both')}>
         <div style={css('display:flex;align-items:center;gap:11px;justify-content:center;margin-bottom:22px')}>
           <img src="/proq-icon.png" alt="Proq" width={38} height={38} style={css('flex:none')} />
-          <div style={css('display:flex;flex-direction:column;line-height:1.1')}>
-            <span style={css('font-size:18px;font-weight:800;letter-spacing:-.01em')}>Proq</span>
-            <span style={css('font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.04em')}>PROCUREMENT OS</span>
-          </div>
+          <span style={css('font-size:18px;font-weight:800;letter-spacing:-.01em')}>Proq</span>
         </div>
 
         <form
