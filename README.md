@@ -1,8 +1,8 @@
-# ProcureAI
+# Proq
 
 AI-native procurement OS for construction — frontend implemented from the
 [Claude Design project](https://claude.ai/design/p/89235166-b09a-445b-b668-bd65e6698d9c)
-`ProcureAI.dc.html`.
+`ProcureAI.dc.html` (the prototype predates the rebrand).
 
 ## Stack
 
@@ -74,12 +74,12 @@ the regenerated `src/api-types.ts`.
 | `src/api.ts` | Backend client — `loadModelData()` fetches and reshapes the API payload into the keys `buildModel` consumes. Typed against `src/api-types.ts`. |
 | `src/api-types.ts` | **Generated** from the backend OpenAPI schema (`npm run gen:api`). Do not edit by hand. |
 | `backend/` | FastAPI REST API (see its own README). Serves the same data as pure JSON. |
-| `src/App.tsx` | All screens: dashboard, projects, suppliers, settings, design system, and the project workspace tabs (overview, documents, suppliers, RFQs, quotes, quote comparison, timeline), plus the supplier drawer and mobile nav. |
+| `src/App.tsx` | All screens: dashboard, projects, suppliers, settings, and the project workspace tabs (overview, documents, suppliers, RFQs, quotes, quote comparison, timeline), plus the supplier drawer and mobile nav. |
 
 ## Screens
 
 - **Dashboard** — portfolio metrics, project overview table, recent activity.
-- **Projects / Suppliers / Settings / Design System** — top-level sections.
+- **Projects / Suppliers / Settings** — top-level sections.
 - **Project workspace** (open any project) — tabbed:
   Overview · Documents (with AI-extracted materials) · Suppliers · RFQs
   (email thread view) · Quotes table · **Quote Comparison** (flagship,

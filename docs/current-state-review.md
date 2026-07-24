@@ -1,4 +1,4 @@
-# Current-State Review — ProcureAI / gcOS
+# Current-State Review — Proq / gcOS
 
 Date: 2026-07-16. Baseline: `main` @ `f54bcf3`.
 

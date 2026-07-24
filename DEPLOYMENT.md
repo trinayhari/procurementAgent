@@ -1,4 +1,4 @@
-# Deploying ProcureAI
+# Deploying Proq
 
 The app is two pieces deployed to two hosts:
 

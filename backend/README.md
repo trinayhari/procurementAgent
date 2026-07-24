@@ -1,6 +1,6 @@
-# ProcureAI Backend
+# Proq Backend
 
-FastAPI REST/JSON API for the ProcureAI procurement OS. **All data is persisted**
+FastAPI REST/JSON API for the Proq procurement OS. **All data is persisted**
 via SQLAlchemy (schema owned by Alembic) — projects, documents, suppliers, quotes,
 RFQs, plus the dashboard/comparison/timeline/RFQ-inbox reference data. On first run
 each table is seeded from the literals in `app/repositories/seed.py`; after that the

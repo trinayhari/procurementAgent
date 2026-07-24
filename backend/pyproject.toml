@@ -1,7 +1,7 @@
 [project]
-name = "procureai-backend"
+name = "proq-backend"
 version = "0.1.0"
-description = "FastAPI backend for the ProcureAI procurement OS"
+description = "FastAPI backend for the Proq procurement OS"
 requires-python = ">=3.8"
 dependencies = [
     "fastapi==0.112.2",

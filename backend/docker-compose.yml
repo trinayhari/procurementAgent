@@ -1,4 +1,4 @@
-# Postgres for the ProcureAI backend — the "proper DB system" that's part of the
+# Postgres for the Proq backend — the "proper DB system" that's part of the
 # stack. Start it with `docker compose up -d` from the backend/ directory, then
 # point the app at it by setting (in backend/.env):
 #
