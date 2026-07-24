@@ -399,15 +399,6 @@ function Header({ m }: MProps) {
           </>
         )}
       </div>
-      <div style={{ flex: 1 }}></div>
-      {m.desktop && (
-        <div style={css('display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:8px;background:var(--panel-2);border:1px solid var(--border);color:var(--text-3);min-width:200px')}>
-          <Svg size={15} d='<circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/>' />
-          <span style={css('font-size:13px')}>Search projects, suppliers…</span>
-          <span style={{ flex: 1 }}></span>
-          <span style={css('font-size:11px;border:1px solid var(--border-strong);border-radius:5px;padding:1px 5px')}>⌘K</span>
-        </div>
-      )}
     </header>
   )
 }
