@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.event import ProjectEvent
+from app.models.project import Project
 
 
 def _relative_time(then: datetime, now: datetime) -> str:
@@ -72,4 +73,31 @@ def list_for_project(db: Session, project_id: str, limit: int = 30) -> List[dict
             "time": _relative_time(e.created_at, now),
         }
         for e in rows
+    ]
+
+
+def list_recent(db: Session, limit: int = 8) -> List[dict]:
+    """Newest events across *all* projects, for the global dashboard feed.
+
+    Same shape as ``list_for_project`` but each row's meta is prefixed with the
+    project name so the aggregated feed shows which project each event belongs
+    to. Deliberately capped small (default 8) — the dashboard is a glance, not
+    an audit log; the full stream lives on each project's Overview tab.
+    """
+    rows = db.execute(
+        select(ProjectEvent, Project.name)
+        .join(Project, Project.id == ProjectEvent.project_id)
+        .order_by(ProjectEvent.created_at.desc(), ProjectEvent.id.desc())
+        .limit(limit)
+    ).all()
+    now = datetime.utcnow()
+    return [
+        {
+            "icon": e.icon,
+            "tone": e.tone,
+            "title": e.title,
+            "meta": f"{name} · {e.meta}" if e.meta else name,
+            "time": _relative_time(e.created_at, now),
+        }
+        for e, name in rows
     ]

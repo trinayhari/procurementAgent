@@ -23,6 +23,7 @@ os.environ.update(
         "PROCUREAI_ENV": "development",
         "PROCUREAI_DATABASE_URL": "sqlite:///" + tempfile.mktemp(suffix="-test.db"),
         "PROCUREAI_UPLOAD_DIR": tempfile.mkdtemp(prefix="procureai-test-uploads-"),
+        "PROCUREAI_PREVIEW_CACHE_DIR": tempfile.mkdtemp(prefix="procureai-test-previews-"),
     }
 )
 

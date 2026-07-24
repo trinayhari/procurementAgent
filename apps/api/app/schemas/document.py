@@ -33,6 +33,20 @@ class Document(BaseModel):
     checksum: Optional[str] = None
 
 
+class DocumentPreview(BaseModel):
+    """Everything the preview panel needs to page through a document.
+
+    Pages are rendered server-side to images, so `pageUrl` is a template with a
+    `{page}` placeholder the client substitutes (0-based) — one signed token
+    covers every page of this document for the life of the preview session.
+    """
+
+    pages: int  # 0 when the document has no renderable pages
+    pageUrl: Optional[str] = None
+    fileUrl: str  # the original file, for download / open-in-a-new-tab
+    expiresInMinutes: int
+
+
 class PlanType(BaseModel):
     """A registered plan type, surfaced to the upload UI."""
 

@@ -203,6 +203,66 @@
         ]
       }
     },
+    "/api/documents/{document_id}/page/{page}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get Document Page",
+        "description": "Serve one page of a document as an image, authorized by the same signed\ntoken as /file (an <img> tag can't send an Authorization header either).\n\nRendering is isolated in a child process and cached on disk, so a malformed\nPDF can't take down the API and a page is only rasterised once.",
+        "operationId": "get_document_page_api_documents__document_id__page__page__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Page"
+            }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/documents/{document_id}/file": {
       "get": {
         "tags": [
@@ -2223,6 +2283,54 @@
         }
       }
     },
+    "/api/documents/{document_id}/preview": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get Document Preview",
+        "description": "Page count + signed URLs for previewing a document.\n\nThe panel renders server-side page images rather than embedding the original\nfile, so it doesn't depend on the browser shipping a PDF viewer (embedded\nwebviews don't have one \u2014 see services/preview.py). `pageUrl` carries a\n`{page}` placeholder the client fills in per page.",
+        "operationId": "get_document_preview_api_documents__document_id__preview_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/documents/{document_id}/line-items": {
       "get": {
         "tags": [
@@ -3593,6 +3701,41 @@
           "pages"
         ],
         "title": "Document"
+      },
+      "DocumentPreview": {
+        "properties": {
+          "pages": {
+            "type": "integer",
+            "title": "Pages"
+          },
+          "pageUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pageurl"
+          },
+          "fileUrl": {
+            "type": "string",
+            "title": "Fileurl"
+          },
+          "expiresInMinutes": {
+            "type": "integer",
+            "title": "Expiresinminutes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pages",
+          "fileUrl",
+          "expiresInMinutes"
+        ],
+        "title": "DocumentPreview",
+        "description": "Everything the preview panel needs to page through a document.\n\nPages are rendered server-side to images, so `pageUrl` is a template with a\n`{page}` placeholder the client substitutes (0-based) \u2014 one signed token\ncovers every page of this document for the life of the preview session."
       },
       "FollowupDraft": {
         "properties": {
