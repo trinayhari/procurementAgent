@@ -225,6 +225,21 @@ def resolve_thread_id(message_id: str) -> Optional[str]:
     return msg.get("threadId")
 
 
+def rfc822_message_id(message_id: str) -> Optional[str]:
+    """The RFC822 `Message-ID` header of a sent Gmail message, for threading a
+    reply (In-Reply-To/References). Best-effort — returns None if unavailable."""
+    if not message_id or message_id.startswith(("error", "mock")):
+        return None
+    service = _service()
+    try:
+        msg = service.users().messages().get(
+            userId="me", id=message_id, format="metadata", metadataHeaders=["Message-ID"]
+        ).execute()
+    except Exception:
+        return None
+    return _header(msg.get("payload", {}), "Message-ID") or None
+
+
 def _thread_email_from_message(m: dict) -> ThreadEmail:
     """Build a display ThreadEmail from a full Gmail message resource."""
     payload = m.get("payload", {})

@@ -19,6 +19,8 @@ from app.repositories import timeline as timeline_repo
 from app.services import schedule as schedule_service
 from app.services.quotes import comparison as comparison_service
 from app.services.quotes import line_comparison as line_comparison_service
+from app.services.rfq import award_notify
+from app.services.rfq import sender as rfq_sender
 from app.services.sourcing import packages
 from app.schemas.document import Document, LineItemGroup
 from app.schemas.lender import Lender, LenderCreate
@@ -279,13 +281,42 @@ def award_package(
         commit=False,
     )
     quotes_repo.award_package(db, project_id, key or pkg, summary["supplierIds"])
+
+    # Notify suppliers of the outcome, threaded into each RFQ conversation. Runs
+    # after the award is committed so a flaky email never rolls back the award.
+    notify = award_notify.notify_award(
+        db,
+        project_id=project_id,
+        package=key or pkg,
+        package_label=pkg_label_for_record,
+        summary=summary,
+        buyer=current_user,
+        sender=rfq_sender.get_sender(),
+    )
+    n_awarded, n_declined = len(notify["notified"]), len(notify["declined"])
+    if n_awarded or n_declined or notify["failed"]:
+        audit_repo.log(
+            db, current_user, "package.award_notified", "purchase_decision", decision.id,
+            project_id=project_id,
+            detail={
+                "awarded": [w["email"] for w in notify["notified"]],
+                "declined": [d["email"] for d in notify["declined"]],
+                "failed": notify["failed"],
+                "mock": notify["mock"],
+            },
+        )
+
     n = summary["poCount"]
     sup_list = ", ".join(summary["suppliers"])
     po_word = "PO" if n == 1 else "POs"
     pkg_label = pkg_label_for_record
+    notice = ""
+    if n_awarded:
+        notice = f" {n_awarded} supplier{'s' if n_awarded != 1 else ''} notified"
+        notice += f", {n_declined} not selected." if n_declined else "."
     message = (
         f"Awarded {pkg_label} for "
-        f"${summary['total']:,.0f} — {n} {po_word} to {sup_list}."
+        f"${summary['total']:,.0f} — {n} {po_word} to {sup_list}." + notice
     )
     events_repo.log(
         db,
@@ -293,7 +324,8 @@ def award_package(
         title=f"{pkg_label} awarded to {sup_list}",
         icon="check",
         tone="success",
-        meta=f"${summary['total']:,.0f} · {n} {po_word}",
+        meta=f"${summary['total']:,.0f} · {n} {po_word}"
+             + (f" · {n_awarded} notified" if n_awarded else ""),
     )
     return {
         "status": "awarded",
