@@ -80,7 +80,7 @@ def has_text_layer(path: str, min_chars: int = 500) -> bool:
 
 
 def extract_text_pages(path: str, max_pages: int = 30) -> List[dict]:
-    """Return [{'sheet': 'Sheet N of M', 'text': ...}] of the embedded text per page.
+    """Return [{'sheet': 'Sheet N of M', 'index': N-1, 'text': ...}] per text-bearing page.
 
     Whitespace is collapsed to keep the prompt compact; CAD text has no meaningful
     line structure anyway. Empty pages are skipped.
@@ -100,7 +100,7 @@ def extract_text_pages(path: str, max_pages: int = 30) -> List[dict]:
         for i in range(total):
             text = _dedup_page_text(doc[i])
             if text:
-                pages.append({"sheet": f"Sheet {i + 1} of {total}", "text": text})
+                pages.append({"sheet": f"Sheet {i + 1} of {total}", "index": i, "text": text})
     return pages
 
 
