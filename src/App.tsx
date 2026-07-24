@@ -112,7 +112,7 @@ function parseHash(): Partial<State> {
 export default function App() {
   const [s, setS] = useState<State>({
     nav: 'dashboard', tab: 'overview', compare: false, docIdx: 0, rfqIdx: 0,
-    supplierId: null, theme: 'light', vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
+    supplierId: null, vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
     data: null,
     planTypes: null, planType: 'site_plan', uploading: false, uploadError: null, docLineItems: null,
     editBom: false, bomDraft: null, bomBusy: false,
@@ -303,16 +303,16 @@ export default function App() {
 
   // Until the stored token is validated, render nothing (avoids a login flash).
   if (!authReady) {
-    return <div data-theme={s.theme} style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
   }
   // Gate the whole app behind authentication.
   if (!user) {
-    return <Login theme={s.theme} onAuthed={(u) => setUser(u)} />
+    return <Login onAuthed={(u) => setUser(u)} />
   }
 
   return (
     <div
-      data-theme={m.theme} data-accent={m.accent}
+      data-accent={m.accent}
       style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'flex' }}
     >
       {m.desktop && <Sidebar m={m} />}
@@ -340,12 +340,9 @@ export default function App() {
 function Sidebar({ m }: MProps) {
   return (
     <aside style={css('position:sticky;top:0;align-self:flex-start;height:100vh;width:248px;flex:none;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;padding:16px 12px;z-index:20')}>
-      <div style={css('display:flex;align-items:center;gap:10px;padding:6px 8px 16px')}>
-        <img src="/proq-icon.png" alt="Proq" width={30} height={30} style={css('flex:none')} />
-        <div style={css('display:flex;flex-direction:column;line-height:1.1')}>
-          <span style={css('font-size:15px;font-weight:800;letter-spacing:-.01em')}>Proq</span>
-          <span style={css('font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.04em')}>PROCUREMENT OS</span>
-        </div>
+      <div style={css('display:flex;flex-direction:column;gap:5px;padding:6px 8px 16px')}>
+        <img src="/proq-lockup.png" alt="Proq" style={css('width:96px;height:auto;display:block')} />
+        <span style={css('font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.04em')}>PROCUREMENT OS</span>
       </div>
       <nav style={css('display:flex;flex-direction:column;gap:2px')}>
         <Box as="button" onClick={m.goDashboard} style={m.navStyle.dashboard} hover="background:var(--panel-2)">
@@ -412,11 +409,6 @@ function Header({ m }: MProps) {
           <span style={css('font-size:11px;border:1px solid var(--border-strong);border-radius:5px;padding:1px 5px')}>⌘K</span>
         </div>
       )}
-      <Box as="button" onClick={m.toggleTheme} title="Toggle theme" style={css('width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);color:var(--text-2)')} hover="background:var(--panel-2)">
-        {m.isDark
-          ? <Svg d='<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>' />
-          : <Svg d='M21 12.5A8.5 8.5 0 1 1 11.5 3a6.5 6.5 0 0 0 9.5 9.5z' />}
-      </Box>
     </header>
   )
 }
@@ -744,11 +736,7 @@ function Settings({ m }: MProps) {
           <Box as="button" onClick={m.logout} style={css('height:34px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600')} hover="background:var(--panel-2)">Sign out</Box>
         </div>
         <div style={css('padding:8px 0')}>
-          <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px')}>
-            <div><div style={css('font-size:13.5px;font-weight:600')}>Appearance</div><div style={css('font-size:12px;color:var(--text-3)')}>Theme used across the workspace</div></div>
-            <Box as="button" onClick={m.toggleTheme} style={css('height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px')} hover="background:var(--panel-2)">{m.isDark ? 'Dark' : 'Light'}</Box>
-          </div>
-          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
+          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px')}>
             <div style={{ flex: 1 }}>
               <div style={css('font-size:13.5px;font-weight:600')}>RFQ sender address</div>
               <div style={css('font-size:12px;color:var(--text-3)')}>Outgoing RFQs are sent from this address. Must be a verified send-as alias on the connected Gmail account, or Gmail rewrites it.</div>
@@ -2348,8 +2336,7 @@ function MobileNav({ m }: MProps) {
       <div onClick={m.closeMnav} style={css('position:absolute;inset:0;background:rgba(15,20,30,.45)')}></div>
       <aside style={css('position:relative;width:262px;height:100%;background:var(--panel);box-shadow:var(--shadow-lg);padding:16px 12px;display:flex;flex-direction:column;animation:pcUp .2s ease both')}>
         <div style={css('display:flex;align-items:center;gap:10px;padding:6px 8px 18px')}>
-          <img src="/proq-icon.png" alt="Proq" width={30} height={30} style={css('flex:none')} />
-          <span style={css('font-size:15px;font-weight:800')}>Proq</span>
+          <img src="/proq-lockup.png" alt="Proq" style={css('width:88px;height:auto;display:block')} />
         </div>
         <Box as="button" onClick={m.goDashboard} style={m.navStyle.dashboard} hover="background:var(--panel-2)"><Svg sw={1.9} d='<rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/>' /><span style={css('flex:1;text-align:left')}>Dashboard</span></Box>
         <Box as="button" onClick={m.goProjects} style={m.navStyle.projects} hover="background:var(--panel-2)"><Svg sw={1.9} d='M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' /><span style={css('flex:1;text-align:left')}>Projects</span></Box>

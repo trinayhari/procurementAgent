@@ -8,10 +8,8 @@ import type { AuthUser } from './api'
 // with the signed-in user once login/register succeeds.
 export default function Login({
   onAuthed,
-  theme = 'light',
 }: {
   onAuthed: (user: AuthUser) => void
-  theme?: string
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
@@ -47,7 +45,6 @@ export default function Login({
 
   return (
     <div
-      data-theme={theme}
       style={{
         ...css('min-height:100vh;background:var(--bg);color:var(--text);display:flex;align-items:center;justify-content:center;padding:24px'),
       }}

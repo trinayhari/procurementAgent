@@ -11,7 +11,6 @@ export interface State {
   docIdx: number
   rfqIdx: number
   supplierId: string | null
-  theme: string
   vw: number
   mnav: boolean
   data: ModelData | null
@@ -338,7 +337,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   else if (isProject) { crumbMain = 'Projects'; crumbSub = activeProject.name; hasSub = true }
 
   return {
-    theme: s.theme, accent: (props && props.accent) || 'blue', isDark: s.theme === 'dark', isLight: s.theme !== 'dark',
+    accent: (props && props.accent) || 'blue',
     desktop, mobile: !desktop, navStyle,
     // Signed-in user identity + sign-out (see App.tsx Sidebar/Settings/Dashboard).
     userName, userCompany, userEmail, userInitials, firstName, greeting,
@@ -406,7 +405,6 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     goDashboard: () => go('dashboard'), goProjects: () => go('projects'),
     goSuppliers: () => go('suppliers'), goSettings: () => go('settings'), goDS: () => go('ds'),
     openProject: (p?: { id?: string }) => set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }),
-    toggleTheme: () => set({ theme: s.theme === 'dark' ? 'light' : 'dark' }),
     toggleMnav: () => set({ mnav: !s.mnav }),
     mnavOpen: s.mnav, closeMnav: () => set({ mnav: false }),
     activeProject, tabStyle,
