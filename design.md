@@ -709,7 +709,7 @@ Business logic must live in application services, not route handlers.
 Suggested structure:
 
 ```text
-backend/
+apps/api/
   app/
     api/
     core/

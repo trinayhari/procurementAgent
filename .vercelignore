@@ -1,4 +1,6 @@
-# The Vercel build only needs the Vite frontend; keep the Python backend,
-# its virtualenv, the local SQLite DB and uploads out of the build context.
-backend/
+# The Vercel build only needs the Vite frontend (apps/web); keep the Python
+# backend, its virtualenv, the local SQLite DB and uploads out of the build
+# context. Build runs from the repo root so npm can resolve the workspace.
+apps/api/
+sample-docs/
 *.db

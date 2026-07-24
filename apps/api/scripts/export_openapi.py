@@ -1,4 +1,4 @@
-"""Dump the FastAPI OpenAPI schema to backend/openapi.json.
+"""Dump the FastAPI OpenAPI schema to apps/api/openapi.json.
 
 The frontend's type-generation step (`npm run gen:api`) reads this file with
 openapi-typescript to produce `src/api-types.ts`, keeping the TS client in sync

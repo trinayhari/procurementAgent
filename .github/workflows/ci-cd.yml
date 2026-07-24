@@ -36,14 +36,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend
+        working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11.9"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: apps/api/requirements.txt
       - run: pip install -r requirements.txt pytest
       - name: Import app (no secrets needed — config has safe defaults)
         run: python -c "import app.main; print('app import OK')"
@@ -70,19 +70,19 @@ jobs:
         with:
           python-version: "3.11.9"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: apps/api/requirements.txt
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: pip install -r backend/requirements.txt
+      - run: pip install -r apps/api/requirements.txt
       - run: npm ci
       - name: Regenerate and verify nothing drifted
         run: |
           PYTHON=python npm run gen:api
-          if ! git diff --quiet -- backend/openapi.json src/api-types.ts; then
-            echo "::error::backend/openapi.json or src/api-types.ts is stale. Run 'npm run gen:api' and commit the result."
-            git --no-pager diff -- backend/openapi.json src/api-types.ts | head -200
+          if ! git diff --quiet -- apps/api/openapi.json apps/web/src/api-types.ts; then
+            echo "::error::apps/api/openapi.json or apps/web/src/api-types.ts is stale. Run 'npm run gen:api' and commit the result."
+            git --no-pager diff -- apps/api/openapi.json apps/web/src/api-types.ts | head -200
             exit 1
           fi
           echo "API types are in sync."
@@ -116,16 +116,19 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
-    defaults:
-      run:
-        working-directory: backend
+    # NOTE: `railway up` runs from the REPO ROOT (no working-directory here) so
+    # the uploaded build context is rooted the same way as a GitHub-triggered
+    # deploy. That makes the service's dashboard "Root Directory" setting
+    # (apps/api) correct for both paths — uploading from apps/api instead would
+    # need Root Directory to be empty, and the two would silently disagree.
+    # Root .railwayignore keeps the upload small.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm i -g @railway/cli
-      - name: Deploy (runs alembic + uvicorn per backend/railway.json)
+      - name: Deploy (runs alembic + uvicorn per apps/api/railway.json)
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }} # optional; needed only if the project has >1 service

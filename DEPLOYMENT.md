@@ -7,6 +7,11 @@ The app is two pieces deployed to two hosts:
 | **Frontend** (React + Vite SPA) | **Vercel** | Static build, instant CDN |
 | **Backend** (FastAPI) + **Postgres** | **Render** | Long-running server for AI extraction / supplier-search background jobs that serverless can't run; managed Postgres replaces the local SQLite file |
 
+The repo is an **npm-workspaces monorepo**: the frontend is `apps/web`, the
+backend is `apps/api`, and new apps go under `apps/`. Both hosts build from the
+repo root and are pointed at the right workspace — Render via `rootDir` in
+`render.yaml`, Vercel via the build command in `vercel.json`.
+
 > **Why not all on Vercel?** The backend uses a real database, writes uploaded
 > plan PDFs to disk, and runs background extraction/search jobs *after* sending
 > the HTTP response. Vercel's serverless functions are ephemeral (no persistent
@@ -20,7 +25,9 @@ Deploy the **backend first** so you have its URL when configuring the frontend.
 ## 1. Backend + database → Render
 
 The repo ships a [`render.yaml`](render.yaml) Blueprint that provisions the web
-service **and** a managed Postgres database in one shot.
+service **and** a managed Postgres database in one shot. It sets
+`rootDir: apps/api`, so Render builds the backend workspace and never touches the
+Node frontend at the repo root.
 
 1. Push this repo to GitHub (already done if you're reading this from it).
 2. Go to <https://dashboard.render.com> → **New** → **Blueprint** → select this repo.
@@ -76,8 +83,26 @@ uploaded PDFs are lost on each redeploy**. Two ways to keep them:
 ## 1b. Backend + database → Railway (alternative to Render)
 
 Railway is an equally good fit (long-running server + managed Postgres). The repo
-ships [`backend/railway.json`](backend/railway.json) so the build/start settings
+ships [`apps/api/railway.json`](apps/api/railway.json) so the build/start settings
 are baked in.
+
+> ⚠️ **Monorepo migration — one manual step.** The backend moved from `backend/`
+> to `apps/api/`. Railway's **Root Directory** is a dashboard setting that no
+> config file can override, so you must update it by hand: **Settings → Root
+> Directory** → change `backend` to **`apps/api`** → redeploy. Until you do, the
+> next backend deploy **will fail**.
+>
+> While you're in Settings, check **Config-as-code / config file path** too. Per
+> Railway's docs the config file *does not* follow Root Directory — if a path is
+> set there it needs the absolute form **`/apps/api/railway.json`**, not
+> `/backend/railway.json`. If the field is blank, leave it blank.
+>
+> Both deploy triggers root the build at the repo root, so `apps/api` is the
+> correct value in every case: a GitHub push makes Railway clone the whole repo,
+> and the CD job runs `railway up` from the repo root as well (see the note in
+> `.github/workflows/ci-cd.yml`). Deploying from inside `apps/api` instead would
+> require Root Directory to be *empty*, and the two triggers would silently
+> disagree — which is exactly why the job doesn't do that.
 
 > **Repo not showing in Railway's list?** That's GitHub App access, **not** a
 > missing config file. In Railway click **Configure GitHub App** → on GitHub grant
@@ -86,11 +111,11 @@ are baked in.
 > first.
 
 1. **New Project** → **Deploy from GitHub repo** → select `procurementAgent`.
-2. In the service's **Settings → Root Directory**, set **`backend`**. This is the
+2. In the service's **Settings → Root Directory**, set **`apps/api`**. This is the
    one setting that *can't* live in the config file, and it's required — otherwise
    Railway builds the Node frontend at the repo root and fails. Railway then reads
-   `backend/railway.json` for the rest (Nixpacks build, `alembic upgrade head` +
-   uvicorn start, `/health` check, Python pinned via `backend/runtime.txt`).
+   `apps/api/railway.json` for the rest (Nixpacks build, `alembic upgrade head` +
+   uvicorn start, `/health` check, Python pinned via `apps/api/runtime.txt`).
 3. **Add a database:** in the project, **New → Database → PostgreSQL**.
 4. **Map the DB URL** (the one gotcha): Railway's Postgres exposes `DATABASE_URL`,
    but the app reads the prefixed name. In the API service's **Variables**, add:
@@ -117,15 +142,18 @@ identical — just point `VITE_API_URL` at that backend's URL.
 ## 2. Frontend → Vercel
 
 1. Go to <https://vercel.com/new> → import this repo.
-2. Vercel auto-detects Vite via [`vercel.json`](vercel.json) (build `npm run build`,
-   output `dist`). Leave the defaults.
+2. Vercel reads [`vercel.json`](vercel.json) at the repo root, which builds the web
+   workspace (`npm run build --workspace @proq/web`) and serves
+   `apps/web/dist`. Leave the defaults — in particular, leave the project's
+   **Root Directory** setting **unset (the repo root)**; the monorepo build is
+   driven by `vercel.json`, not the dashboard.
 3. Add **one** Environment Variable:
    - `VITE_API_URL` = your Render backend URL (e.g. `https://procureai-api.onrender.com`)
      — **no trailing slash**.
 4. Deploy. You'll get a URL like `https://your-app.vercel.app`.
 
-> `VITE_API_URL` is read at **build time** ([src/api.ts](src/api.ts)). If you change
-> it later, trigger a redeploy so the new value is baked in.
+> `VITE_API_URL` is read at **build time** ([apps/web/src/api.ts](apps/web/src/api.ts)).
+> If you change it later, trigger a redeploy so the new value is baked in.
 
 ---
 
@@ -146,12 +174,12 @@ to the backend.
 
 ---
 
-## Local development (unchanged)
+## Local development
 
 ```bash
 # backend (defaults to zero-config SQLite; optional local Postgres via docker compose)
-cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload
+cd apps/api && pip install -r requirements.txt && uvicorn app.main:app --reload
 
-# frontend (proxies to http://localhost:8000 by default)
+# frontend (proxies to http://localhost:8000 by default) — run from the repo root
 npm install && npm run dev
 ```

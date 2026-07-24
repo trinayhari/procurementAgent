@@ -2,7 +2,7 @@
 
 SAFETY: provider credentials are force-blanked BEFORE the app is imported so
 tests can never hit real Google Maps, Gmail, or OpenAI — even when a developer
-has live keys in backend/.env (environment variables take precedence over the
+has live keys in apps/api/.env (environment variables take precedence over the
 dotenv file in pydantic-settings). Every external call in tests goes through
 the mock providers.
 """

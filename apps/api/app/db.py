@@ -1,6 +1,6 @@
 """SQLAlchemy engine, session factory, and the FastAPI session dependency.
 
-The schema is owned by Alembic (see backend/migrations). `init_db()` is a dev
+The schema is owned by Alembic (see apps/api/migrations). `init_db()` is a dev
 convenience that creates any missing tables and seeds the starter projects so the
 app works on a fresh checkout without manually running migrations first.
 """

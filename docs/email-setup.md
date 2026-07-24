@@ -60,7 +60,7 @@ how to verify it end to end.
 3. On your machine:
 
    ```bash
-   cd backend
+   cd apps/api
    .venv/bin/python scripts/mint_gmail_token.py path/to/client_secret_xxx.json
    ```
 
@@ -74,7 +74,7 @@ how to verify it end to end.
 
 ## Step 4 — Configure the backend `.env`
 
-Edit `backend/.env` (create it from `backend/.env.example` if needed):
+Edit `apps/api/.env` (create it from `apps/api/.env.example` if needed):
 
 ```bash
 PROCUREAI_GMAIL_CLIENT_ID=<from the script output>
