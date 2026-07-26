@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace @proq/web",
+    "dev:marketing": "npm run dev --workspace @proq/marketing",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "gen:api": "(cd apps/api && ${PYTHON:-.venv/bin/python} scripts/export_openapi.py) && openapi-typescript apps/api/openapi.json -o apps/web/src/api-types.ts"

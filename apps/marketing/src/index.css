@@ -1,0 +1,74 @@
+/* Page-level styles for the landing page. The design system itself lives in
+   ds.css and is left untouched so it can be re-synced from Claude Design. */
+
+body {
+  margin: 0;
+  text-wrap: pretty;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+a { color: var(--color-accent-700); text-decoration: none; }
+a:hover { color: var(--color-accent); }
+
+/* `--edge` is the page gutter every section indents by; the nav uses it to keep
+   its own inline padding aligned with the 1200px content column. */
+.pq-page { --edge: clamp(20px, 5vw, 72px); font-family: var(--font-body); }
+.pq-shell { max-width: 1200px; margin: 0 auto; padding: 0 var(--edge); }
+.pq-nav {
+  padding-inline: max(var(--edge), calc((100% - 1200px) / 2 + var(--edge)));
+  min-height: 84px;
+}
+.pq-nav a { white-space: nowrap; }
+/* Beyond the design: on a phone the row runs out of width, and without these the
+   CTA breaks across three lines instead of dropping to its own row. */
+.pq-nav { flex-wrap: wrap; row-gap: var(--space-2); }
+.pq-nav .btn { white-space: nowrap; }
+
+/* Beyond the design: every other grid on the page collapses via auto-fit, but the
+   "Always running" split is a fixed 5fr/7fr, which leaves the copy in a ~130px
+   column on a phone. Stack it once the text column would fall under ~300px. */
+.pq-split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 28px clamp(24px, 5vw, 96px);
+  align-items: center;
+}
+@media (max-width: 860px) {
+  .pq-split { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Product mock ──────────────────────────────────────────────────────────
+   The embedded screenshots are a recreation of the Proq app, so they run on the
+   *product's* palette and faces rather than the Modernist ones — the contrast
+   between marketing chrome and product chrome is the point. Keep these tokens in
+   sync with apps/web/src/index.css. */
+.pq-mock {
+  --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f2f4f7; --panel-3: #eaedf2;
+  --border: #e7e9ee; --border-strong: #d5d8e0;
+  --text: #1b2025; --text-2: #5e636e; --text-3: #959aa4;
+  --primary: #2784d5; --primary-2: #1f6cb0; --primary-soft: #e6f1fb; --primary-softer: #f2f8fd;
+  --violet: #7c3aed; --violet-soft: #f0eafe;
+  --success: #15a34a; --success-soft: #e6f7ed;
+  --warn: #b6790c; --warn-soft: #f8f0db; --danger: #dc2626; --danger-soft: #fbe9e9;
+  --on-primary: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05);
+  --shadow-md: 0 6px 16px -4px rgba(16, 24, 40, .10), 0 2px 6px -2px rgba(16, 24, 40, .06);
+
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+/* ds.css styles every heading as Archivo; inside the mock they are product
+   headings, so let them inherit Manrope and own their spacing. */
+.pq-mock :is(h1, h2, h3, h4, h5, h6) { font-family: inherit; margin: 0; }
+.pq-mock .pq-mono { font-family: 'JetBrains Mono', monospace; }
+
+/* The mock is authored at a fixed 1280px desktop width and scaled down to fit
+   its frame (see useFitToWidth), so it reads as a real screenshot at any size. */
+.pq-frame {
+  border: 2px solid var(--color-text);
+  background: #f6f7f9;
+  overflow: hidden;
+  position: relative;
+}
+.pq-frame > .pq-mock { width: 1280px; transform-origin: top left; }
