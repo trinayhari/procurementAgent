@@ -16,7 +16,9 @@ export function css(str?: string): CSSProperties {
     const k = part.slice(0, i).trim()
     const v = part.slice(i + 1).trim()
     if (!k) continue
-    o[k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = v
+    // Custom properties are passed through as-is; camel-casing "--panel-2"
+    // would mangle it into "-Panel-2" and the declaration would be dropped.
+    o[k.startsWith('--') ? k : k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = v
   }
   return o as CSSProperties
 }
