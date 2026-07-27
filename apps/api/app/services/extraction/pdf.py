@@ -31,8 +31,11 @@ def page_count(path: str) -> int:
     if ext in PDF_EXTS:
         import fitz  # PyMuPDF; imported lazily so the API boots without it
 
-        with fitz.open(path) as doc:
-            return doc.page_count
+        try:
+            with fitz.open(path) as doc:
+                return doc.page_count
+        except Exception as exc:  # corrupt/truncated PDF — treat as unsupported
+            raise UnsupportedDocument(f"Cannot open PDF: {exc}") from exc
     raise UnsupportedDocument(f"Cannot count pages for '{ext}'")
 
 

@@ -93,7 +93,11 @@ async def stream_upload_to_temp(upload, max_bytes: int) -> StoredFile:
     StoredFile whose locator is the TEMP path — pass it to persist_temp."""
     digest = hashlib.sha256()
     size = 0
-    fd, tmp_path = tempfile.mkstemp(prefix="procureai-upload-")
+    # Preserve the upload's extension: page_count/vision key off it, so an
+    # extensionless temp path is read as an unsupported type (pages=0), which
+    # would wrongly mark a valid PDF non-analyzable and skip the pipeline.
+    suffix = os.path.splitext(os.path.basename(upload.filename or ""))[1].lower()
+    fd, tmp_path = tempfile.mkstemp(prefix="procureai-upload-", suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as fh:
             while True:
