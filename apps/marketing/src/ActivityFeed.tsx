@@ -1,4 +1,5 @@
 import { css, ICONS, Svg } from './lib'
+import { motion, staggerParent, staggerItem } from './motion'
 
 // The product's "Recent activity" panel — the visible trace of agent work that
 // happened without anyone opening a tab.
@@ -23,9 +24,9 @@ export default function ActivityFeed() {
           <h2 style={css('font-size:15px;font-weight:600')}>Recent activity</h2>
           <span style={css('width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px var(--success-soft)')} />
         </div>
-        <div style={css('padding:6px 8px')}>
+        <motion.div {...staggerParent} style={css('padding:6px 8px')}>
           {EVENTS.map((e) => (
-            <div key={e.title} style={css('display:flex;gap:11px;padding:10px;border-radius:10px')}>
+            <motion.div key={e.title} variants={staggerItem} style={css('display:flex;gap:11px;padding:10px;border-radius:10px')}>
               <div
                 style={css(
                   `width:30px;height:30px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--${e.tone}-soft);color:var(--${e.tone})`,
@@ -38,9 +39,9 @@ export default function ActivityFeed() {
                 <div style={css('font-size:11.5px;color:var(--text-3);margin-top:1px')}>{e.context}</div>
               </div>
               <span style={css('font-size:11px;color:var(--text-3);white-space:nowrap')}>{e.age}</span>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </div>
     </div>
   )
