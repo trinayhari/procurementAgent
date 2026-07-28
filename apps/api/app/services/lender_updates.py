@@ -7,11 +7,14 @@ never delays the check-off response; failures are logged, never raised.
 """
 import logging
 
+from typing import Optional
+
 from app.db import SessionLocal
 from app.repositories import events as events_repo
 from app.repositories import lenders as lenders_repo
 from app.repositories import projects as projects_repo
 from app.repositories import timeline as timeline_repo
+from app.repositories import users as users_repo
 from app.services import schedule as schedule_service
 from app.services.rfq import sender as rfq_sender
 
@@ -47,8 +50,14 @@ def _compose(project: dict, milestone_name: str, milestones: list) -> tuple:
     return subject, "\n".join(lines)
 
 
-def send_milestone_update(project_id: str, milestone_name: str) -> None:
+def send_milestone_update(
+    project_id: str, milestone_name: str, actor_user_id: Optional[str] = None
+) -> None:
     """Email every lender on the project that `milestone_name` was completed.
+
+    `actor_user_id` is the user who checked the milestone off: their name/company
+    become the From display name and their Cc address gets a copy. The From
+    mailbox itself is always the workspace account (see services/rfq/sender.py).
 
     Background-task entrypoint: opens its own session, swallows all errors."""
     try:
@@ -66,11 +75,13 @@ def send_milestone_update(project_id: str, milestone_name: str) -> None:
             subject, body = _compose(project, milestone_name, milestones)
 
             sender = rfq_sender.get_sender()
-            from_addr = rfq_sender.sender_address()
+            actor = users_repo.get_user(db, actor_user_id) if actor_user_id else None
+            from_addr = rfq_sender.from_header(actor)
+            cc = getattr(actor, "cc_email", None)
             delivered = 0
             for lender in lenders:
                 try:
-                    sender.send(lender["email"], subject, body, from_addr=from_addr)
+                    sender.send(lender["email"], subject, body, from_addr=from_addr, cc=cc)
                     delivered += 1
                 except Exception:
                     logger.exception(

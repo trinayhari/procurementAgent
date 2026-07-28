@@ -47,12 +47,13 @@ secret, and `PROCUREAI_ENV` automatically — you only fill the blanks.)
 
 ### c. Gmail — live RFQ send + quote-reply ingest
 - Follow [email-setup.md](email-setup.md) (OAuth client → mint refresh token
-  → **publish the consent screen**, or the token expires every 7 days →
-  "Send mail as" alias for custom From addresses).
+  → **publish the consent screen**, or the token expires every 7 days). No
+  "Send mail as" alias needed — everything sends from the connected account.
 - [ ] `PROCUREAI_GMAIL_CLIENT_ID`
 - [ ] `PROCUREAI_GMAIL_CLIENT_SECRET`
 - [ ] `PROCUREAI_GMAIL_REFRESH_TOKEN`
-- [ ] `PROCUREAI_GMAIL_SENDER_ADDRESS`
+- [ ] `PROCUREAI_GMAIL_SENDER_ADDRESS` — the address of that same account; it
+      is the From on **all** outbound mail
 
 ### d. S3-compatible storage — uploads that survive redeploys (recommended)
 Cloudflare R2 (free tier) or AWS S3: create a bucket + access key scoped to it.
@@ -69,8 +70,9 @@ keep working.
 1. `GET https://<backend>/health` → `{"status":"ok"}`. A refusal to boot
    means the JWT-secret guard fired — check §1.
 2. Open the app → **register** the first account.
-3. Settings → set your RFQ sender address → **Send test email** — confirms
-   the Gmail path and shows the effective From address.
+3. Settings → **Sent from** should name the workspace address (not
+   "Not configured") → **Send test email** — confirms the Gmail path and
+   reports the From and Cc actually used.
 4. Upload a plan PDF → extraction should run without a "mock" badge; after
    the next redeploy the file should still preview (S3 working).
 5. Run a supplier search → results should not say "mock results".

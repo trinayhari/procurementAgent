@@ -45,6 +45,7 @@ def set_event_done(
     # background — the PRO-16 progress email.
     if payload.done:
         background.add_task(
-            lender_updates.send_milestone_update, result["projectId"], result["name"]
+            lender_updates.send_milestone_update, result["projectId"], result["name"],
+            current_user.id,
         )
     return {"updated": result["updated"]}

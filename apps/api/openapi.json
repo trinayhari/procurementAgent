@@ -176,13 +176,40 @@
         ]
       }
     },
+    "/api/auth/email-config": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Email Config",
+        "description": "The effective outbound-email setup: which mailbox mail leaves from,\nwhether Gmail is actually connected, and your Cc address.\n\nEvery field derives from the PROCUREAI_GMAIL_* environment variables (see\ndocs/email-setup.md) \u2014 nothing here is per-user except `ccEmail` and the\ndisplay name baked into `fromHeader`.",
+        "operationId": "email_config_api_auth_email_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailConfig"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
     "/api/auth/test-email": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Send Test Email",
-        "description": "Verify the email configuration by sending a test message to yourself.\n\nUses exactly the same path as an RFQ send: the configured provider (Gmail\nor the logging mock) and your effective From address (your per-user sender\nwhen set, else the workspace default). See docs/email-setup.md.",
+        "description": "Verify the email configuration by sending a test message to yourself.\n\nUses exactly the same path as an RFQ send: the configured provider (Gmail\nor the logging mock) and the workspace From address carrying your display\nname. See docs/email-setup.md.",
         "operationId": "send_test_email_api_auth_test_email_post",
         "responses": {
           "200": {
@@ -3737,6 +3764,52 @@
         "title": "DocumentPreview",
         "description": "Everything the preview panel needs to page through a document.\n\nPages are rendered server-side to images, so `pageUrl` is a template with a\n`{page}` placeholder the client substitutes (0-based) \u2014 one signed token\ncovers every page of this document for the life of the preview session."
       },
+      "EmailConfig": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked"
+          },
+          "senderAddressSet": {
+            "type": "boolean",
+            "title": "Senderaddressset"
+          },
+          "fromAddress": {
+            "type": "string",
+            "title": "Fromaddress"
+          },
+          "fromHeader": {
+            "type": "string",
+            "title": "Fromheader"
+          },
+          "ccEmail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ccemail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "mocked",
+          "senderAddressSet",
+          "fromAddress",
+          "fromHeader"
+        ],
+        "title": "EmailConfig",
+        "description": "Effective outbound-email configuration, straight from the environment.\n\nLets the UI state the truth instead of implying mail is going out: when\n`configured` is false nothing is delivered, and when `senderAddressSet` is\nfalse `fromAddress` is only a placeholder."
+      },
       "FollowupDraft": {
         "properties": {
           "body": {
@@ -5812,6 +5885,17 @@
           "to": {
             "type": "string",
             "title": "To"
+          },
+          "cc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cc"
           }
         },
         "type": "object",
@@ -5960,7 +6044,7 @@
       },
       "UpdateMeRequest": {
         "properties": {
-          "senderEmail": {
+          "ccEmail": {
             "anyOf": [
               {
                 "type": "string",
@@ -5970,12 +6054,12 @@
                 "type": "null"
               }
             ],
-            "title": "Senderemail"
+            "title": "Ccemail"
           }
         },
         "type": "object",
         "title": "UpdateMeRequest",
-        "description": "Editable account settings. `senderEmail: null` clears the custom From\naddress (outgoing RFQs revert to the workspace default)."
+        "description": "Editable account settings. `ccEmail` is the address copied on outgoing\nmail you trigger; `null` clears it. It is never a From address \u2014 everything\nis sent from the workspace mailbox (see services/rfq/sender.py)."
       },
       "User": {
         "properties": {
@@ -5996,7 +6080,7 @@
             "type": "string",
             "title": "Company"
           },
-          "senderEmail": {
+          "ccEmail": {
             "anyOf": [
               {
                 "type": "string",
@@ -6006,7 +6090,7 @@
                 "type": "null"
               }
             ],
-            "title": "Senderemail"
+            "title": "Ccemail"
           },
           "createdAt": {
             "anyOf": [

@@ -448,7 +448,9 @@ def generate_rfq(
             else "No approved BOM items for this package"
         )
         raise HTTPException(status_code=409, detail=detail)
-    draft = rfq_generator.generate_rfq_draft(project, label, line_items, suppliers)
+    draft = rfq_generator.generate_rfq_draft(
+        project, label, line_items, suppliers, buyer=current_user
+    )
     if not draft.recipients:
         raise HTTPException(
             status_code=400,
@@ -595,10 +597,16 @@ def send_generated_rfq(
         return rfqs_repo.mark_rfq_sent(db, rfq_id, recipients, status="Awaiting")
 
     sender = rfq_sender.get_sender()
-    from_addr = current_user.sender_email or rfq_sender.sender_address()
+    # Always the workspace mailbox (with the sender's name/company as the display
+    # name) — see services/rfq/sender.py. The user's own address is Cc'd so they
+    # keep a copy, while supplier replies still return to the mailbox quote
+    # ingest reads.
+    from_addr = rfq_sender.from_header(current_user)
+    cc = current_user.cc_email
     for r in to_send:
         try:
-            sent = sender.send(r["email"], rfq["subject"], rfq["body"], from_addr=from_addr)
+            sent = sender.send(r["email"], rfq["subject"], rfq["body"],
+                               from_addr=from_addr, cc=cc)
             r["sentMessageId"] = sent.message_id
             r["threadId"] = sent.thread_id
             r["sendStatus"] = "sent"
@@ -617,6 +625,8 @@ def send_generated_rfq(
             "attempted": [r["email"] for r in to_send],
             "delivered": delivered,
             "failed": [{"email": r["email"], "error": r.get("sendError")} for r in failed],
+            "from": rfq_sender.from_display(current_user),
+            "cc": cc,
             "mock": type(sender).__name__ == "MockSender",
         },
     )
