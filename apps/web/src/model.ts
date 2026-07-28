@@ -340,7 +340,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     desktop, mobile: !desktop, navStyle,
     // Signed-in user identity + sign-out (see App.tsx Sidebar/Settings/Dashboard).
     userName, userCompany, userEmail, userInitials, firstName, greeting,
-    userSenderEmail: (authUser && authUser.senderEmail) || '',
+    userCcEmail: (authUser && authUser.ccEmail) || '',
     logout: (props && props.onLogout) || (() => {}),
     onUserUpdated: (props && props.onUserUpdated) || (() => {}),
     isDashboard: s.nav === 'dashboard', isProjects: s.nav === 'projects', isSuppliers: s.nav === 'suppliers',

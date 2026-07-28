@@ -99,13 +99,17 @@ def _gather_gmail(rfq: dict) -> Optional[List[gmail_reader.ThreadEmail]]:
 
 
 def _known_sender_addrs(db: Session) -> set:
-    """Every address our RFQs may have gone out from: the workspace default
-    plus each user's custom sender_email. Gmail can rewrite an unverified
-    custom From back to the token owner's address, which is why the default
-    always stays in the set."""
+    """Every address an RFQ of ours may have gone out from, for telling our own
+    messages apart from supplier replies in a thread.
+
+    New sends always come from the workspace mailbox (sender_address()). The
+    per-user addresses are historical: they used to be the `From:` header before
+    that address became a Cc, so old threads really do carry them — and a user's
+    Cc address also appears as the sender if they reply into the thread
+    themselves."""
     addrs = {sender_address().lower()}
-    for (se,) in db.execute(select(User.sender_email).where(User.sender_email.is_not(None))):
-        addrs.add(se.lower())
+    for (cc,) in db.execute(select(User.cc_email).where(User.cc_email.is_not(None))):
+        addrs.add(cc.lower())
     return addrs
 
 

@@ -8,7 +8,7 @@ import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  getDocumentPreview, sendTestEmail,
+  getDocumentPreview, sendTestEmail, getEmailConfig,
   listProjectBoms, createSupplier,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
@@ -17,7 +17,7 @@ import {
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
-  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender,
+  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender, EmailConfig,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -682,11 +682,16 @@ function AddSupplierModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 /* ----------------------------------------------------------------- Settings */
 function Settings({ m }: MProps) {
   const toggleOn = css('width:38px;height:22px;border-radius:999px;background:var(--primary);position:relative;flex:none')
-  // RFQ sender address — the one writable setting; saves via PATCH /api/auth/me.
-  const [senderEmail, setSenderEmail] = useState(m.userSenderEmail)
+  // Your CC address — the one writable setting; saves via PATCH /api/auth/me.
+  // It is never a From address: all mail leaves the workspace mailbox below.
+  const [ccEmail, setCcEmail] = useState(m.userCcEmail)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // The workspace's real outbound setup (GET /api/auth/email-config), so this
+  // panel states what will actually happen instead of implying mail goes out.
+  const [emailCfg, setEmailCfg] = useState<EmailConfig | null>(null)
+  useEffect(() => { getEmailConfig().then(setEmailCfg).catch(() => setEmailCfg(null)) }, [])
   // Email-config verification (POST /api/auth/test-email).
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<string | null>(null)
@@ -697,8 +702,8 @@ function Settings({ m }: MProps) {
       const r = await sendTestEmail()
       setTestResult(
         r.mocked
-          ? 'Mock mode — no Gmail connected, the send was only logged. See docs/email-setup.md.'
-          : `Sent to ${r.to} from ${r.fromAddr} — check your inbox (and the From address).`,
+          ? 'Mock mode — no Gmail connected, so nothing was delivered; the send was only logged. See docs/email-setup.md.'
+          : `Sent to ${r.to} from ${r.fromAddr}${r.cc ? `, copied to ${r.cc}` : ''} — check your inbox.`,
       )
     } catch (ex) {
       setTestErr(ex instanceof Error ? ex.message : 'Test send failed')
@@ -706,14 +711,14 @@ function Settings({ m }: MProps) {
       setTesting(false)
     }
   }
-  const dirty = senderEmail.trim() !== m.userSenderEmail
+  const dirty = ccEmail.trim() !== m.userCcEmail
   const saveSender = async (e: FormEvent) => {
     e.preventDefault()
     setSaving(true); setErr(null); setSaved(false)
     try {
-      const u = await updateMe({ senderEmail: senderEmail.trim() || null })
+      const u = await updateMe({ ccEmail: ccEmail.trim() || null })
       m.onUserUpdated(u)
-      setSenderEmail((u.senderEmail as string) || '')
+      setCcEmail((u.ccEmail as string) || '')
       setSaved(true)
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Could not save')
@@ -732,18 +737,31 @@ function Settings({ m }: MProps) {
           <Box as="button" onClick={m.logout} style={css('height:34px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600')} hover="background:var(--panel-2)">Sign out</Box>
         </div>
         <div style={css('padding:8px 0')}>
-          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px')}>
+          <div style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px')}>
             <div style={{ flex: 1 }}>
-              <div style={css('font-size:13.5px;font-weight:600')}>RFQ sender address</div>
-              <div style={css('font-size:12px;color:var(--text-3)')}>Outgoing RFQs are sent from this address. Must be a verified send-as alias on the connected Gmail account, or Gmail rewrites it.</div>
+              <div style={css('font-size:13.5px;font-weight:600')}>Sent from</div>
+              <div style={css('font-size:12px;color:var(--text-3)')}>
+                Every RFQ, award notice and update leaves the workspace's connected Gmail account, showing your name and company. Supplier replies come back to it, which is how quotes are ingested.
+              </div>
+              {emailCfg && !emailCfg.configured && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>No Gmail account connected — nothing is delivered, sends are only logged. See docs/email-setup.md.</div>}
+              {emailCfg && emailCfg.configured && !emailCfg.senderAddressSet && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>PROCUREAI_GMAIL_SENDER_ADDRESS is not set — set it to the connected account's address. See docs/email-setup.md.</div>}
+            </div>
+            <span style={css(`font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border);flex:none;${emailCfg && emailCfg.configured && emailCfg.senderAddressSet ? '' : 'color:var(--warn)'}`)}>
+              {!emailCfg ? '…' : emailCfg.configured && emailCfg.senderAddressSet ? emailCfg.fromAddress : 'Not configured'}
+            </span>
+          </div>
+          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
+            <div style={{ flex: 1 }}>
+              <div style={css('font-size:13.5px;font-weight:600')}>Copy me on emails</div>
+              <div style={css('font-size:12px;color:var(--text-3)')}>Your address is CC'd on outgoing RFQs and award notices so you keep a record. It is never used as the From address.</div>
               {err && <div style={css('font-size:12px;color:var(--danger);margin-top:4px')}>{err}</div>}
             </div>
             <div style={css('display:flex;align-items:center;gap:8px;flex:none')}>
               <input
                 type="email"
-                value={senderEmail}
-                onChange={(e) => { setSenderEmail(e.target.value); setSaved(false); setErr(null) }}
-                placeholder="Workspace default"
+                value={ccEmail}
+                onChange={(e) => { setCcEmail(e.target.value); setSaved(false); setErr(null) }}
+                placeholder="you@company.com"
                 style={css('height:32px;width:210px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:12.5px;outline:none')}
               />
               <Box as="button" type="submit" disabled={saving || !dirty} style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;${saving || !dirty ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">

@@ -1,9 +1,10 @@
 """Award-notification emails: winners get a PO for only their lines, losers get a
 decline note, and each threads into the supplier's RFQ conversation."""
+from email.utils import parseaddr
 from types import SimpleNamespace
 
 from app.services.rfq import award_notify
-from app.services.rfq.sender import SentMessage
+from app.services.rfq.sender import UNCONFIGURED_SENDER_ADDRESS, SentMessage
 
 
 class RecordingSender:
@@ -14,9 +15,10 @@ class RecordingSender:
     def __init__(self):
         self.sent = []
 
-    def send(self, to, subject, body, *, from_addr, thread_id=None, in_reply_to=None):
+    def send(self, to, subject, body, *, from_addr, cc=None, thread_id=None,
+             in_reply_to=None):
         self.sent.append(dict(to=to, subject=subject, body=body, from_addr=from_addr,
-                              thread_id=thread_id, in_reply_to=in_reply_to))
+                              cc=cc, thread_id=thread_id, in_reply_to=in_reply_to))
         return SentMessage(message_id=f"rec-{len(self.sent)}", thread_id=thread_id or "t")
 
 
@@ -53,7 +55,10 @@ SUMMARY = {
     "material": 1450.0, "freight": 180.0, "total": 1630.0, "poCount": 2,
 }
 
-BUYER = SimpleNamespace(name="Jordan Mills", company="Meridian Civil", sender_email=None)
+BUYER = SimpleNamespace(name="Jordan Mills", company="Meridian Civil", cc_email=None)
+# Same buyer, now asking to be copied on the mail they trigger.
+BUYER_CC = SimpleNamespace(name="Jordan Mills", company="Meridian Civil",
+                           cc_email="jordan@meridiancivil.com")
 
 
 def _patch(monkeypatch, quotes, rfq=RFQ):
@@ -82,7 +87,10 @@ def test_split_award_emails_each_winner_only_their_lines(monkeypatch):
     assert alpha["subject"] == "Re: RFQ: Water Utilities — Test Project"
     assert alpha["thread_id"] == "thread-a"        # threaded into Alpha's RFQ
     assert alpha["in_reply_to"] is None            # mock sender → no header fetch
-    assert alpha["from_addr"] == "rfq@procureai.local"
+    # From is the workspace mailbox (Gmail unconfigured in tests → the labelled
+    # placeholder), never the buyer's own address.
+    assert parseaddr(alpha["from_addr"])[1] == UNCONFIGURED_SENDER_ADDRESS
+    assert alpha["cc"] is None                     # this buyer set no Cc address
     assert "Pipe" in alpha["body"] and "Valve" not in alpha["body"]
     assert "$1,000.00" in alpha["body"]            # materials (Alpha's Pipe)
     assert "$1,100.00" in alpha["body"]            # total incl. freight
@@ -100,6 +108,22 @@ def test_split_award_emails_each_winner_only_their_lines(monkeypatch):
     assert gamma["thread_id"] == "thread-g"
     assert "another supplier" in gamma["body"]
     assert "Pipe" not in gamma["body"] and "$" not in gamma["body"]
+
+
+def test_buyer_is_cced_on_every_award_email(monkeypatch):
+    """The buyer's own address rides along as a Cc — it is never the From."""
+    _patch(monkeypatch, [ALPHA, BETA, GAMMA])
+    sender = RecordingSender()
+
+    award_notify.notify_award(
+        None, project_id="p", package="water", package_label="Water Utilities",
+        summary=SUMMARY, buyer=BUYER_CC, sender=sender,
+    )
+
+    assert len(sender.sent) == 3
+    for m in sender.sent:
+        assert m["cc"] == "jordan@meridiancivil.com"
+        assert parseaddr(m["from_addr"])[1] == UNCONFIGURED_SENDER_ADDRESS
 
 
 def test_declined_can_be_suppressed(monkeypatch):

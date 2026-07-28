@@ -3,12 +3,19 @@
 GmailSender uses a stored OAuth2 refresh token to call the Gmail API
 (users.messages.send). When Gmail creds aren't configured, get_sender() returns a
 MockSender that only logs — so the "send" step works end-to-end offline.
+
+Sender identity (important):
+  Everything goes out from ONE mailbox — the connected Gmail account named by
+  PROCUREAI_GMAIL_SENDER_ADDRESS. A user's own address is never used in `From:`;
+  it is carried as the display name (`"Jane Doe — Acme" <bids@ours.com>`) and as
+  a `Cc:` so the buyer keeps a copy. See from_header() / resolve_cc() below.
 """
 import base64
 import logging
 import uuid
 from dataclasses import dataclass
 from email.mime.text import MIMEText
+from email.utils import formataddr, parseaddr
 from typing import Optional, Protocol
 
 from app.config import settings
@@ -20,6 +27,12 @@ logger = logging.getLogger("procureai.rfq.sender")
 # scopes is fine, so keeping send isolated here means a send-only token still works.
 _GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+# Stand-in used ONLY when PROCUREAI_GMAIL_SENDER_ADDRESS is unset — which also
+# means nothing can be delivered (get_sender() returns MockSender). It is not a
+# real mailbox, so never present it as a working From address: email_config()
+# reports `senderAddressSet: false` and the UI labels it as unconfigured.
+UNCONFIGURED_SENDER_ADDRESS = "rfq@procureai.local"
 
 
 class GmailUnavailable(Exception):
@@ -48,10 +61,14 @@ class EmailSender(Protocol):
         body: str,
         *,
         from_addr: str,
+        cc: Optional[str] = None,
         thread_id: Optional[str] = None,
         in_reply_to: Optional[str] = None,
     ) -> SentMessage:
         """Send one email and return its Gmail message + thread ids.
+
+        `cc` keeps the buyer who triggered the send in the loop (User.cc_email);
+        it is dropped when it would duplicate `to` or `from_addr` (see resolve_cc).
 
         `thread_id` (a Gmail thread id) and `in_reply_to` (the RFC822 Message-ID of
         the message being replied to) make the email land inside an existing thread
@@ -60,21 +77,51 @@ class EmailSender(Protocol):
         ...
 
 
+def _addr_only(value: str) -> str:
+    """'Jane <a@b.com>' → 'a@b.com' (lowercased); '' when there's no address."""
+    return parseaddr(value or "")[1].strip().lower()
+
+
+def resolve_cc(cc: Optional[str], to: str, from_addr: str) -> Optional[str]:
+    """The `Cc:` to actually set, or None.
+
+    Drops a Cc that is already receiving the message — the recipient, or the
+    workspace mailbox we send from (which keeps its own copy in Sent) — so nobody
+    gets the same email twice.
+    """
+    if not _addr_only(cc or ""):
+        return None
+    if _addr_only(cc) in {_addr_only(to), _addr_only(from_addr)}:
+        return None
+    return (cc or "").strip()
+
+
 def _build_mime(
     to: str,
     subject: str,
     body: str,
     from_addr: str,
+    *,
+    cc: Optional[str] = None,
     in_reply_to: Optional[str] = None,
 ) -> str:
     msg = MIMEText(body)
     msg["To"] = to
     msg["From"] = from_addr
+    cc = resolve_cc(cc, to, from_addr)
+    if cc:
+        msg["Cc"] = cc
     msg["Subject"] = subject
     if in_reply_to:
         # Both headers so replying clients (and Gmail) thread it under the RFQ.
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
+    # DELIBERATELY no Reply-To header. Supplier replies must come back to the
+    # connected mailbox: that inbox is what quote ingest reads
+    # (services/quotes/gmail_reader.py) and what services/rfq/conversation.py
+    # rebuilds an RFQ thread from. Pointing Reply-To at the buyer's own address
+    # would route replies somewhere we never read and silently break both. The
+    # buyer stays in the loop via Cc instead — do not "fix" this.
     return base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
 
@@ -88,13 +135,15 @@ class MockSender:
         body: str,
         *,
         from_addr: str,
+        cc: Optional[str] = None,
         thread_id: Optional[str] = None,
         in_reply_to: Optional[str] = None,
     ) -> SentMessage:
         mid = f"mock-{uuid.uuid4().hex[:12]}"
         logger.info(
-            "[MOCK SEND] id=%s from=%s to=%s subject=%r thread=%s (%d chars)",
-            mid, from_addr, to, subject, thread_id or "-", len(body),
+            "[MOCK SEND] id=%s from=%s to=%s cc=%s subject=%r thread=%s (%d chars)",
+            mid, from_addr, to, resolve_cc(cc, to, from_addr) or "-", subject,
+            thread_id or "-", len(body),
         )
         return SentMessage(message_id=mid, thread_id=thread_id or mid)
 
@@ -132,11 +181,14 @@ class GmailSender:
         body: str,
         *,
         from_addr: str,
+        cc: Optional[str] = None,
         thread_id: Optional[str] = None,
         in_reply_to: Optional[str] = None,
     ) -> SentMessage:
         service = self._service()
-        raw = _build_mime(to, subject, body, from_addr, in_reply_to)
+        # Gmail delivers to every address in the headers, so a Cc: header is all
+        # that's needed to copy the buyer.
+        raw = _build_mime(to, subject, body, from_addr, cc=cc, in_reply_to=in_reply_to)
         message: dict = {"raw": raw}
         if thread_id:
             message["threadId"] = thread_id
@@ -156,6 +208,11 @@ class GmailSender:
 
 
 def is_configured() -> bool:
+    """True when the three PROCUREAI_GMAIL_* OAuth vars are all set (real sends).
+
+    Reads app.config.settings, which loads apps/api/.env and is overridden by real
+    environment variables (Railway/Render service vars). See docs/email-setup.md.
+    """
     return bool(
         settings.gmail_refresh_token
         and settings.gmail_client_id
@@ -171,4 +228,67 @@ def get_sender() -> EmailSender:
 
 
 def sender_address() -> str:
-    return settings.gmail_sender_address or "rfq@procureai.local"
+    """The single mailbox every outbound email is sent from.
+
+    Always PROCUREAI_GMAIL_SENDER_ADDRESS — the account the Gmail API token
+    belongs to. Falls back to UNCONFIGURED_SENDER_ADDRESS (not a real mailbox)
+    when that var is unset; callers that show it to a human should pair it with
+    email_config()["senderAddressSet"] so a placeholder is never displayed as if
+    it were live.
+    """
+    return settings.gmail_sender_address or UNCONFIGURED_SENDER_ADDRESS
+
+
+def display_name(user) -> str:
+    """'Jane Doe — Acme Construction' from a user, skipping missing parts.
+
+    Empty when the account has neither a name nor a company — from_header() then
+    sends the bare address rather than an empty label.
+    """
+    name = (getattr(user, "name", "") or "").strip()
+    company = (getattr(user, "company", "") or "").strip()
+    return " — ".join(part for part in (name, company) if part)
+
+
+def from_header(user=None) -> str:
+    """The `From:` header for mail this user triggers.
+
+    The address is ALWAYS the workspace mailbox (sender_address()); only the
+    display name is personalised, e.g. `"Jane Doe — Acme" <bids@ours.com>`.
+    A user's own address is never used here: Gmail rewrites an unverified From
+    back to the connected account anyway, and supplier replies have to return to
+    the mailbox quote ingest reads. Users are Cc'd instead (User.cc_email).
+    """
+    addr = sender_address()
+    label = display_name(user) if user is not None else ""
+    # formataddr quotes/RFC2047-encodes the label so commas, quotes and the em
+    # dash can't corrupt the header.
+    return formataddr((label, addr)) if label else addr
+
+
+def from_display(user=None) -> str:
+    """The identity from_header() builds, unencoded, for showing to a human.
+
+    from_header() RFC2047-encodes a non-ASCII display name (the em dash in
+    "Jane Doe — Acme" becomes `=?utf-8?q?...?=`) — correct on the wire, but
+    unreadable in the UI or an audit entry. Both name the same mailbox; use this
+    one only for display, never as a header value.
+    """
+    addr = sender_address()
+    label = display_name(user) if user is not None else ""
+    return "{} <{}>".format(label, addr) if label else addr
+
+
+def email_config() -> dict:
+    """What outbound email will actually do right now — all driven by env vars.
+
+    Surfaced by GET /api/auth/email-config so the UI can say "not configured"
+    instead of showing the placeholder From address as if mail were going out.
+    """
+    configured = is_configured()
+    return {
+        "configured": configured,
+        "mocked": not configured,
+        "senderAddressSet": bool(settings.gmail_sender_address),
+        "fromAddress": sender_address(),
+    }

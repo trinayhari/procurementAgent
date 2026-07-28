@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.repositories import quotes as quotes_repo
 from app.repositories import rfqs as rfqs_repo
 from app.services.quotes import gmail_reader
-from app.services.rfq.sender import EmailSender, sender_address
+from app.services.rfq.sender import EmailSender, from_header
 
 logger = logging.getLogger("procureai.rfq.award_notify")
 
@@ -144,7 +144,10 @@ def notify_award(
 
     selections: Dict[str, str] = summary.get("selections") or {}
     winners = set(summary.get("supplierIds") or [])
-    from_addr = (getattr(buyer, "sender_email", None) or sender_address())
+    # Always the workspace mailbox, with the buyer's name/company as the display
+    # name; the buyer's own address rides along as a Cc.
+    from_addr = from_header(buyer)
+    cc = getattr(buyer, "cc_email", None)
 
     result = {"notified": [], "declined": [], "failed": [], "mock": bool(getattr(sender, "mocked", False))}
 
@@ -158,7 +161,7 @@ def notify_award(
         thread_id, in_reply_to, rfq_subject = _thread_ref(db, quote, sender)
         subj = f"Re: {rfq_subject}" if rfq_subject else subject
         try:
-            sender.send(email, subj, body, from_addr=from_addr,
+            sender.send(email, subj, body, from_addr=from_addr, cc=cc,
                         thread_id=thread_id, in_reply_to=in_reply_to)
         except Exception as exc:
             logger.warning("Award %s email to %s failed: %s", kind, email, exc)
