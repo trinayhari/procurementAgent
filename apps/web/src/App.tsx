@@ -157,7 +157,13 @@ export default function App() {
   // avoid the stale-closure value of s.projectId.
   const reload = (pid = s.projectId) =>
     loadModelData(pid || undefined).then((data) => set({ data })).catch(() => {})
-  useEffect(() => { reload() }, [])
+  // Hydrate once we're authenticated, and re-hydrate whenever the signed-in
+  // account changes — a fresh login (or a session restored from a stored token)
+  // flips `user` from null, which must re-run this so the workspace populates
+  // without a manual page reload. Keyed on `user?.id` (not the object) so a
+  // profile edit that returns a new user object doesn't refetch everything;
+  // guarded on `user` so we skip the unauthenticated mount and logout.
+  useEffect(() => { if (user) reload() }, [user?.id])
 
   // Refetch the workspace bundle whenever the open project changes, so each
   // project shows its own documents/quotes/etc. instead of the last one's.
@@ -188,10 +194,12 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  // Plan types the extractor supports (drives the upload selector).
+  // Plan types the extractor supports (drives the upload selector). Auth-gated,
+  // so key it on the signed-in account too — see the hydration effect above.
   useEffect(() => {
+    if (!user) return
     getPlanTypes().then((planTypes) => set({ planTypes })).catch(() => {})
-  }, [])
+  }, [user?.id])
 
   // Upload a plan into a slot (or an additional document), then refresh so it
   // appears in the documents list. `planType` selects the slot; uploading a
