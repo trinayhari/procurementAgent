@@ -28,8 +28,9 @@ class Base(DeclarativeBase):
 DEMO_ORG_ID = "demo"
 DEMO_ORG_NAME = "Meridian Civil Co."
 
-# Where rows that predate multi-tenancy land. Must match migration 0016 so a dev
-# DB (create_all + _ensure_dev_columns) and a migrated DB agree.
+# Where rows that predate multi-tenancy land. Must match migration
+# 0017_organizations so a dev DB (create_all + _ensure_dev_columns) and a
+# migrated DB agree.
 BACKFILL_ORG_ID = "default"
 BACKFILL_ORG_NAME = "Default Organization"
 
@@ -127,18 +128,22 @@ def _ensure_dev_columns() -> None:
                 conn.execute(text("ALTER TABLE timeline_events ADD COLUMN done_at VARCHAR NOT NULL DEFAULT ''"))
     if "users" in tables:
         cols = {c["name"] for c in inspector.get_columns("users")}
-        if "sender_email" not in cols:
+        if "cc_email" not in cols:
             with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE users ADD COLUMN sender_email VARCHAR"))
+                if "sender_email" in cols:
+                    # Pre-0016 dev DB: same column, new meaning (Cc, not From).
+                    conn.execute(text("ALTER TABLE users RENAME COLUMN sender_email TO cc_email"))
+                else:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN cc_email VARCHAR"))
     _ensure_organization_column(inspector, tables)
 
 
 def _ensure_organization_column(inspector, tables: set) -> None:
     """Backfill `organization_id` on a dev DB created before multi-tenancy.
 
-    Mirrors migration 0016 for the zero-config path: existing rows land in the
-    same `default` organization the migration uses, so a dev DB and a migrated
-    one behave identically.
+    Mirrors migration 0017_organizations for the zero-config path: existing rows
+    land in the same `default` organization the migration uses, so a dev DB and a
+    migrated one behave identically.
     """
     missing = [
         t

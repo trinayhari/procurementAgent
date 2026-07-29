@@ -30,9 +30,10 @@ class User(Base):
     name: Mapped[str] = mapped_column(String, nullable=False, default="")
     company: Mapped[str] = mapped_column(String, nullable=False, default="")
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
-    # Custom "From" address for outgoing RFQs; None → the workspace default
-    # (settings.gmail_sender_address).
-    sender_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Address Cc'd on outbound mail this user triggers (RFQ sends, award notices,
+    # test emails), so they keep a copy. None → no Cc. This is NOT a From address:
+    # everything is sent from the workspace mailbox (see services/rfq/sender.py).
+    cc_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
 
     def to_dict(self) -> dict:
@@ -43,6 +44,6 @@ class User(Base):
             "name": self.name,
             "company": self.company,
             "organizationId": self.organization_id,
-            "senderEmail": self.sender_email,
+            "ccEmail": self.cc_email,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

@@ -4,8 +4,8 @@ A pending invitation for a teammate to join an existing organization. Accepting
 one (public accept endpoint, resolved by token) creates a user in the inviting
 org — the invite flow the multi-tenancy work left as a TODO.
 
-Revision ID: 0017_organization_invites
-Revises: 0016_organizations
+Revision ID: 0018_organization_invites
+Revises: 0017_organizations
 Create Date: 2026-07-29
 """
 from typing import Sequence, Union
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0017_organization_invites"
-down_revision: Union[str, None] = "0016_organizations"
+revision: str = "0018_organization_invites"
+down_revision: Union[str, None] = "0017_organizations"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

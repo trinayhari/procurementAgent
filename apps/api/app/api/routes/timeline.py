@@ -54,5 +54,6 @@ def set_event_done(
             org_id,
             result["projectId"],
             result["name"],
+            current_user.id,
         )
     return {"updated": result["updated"]}

@@ -152,9 +152,9 @@ export function getMe(): Promise<AuthUser> {
   return get<AuthUser>('/api/auth/me')
 }
 
-// Update account settings; `senderEmail: null` clears the custom RFQ From
-// address (outgoing RFQs revert to the workspace default).
-export async function updateMe(input: { senderEmail: string | null }): Promise<AuthUser> {
+// Update account settings; `ccEmail: null` stops copying you on outgoing mail.
+// It is never a From address — everything is sent from the workspace mailbox.
+export async function updateMe(input: { ccEmail: string | null }): Promise<AuthUser> {
   const res = await fetch(`${BASE}/api/auth/me`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -172,6 +172,15 @@ export async function updateMe(input: { senderEmail: string | null }): Promise<A
 export type TestEmailResult = Schemas['TestEmailResult']
 export function sendTestEmail(): Promise<TestEmailResult> {
   return post<TestEmailResult>('/api/auth/test-email')
+}
+
+// The workspace's effective outbound-email setup, derived from the backend's
+// PROCUREAI_GMAIL_* environment variables. `configured: false` means nothing is
+// actually delivered, and `senderAddressSet: false` means `fromAddress` is only
+// a placeholder — surface both rather than implying mail is going out.
+export type EmailConfig = Schemas['EmailConfig']
+export function getEmailConfig(): Promise<EmailConfig> {
+  return get<EmailConfig>('/api/auth/email-config')
 }
 
 export function logout(): void {

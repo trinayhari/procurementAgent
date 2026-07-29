@@ -80,6 +80,31 @@ export interface paths {
         patch: operations["update_me_api_auth_me_patch"];
         trace?: never;
     };
+    "/api/auth/email-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Email Config
+         * @description The effective outbound-email setup: which mailbox mail leaves from,
+         *     whether Gmail is actually connected, and your Cc address.
+         *
+         *     Every field derives from the PROCUREAI_GMAIL_* environment variables (see
+         *     docs/email-setup.md) — nothing here is per-user except `ccEmail` and the
+         *     display name baked into `fromHeader`.
+         */
+        get: operations["email_config_api_auth_email_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/test-email": {
         parameters: {
             query?: never;
@@ -94,8 +119,8 @@ export interface paths {
          * @description Verify the email configuration by sending a test message to yourself.
          *
          *     Uses exactly the same path as an RFQ send: the configured provider (Gmail
-         *     or the logging mock) and your effective From address (your per-user sender
-         *     when set, else the workspace default). See docs/email-setup.md.
+         *     or the logging mock) and the workspace From address carrying your display
+         *     name. See docs/email-setup.md.
          */
         post: operations["send_test_email_api_auth_test_email_post"];
         delete?: never;
@@ -1469,6 +1494,28 @@ export interface components {
             /** Expiresinminutes */
             expiresInMinutes: number;
         };
+        /**
+         * EmailConfig
+         * @description Effective outbound-email configuration, straight from the environment.
+         *
+         *     Lets the UI state the truth instead of implying mail is going out: when
+         *     `configured` is false nothing is delivered, and when `senderAddressSet` is
+         *     false `fromAddress` is only a placeholder.
+         */
+        EmailConfig: {
+            /** Configured */
+            configured: boolean;
+            /** Mocked */
+            mocked: boolean;
+            /** Senderaddressset */
+            senderAddressSet: boolean;
+            /** Fromaddress */
+            fromAddress: string;
+            /** Fromheader */
+            fromHeader: string;
+            /** Ccemail */
+            ccEmail?: string | null;
+        };
         /** FollowupDraft */
         FollowupDraft: {
             /** Body */
@@ -2446,6 +2493,8 @@ export interface components {
             fromAddr: string;
             /** To */
             to: string;
+            /** Cc */
+            cc?: string | null;
         };
         /** ThreadMessage */
         ThreadMessage: {
@@ -2494,12 +2543,13 @@ export interface components {
         Tone: "blue" | "violet" | "gray" | "success" | "warn" | "danger" | "ai";
         /**
          * UpdateMeRequest
-         * @description Editable account settings. `senderEmail: null` clears the custom From
-         *     address (outgoing RFQs revert to the workspace default).
+         * @description Editable account settings. `ccEmail` is the address copied on outgoing
+         *     mail you trigger; `null` clears it. It is never a From address — everything
+         *     is sent from the workspace mailbox (see services/rfq/sender.py).
          */
         UpdateMeRequest: {
-            /** Senderemail */
-            senderEmail?: string | null;
+            /** Ccemail */
+            ccEmail?: string | null;
         };
         /**
          * User
@@ -2519,8 +2569,8 @@ export interface components {
             company: string;
             /** Organizationid */
             organizationId: string;
-            /** Senderemail */
-            senderEmail?: string | null;
+            /** Ccemail */
+            ccEmail?: string | null;
             /** Createdat */
             createdAt?: string | null;
         };
@@ -2677,6 +2727,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    email_config_api_auth_email_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailConfig"];
                 };
             };
         };

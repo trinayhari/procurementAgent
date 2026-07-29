@@ -4,8 +4,8 @@ Adds the tenant boundary. Existing rows are backfilled to a single `default`
 organization so a deployment that already has data keeps its current (shared)
 behaviour rather than orphaning every project; new signups each get their own.
 
-Revision ID: 0016_organizations
-Revises: 0015_document_checksum
+Revision ID: 0017_organizations
+Revises: 0016_user_cc_email
 Create Date: 2026-07-28
 """
 from typing import Sequence, Union
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0016_organizations"
-down_revision: Union[str, None] = "0015_document_checksum"
+revision: str = "0017_organizations"
+down_revision: Union[str, None] = "0016_user_cc_email"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

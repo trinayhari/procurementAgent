@@ -89,9 +89,9 @@ def create_user(
     return user
 
 
-def set_sender_email(db: Session, user: User, sender_email: Optional[str]) -> User:
-    """Set (or clear, with None) the user's custom RFQ From address."""
-    user.sender_email = sender_email.strip().lower() if sender_email else None
+def set_cc_email(db: Session, user: User, cc_email: Optional[str]) -> User:
+    """Set (or clear, with None) the address Cc'd on this user's outgoing mail."""
+    user.cc_email = cc_email.strip().lower() if cc_email else None
     db.commit()
     db.refresh(user)
     return user

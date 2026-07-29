@@ -1,9 +1,11 @@
 """Auth flows, the auth wall on every route, rate limiting, token scoping."""
 import re
+from email.utils import parseaddr
 
 from app.core import ratelimit
 from app.core.security import create_scoped_token
 from app.main import app
+from app.services.rfq import sender as rfq_sender
 
 
 def test_register_login_me(auth):
@@ -98,14 +100,41 @@ def test_login_rate_limit(client):
 def test_send_test_email_mock(auth):
     """The config-verification endpoint works in mock mode and reports it."""
     client, headers = auth
-    # default From (no per-user sender set)
     r = client.post("/api/auth/test-email", headers=headers)
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["mocked"] is True
     assert data["to"] == "pm@example.com"
     assert data["messageId"].startswith("mock-")
-    # per-user sender is used as the From address once set
-    client.patch("/api/auth/me", headers=headers, json={"senderEmail": "bids@example.com"})
+    # From is the workspace mailbox carrying the user's display name...
+    assert parseaddr(data["fromAddr"])[1] == rfq_sender.sender_address()
+    assert parseaddr(data["fromAddr"])[0] == "PM"
+    # ...and the test goes to the user, so their Cc would duplicate it — dropped.
+    assert data["cc"] is None
+
+    # A Cc address that isn't the recipient does get copied.
+    r = client.patch("/api/auth/me", headers=headers, json={"ccEmail": "bids@example.com"})
+    assert r.json()["ccEmail"] == "bids@example.com"
     r = client.post("/api/auth/test-email", headers=headers)
-    assert r.json()["fromAddr"] == "bids@example.com"
+    data = r.json()
+    assert data["cc"] == "bids@example.com"
+    # Setting a Cc must never change who the mail is from.
+    assert parseaddr(data["fromAddr"])[1] == rfq_sender.sender_address()
+
+
+def test_email_config_reports_unconfigured_gmail(auth):
+    """The UI needs the truth: nothing is delivered and the address is a
+    placeholder until PROCUREAI_GMAIL_* is set."""
+    client, headers = auth
+    r = client.get("/api/auth/email-config", headers=headers)
+    assert r.status_code == 200, r.text
+    cfg = r.json()
+    assert cfg["configured"] is False and cfg["mocked"] is True
+    assert cfg["senderAddressSet"] is False
+    assert cfg["fromAddress"] == rfq_sender.UNCONFIGURED_SENDER_ADDRESS
+    assert cfg["ccEmail"] is None
+
+    client.patch("/api/auth/me", headers=headers, json={"ccEmail": "bids@example.com"})
+    assert client.get("/api/auth/email-config", headers=headers).json()["ccEmail"] == (
+        "bids@example.com"
+    )
