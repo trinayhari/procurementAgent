@@ -30,7 +30,7 @@
           "auth"
         ],
         "summary": "Register",
-        "description": "Create an account and, with it, the organization that owns its data.\n\nEvery signup gets its own tenant \u2014 there is no way to join an existing one\nfrom here.\n# TODO(invites): a second user joins an EXISTING organization through an\n# invite (tokened email \u2192 accept endpoint \u2192 users_repo.create_user with the\n# inviting org's id) rather than this route. Only the flow is missing; the\n# data model already supports many users per organization.",
+        "description": "Create an account and, with it, the organization that owns its data.\n\nEvery signup here gets its own new tenant. Joining an EXISTING organization\ngoes through the invite flow instead (POST /api/invite/{token}/accept in\napp/api/routes/team.py), which creates the user in the inviting org.",
         "operationId": "register_api_auth_register_post",
         "requestBody": {
           "content": {
@@ -299,6 +299,102 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invite/{token}": {
+      "get": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Preview Invite",
+        "description": "What the accept screen shows before the invitee commits. Never reveals\nwhether a token is real beyond valid/invalid + a coarse reason.",
+        "operationId": "preview_invite_api_invite__token__get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitePreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invite/{token}/accept": {
+      "post": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Accept Invite",
+        "description": "Redeem an invite: create the user in the inviting org and log them in.\n\nThe email is taken from the invite (the invitee can't change who was\ninvited); only name + password come from the request.",
+        "operationId": "accept_invite_api_invite__token__accept_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
               }
             }
           },
@@ -3105,10 +3201,145 @@
           }
         }
       }
+    },
+    "/api/team": {
+      "get": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Get Team",
+        "description": "The org's roster: current members plus still-open invitations.",
+        "operationId": "get_team_api_team_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMembers"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/team/invites": {
+      "post": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Create Invite",
+        "description": "Invite a teammate by email to join the caller's organization.",
+        "operationId": "create_invite_api_team_invites_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invite"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/team/invites/{invite_id}": {
+      "delete": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Revoke Invite",
+        "description": "Cancel a pending invitation. 404 for an unknown id or another org's.",
+        "operationId": "revoke_invite_api_team_invites__invite_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "invite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Invite Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AcceptInviteRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "AcceptInviteRequest"
+      },
       "Activity": {
         "properties": {
           "icon": {
@@ -3901,6 +4132,131 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "Invite": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "invitedByUserId": {
+            "type": "string",
+            "title": "Invitedbyuserid"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "acceptedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acceptedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "status",
+          "invitedByUserId"
+        ],
+        "title": "Invite",
+        "description": "A pending/accepted/revoked invitation (never exposes the token)."
+      },
+      "InviteCreateRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "InviteCreateRequest"
+      },
+      "InvitePreview": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "organizationName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organizationname"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid"
+        ],
+        "title": "InvitePreview",
+        "description": "What the public accept screen shows before the invitee commits: which org\nthey're joining and at which email. `valid` is false for a revoked, accepted,\nexpired, or unknown token."
       },
       "Lender": {
         "properties": {
@@ -5796,6 +6152,30 @@
           "suppliers"
         ],
         "title": "SupplierTier"
+      },
+      "TeamMembers": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/User"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "invites": {
+            "items": {
+              "$ref": "#/components/schemas/Invite"
+            },
+            "type": "array",
+            "title": "Invites"
+          }
+        },
+        "type": "object",
+        "required": [
+          "members",
+          "invites"
+        ],
+        "title": "TeamMembers"
       },
       "TestEmailResult": {
         "properties": {

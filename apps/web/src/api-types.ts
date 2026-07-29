@@ -34,12 +34,9 @@ export interface paths {
          * Register
          * @description Create an account and, with it, the organization that owns its data.
          *
-         *     Every signup gets its own tenant — there is no way to join an existing one
-         *     from here.
-         *     # TODO(invites): a second user joins an EXISTING organization through an
-         *     # invite (tokened email → accept endpoint → users_repo.create_user with the
-         *     # inviting org's id) rather than this route. Only the flow is missing; the
-         *     # data model already supports many users per organization.
+         *     Every signup here gets its own new tenant. Joining an EXISTING organization
+         *     goes through the invite flow instead (POST /api/invite/{token}/accept in
+         *     app/api/routes/team.py), which creates the user in the inviting org.
          */
         post: operations["register_api_auth_register_post"];
         delete?: never;
@@ -147,6 +144,50 @@ export interface paths {
         get: operations["get_document_file_api_documents__document_id__file_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invite/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Invite
+         * @description What the accept screen shows before the invitee commits. Never reveals
+         *     whether a token is real beyond valid/invalid + a coarse reason.
+         */
+        get: operations["preview_invite_api_invite__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invite/{token}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Invite
+         * @description Redeem an invite: create the user in the inviting org and log them in.
+         *
+         *     The email is taken from the invite (the invitee can't change who was
+         *     invited); only name + password come from the request.
+         */
+        post: operations["accept_invite_api_invite__token__accept_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1092,10 +1133,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Team
+         * @description The org's roster: current members plus still-open invitations.
+         */
+        get: operations["get_team_api_team_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/team/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Invite
+         * @description Invite a teammate by email to join the caller's organization.
+         */
+        post: operations["create_invite_api_team_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/team/invites/{invite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Invite
+         * @description Cancel a pending invitation. 404 for an unknown id or another org's.
+         */
+        delete: operations["revoke_invite_api_team_invites__invite_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AcceptInviteRequest */
+        AcceptInviteRequest: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Password */
+            password: string;
+        };
         /** Activity */
         Activity: {
             /** Icon */
@@ -1425,6 +1536,53 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * Invite
+         * @description A pending/accepted/revoked invitation (never exposes the token).
+         */
+        Invite: {
+            /** Id */
+            id: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Status */
+            status: string;
+            /** Invitedbyuserid */
+            invitedByUserId: string;
+            /** Createdat */
+            createdAt?: string | null;
+            /** Expiresat */
+            expiresAt?: string | null;
+            /** Acceptedat */
+            acceptedAt?: string | null;
+        };
+        /** InviteCreateRequest */
+        InviteCreateRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
+        /**
+         * InvitePreview
+         * @description What the public accept screen shows before the invitee commits: which org
+         *     they're joining and at which email. `valid` is false for a revoked, accepted,
+         *     expired, or unknown token.
+         */
+        InvitePreview: {
+            /** Valid */
+            valid: boolean;
+            /** Organizationname */
+            organizationName?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Reason */
+            reason?: string | null;
         };
         /** Lender */
         Lender: {
@@ -2268,6 +2426,13 @@ export interface components {
             /** Suppliers */
             suppliers: components["schemas"]["FoundSupplier"][];
         };
+        /** TeamMembers */
+        TeamMembers: {
+            /** Members */
+            members: components["schemas"]["User"][];
+            /** Invites */
+            invites: components["schemas"]["Invite"][];
+        };
         /**
          * TestEmailResult
          * @description Outcome of POST /api/auth/test-email (config verification).
@@ -2590,6 +2755,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_invite_api_invite__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_invite_api_invite__token__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4330,6 +4561,88 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_api_team_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembers"];
+                };
+            };
+        };
+    };
+    create_invite_api_team_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_invite_api_team_invites__invite_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

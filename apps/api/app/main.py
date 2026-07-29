@@ -14,6 +14,7 @@ from app.api.routes import (
     rfqs,
     sourcing,
     suppliers,
+    team,
     timeline,
 )
 from app.config import settings
@@ -94,8 +95,11 @@ def health():
 # file URLs validated by a scoped query token (iframes can't send headers).
 app.include_router(auth.router)
 app.include_router(documents.file_router)
+# Public invite preview/accept: the invitee has no account yet, so these gate
+# on a secret token, not a bearer session.
+app.include_router(team.public_router)
 
 # Every other route requires an authenticated user.
 _authed = [Depends(get_current_user)]
-for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline, jobs, audit):
+for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline, jobs, audit, team):
     app.include_router(module.router, dependencies=_authed)

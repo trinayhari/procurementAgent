@@ -4,6 +4,7 @@ import { Box, DcIcon, css, ic, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
+import AcceptInvite from './AcceptInvite'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
@@ -14,10 +15,11 @@ import {
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
   getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
+  getTeam, createInvite, revokeInvite,
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
-  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender,
+  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -129,6 +131,14 @@ export default function App() {
   // whether an existing token still resolves to a valid session.
   const [user, setUser] = useState<AuthUser | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  // Capture a team-invite token (#/invite/<token>) ONCE at mount, before the
+  // hash-mirror effect can rewrite the URL. Cleared when the invitee dismisses
+  // an invalid invite.
+  const [inviteToken, setInviteToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    const m = window.location.hash.match(/^#\/invite\/(.+)$/)
+    return m ? decodeURIComponent(m[1]) : null
+  })
 
   // On load, restore the session from a stored token (if any). A 401 clears it.
   useEffect(() => {
@@ -315,6 +325,16 @@ export default function App() {
   // Until the stored token is validated, render nothing (avoids a login flash).
   if (!authReady) {
     return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  }
+  // A public team-invite link (#/invite/<token>) takes precedence over the login
+  // gate: the invitee has no account yet. Accepting reloads into the app.
+  if (inviteToken && !user) {
+    return (
+      <AcceptInvite
+        token={inviteToken}
+        onDismiss={() => { setInviteToken(null); window.location.hash = '#/dashboard' }}
+      />
+    )
   }
   // Gate the whole app behind authentication.
   if (!user) {
@@ -776,6 +796,97 @@ function Settings({ m }: MProps) {
           </div>
         </div>
       </div>
+      <TeamPanel currentEmail={m.userEmail} />
+    </div>
+  )
+}
+
+/* --------------------------------------------------------------------- Team */
+function TeamPanel({ currentEmail }: { currentEmail: string }) {
+  const [team, setTeam] = useState<TeamMembers | null>(null)
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+
+  const load = () => { getTeam().then(setTeam).catch(() => setTeam({ members: [], invites: [] })) }
+  useEffect(load, [])
+
+  const invite = async (e: FormEvent) => {
+    e.preventDefault()
+    const target = email.trim()
+    if (!target || busy) return
+    setBusy(true); setErr(null); setNote(null)
+    try {
+      await createInvite(target)
+      setEmail('')
+      setNote(`Invitation sent to ${target}.`)
+      load()
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Could not send the invite')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revoke = async (id: string) => {
+    setErr(null); setNote(null)
+    try { await revokeInvite(id); load() }
+    catch (ex) { setErr(ex instanceof Error ? ex.message : 'Could not revoke') }
+  }
+
+  const rowStyle = css('display:flex;align-items:center;gap:12px;padding:12px 18px;border-top:1px solid var(--border)')
+
+  return (
+    <div style={css('margin-top:22px;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
+      <div style={css('padding:16px 18px;border-bottom:1px solid var(--border)')}>
+        <div style={css('font-size:15px;font-weight:700;letter-spacing:-.01em')}>Team</div>
+        <div style={css('font-size:12.5px;color:var(--text-3);margin-top:2px')}>People with access to this workspace. Everyone here shares its projects, suppliers and quotes.</div>
+      </div>
+
+      {/* Members */}
+      {(team?.members || []).map((u) => (
+        <div key={u.id} style={rowStyle}>
+          <span style={css('width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;flex:none')}>
+            {(u.name || u.email).slice(0, 1).toUpperCase()}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={css('font-size:13.5px;font-weight:600')}>{u.name || u.email.split('@')[0]}{u.email === currentEmail ? ' (you)' : ''}</div>
+            <div style={css('font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{u.email}</div>
+          </div>
+          <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-2);border:1px solid var(--border);border-radius:999px;padding:3px 10px;flex:none')}>Member</span>
+        </div>
+      ))}
+
+      {/* Pending invites */}
+      {(team?.invites || []).map((inv) => (
+        <div key={inv.id} style={rowStyle}>
+          <span style={css('width:30px;height:30px;border-radius:50%;background:var(--panel-2);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:var(--text-3);flex:none')}>
+            {inv.email.slice(0, 1).toUpperCase()}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{inv.email}</div>
+            <div style={css('font-size:12px;color:var(--text-3)')}>Invitation pending</div>
+          </div>
+          <Box as="button" onClick={() => revoke(inv.id)} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);flex:none')} hover="background:var(--panel-2)">Revoke</Box>
+        </div>
+      ))}
+
+      {/* Invite form */}
+      <form onSubmit={invite} style={css('display:flex;align-items:center;gap:8px;padding:14px 18px;border-top:1px solid var(--border)')}>
+        <input
+          type="email" value={email} required
+          onChange={(e) => { setEmail(e.target.value); setErr(null); setNote(null) }}
+          placeholder="teammate@company.com"
+          style={css('flex:1;height:34px;padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:13px;outline:none')}
+        />
+        <Box as="button" type="submit" disabled={busy} style={css(`height:34px;padding:0 15px;border-radius:8px;background:var(--primary);color:var(--on-primary,#fff);font-size:12.5px;font-weight:600;flex:none;${busy ? 'opacity:.6' : ''}`)} hover="background:var(--primary-2)">
+          {busy ? 'Sending…' : 'Invite'}
+        </Box>
+      </form>
+      {(err || note) && (
+        <div style={css(`font-size:12px;padding:0 18px 14px;${err ? 'color:var(--danger)' : 'color:var(--success,#16a34a)'}`)}>{err || note}</div>
+      )}
     </div>
   )
 }

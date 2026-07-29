@@ -49,6 +49,15 @@ def get_by_email(db: Session, email: str) -> Optional[User]:
     return db.scalar(select(User).where(func.lower(User.email) == normalized))
 
 
+def list_for_org(db: Session, org_id: str) -> list:
+    """Every user in an organization (the team roster), oldest-first by seq."""
+    return list(
+        db.scalars(
+            select(User).where(User.organization_id == org_id).order_by(User.seq)
+        ).all()
+    )
+
+
 def create_user(
     db: Session,
     org_id: str,
@@ -60,11 +69,9 @@ def create_user(
     """Insert a new user, hashed password, into `org_id`. Caller must ensure the
     email is not already registered (see get_by_email).
 
-    Register creates a fresh organization per signup.
-    # TODO(invites): a second user joins an EXISTING org by passing that org's
-    # id here — the invite flow (tokened email, accept endpoint, role checks) is
-    # what's missing, not the data model. Until it exists, this is the only way
-    # two users end up sharing an organization.
+    Two callers attach a user to an org: register (which makes a fresh org per
+    signup) and the invite-accept flow (which passes the inviting org's id, so
+    teammates share one organization). See app/api/routes/team.py.
     """
     email = email.strip().lower()
     user = User(

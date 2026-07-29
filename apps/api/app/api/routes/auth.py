@@ -37,12 +37,9 @@ _test_email_limit = rate_limit("test-email", limit=3, window_s=60)
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
     """Create an account and, with it, the organization that owns its data.
 
-    Every signup gets its own tenant — there is no way to join an existing one
-    from here.
-    # TODO(invites): a second user joins an EXISTING organization through an
-    # invite (tokened email → accept endpoint → users_repo.create_user with the
-    # inviting org's id) rather than this route. Only the flow is missing; the
-    # data model already supports many users per organization.
+    Every signup here gets its own new tenant. Joining an EXISTING organization
+    goes through the invite flow instead (POST /api/invite/{token}/accept in
+    app/api/routes/team.py), which creates the user in the inviting org.
     """
     if users_repo.get_by_email(db, body.email) is not None:
         raise HTTPException(status_code=409, detail="Email already registered")

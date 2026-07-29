@@ -178,6 +178,52 @@ export function logout(): void {
   setToken(null)
 }
 
+// ------------------------------------------------------------------ team API
+export type TeamMembers = Schemas['TeamMembers']
+export type Invite = Schemas['Invite']
+export type InvitePreview = Schemas['InvitePreview']
+
+// The caller's org roster: current members + still-open invitations.
+export function getTeam(): Promise<TeamMembers> {
+  return get<TeamMembers>('/api/team')
+}
+
+// Invite a teammate by email. Throws with the backend's reason (e.g. already a
+// member / already invited).
+export function createInvite(email: string): Promise<Invite> {
+  return post<Invite>('/api/team/invites', { email })
+}
+
+// Cancel a pending invitation.
+export async function revokeInvite(inviteId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/team/invites/${inviteId}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  })
+  if (!res.ok) {
+    onUnauthorized(res.status)
+    throw new Error(`Revoke failed (${res.status})`)
+  }
+}
+
+// Public: what the accept screen shows before the invitee commits (no auth).
+export async function previewInvite(token: string): Promise<InvitePreview> {
+  const res = await fetch(`${BASE}/api/invite/${encodeURIComponent(token)}`)
+  if (!res.ok) throw new Error(`Invite preview failed (${res.status})`)
+  return res.json() as Promise<InvitePreview>
+}
+
+// Public: redeem an invite — creates the user in the inviting org and logs them
+// in (persists the token), like register/login.
+export async function acceptInvite(
+  token: string,
+  input: { name?: string; password: string },
+): Promise<AuthUser> {
+  const data = await authRequest(`/api/invite/${encodeURIComponent(token)}/accept`, input)
+  setToken(data.accessToken)
+  return data.user
+}
+
 // ------------------------------------------------------- document extraction
 // Plan types the backend extractor supports (drives the upload selector).
 export function getPlanTypes(): Promise<PlanType[]> {

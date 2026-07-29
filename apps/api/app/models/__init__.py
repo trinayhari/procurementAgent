@@ -8,6 +8,7 @@ from app.models.purchase_decision import PurchaseDecision
 from app.models.found_supplier import FoundSupplier
 from app.models.lender import Lender
 from app.models.organization import Organization
+from app.models.organization_invite import OrganizationInvite
 from app.models.project import Project
 from app.models.quote import Quote
 from app.models.reference import (
@@ -32,6 +33,7 @@ from app.models.user import User
 __all__ = [
     "AuditEvent",
     "Organization",
+    "OrganizationInvite",
     "BackgroundJob",
     "PurchaseDecision",
     "Project",
