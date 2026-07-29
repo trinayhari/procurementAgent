@@ -14,12 +14,15 @@ _MINI_PDF = (
 )
 
 
-def _upload(client, headers, filename, content=_MINI_PDF):
+def _upload(client, headers, filename, content=_MINI_PDF, project_id="test-project"):
+    # Upload now validates that the caller's org owns project_id, so it must be a
+    # real project. "test-project" is the id the conftest `project` fixture
+    # creates (slug of "Test Project"); pass an explicit id for other projects.
     return client.post(
         "/api/documents",
         headers=headers,
         files={"file": (filename, io.BytesIO(content), "application/pdf")},
-        data={"project_id": "does-not-matter", "plan_type": "other"},
+        data={"project_id": project_id, "plan_type": "other"},
     )
 
 
@@ -45,10 +48,12 @@ def test_same_named_uploads_do_not_collide(project, monkeypatch):
 
     from app.db import SessionLocal
     from app.repositories import documents as documents_repo
+    from app.repositories import users as users_repo
 
     with SessionLocal() as db:
-        d1 = documents_repo.get(db, r1.json()["id"])
-        d2 = documents_repo.get(db, r2.json()["id"])
+        org_id = users_repo.get_by_email(db, "pm@example.com").organization_id
+        d1 = documents_repo.get(db, org_id, r1.json()["id"])
+        d2 = documents_repo.get(db, org_id, r2.json()["id"])
         assert d1.source_path != d2.source_path
         assert os.path.exists(d1.source_path) and os.path.exists(d2.source_path)
         # Display names keep the original filename.
@@ -83,9 +88,11 @@ def test_uploads_stored_under_upload_dir(project, monkeypatch):
     doc_id = _upload(client, headers, "plan.pdf").json()["id"]
     from app.db import SessionLocal
     from app.repositories import documents as documents_repo
+    from app.repositories import users as users_repo
 
     with SessionLocal() as db:
-        doc = documents_repo.get(db, doc_id)
+        org_id = users_repo.get_by_email(db, "pm@example.com").organization_id
+        doc = documents_repo.get(db, org_id, doc_id)
         assert os.path.dirname(os.path.abspath(doc.source_path)) == os.path.abspath(
             settings.upload_dir
         )

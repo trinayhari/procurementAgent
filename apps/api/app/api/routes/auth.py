@@ -7,6 +7,7 @@ from app.core.security import create_access_token, get_current_user, verify_pass
 from app.db import get_db
 from app.models.user import User
 from app.repositories import audit as audit_repo
+from app.repositories import organizations as organizations_repo
 from app.repositories import users as users_repo
 from app.schemas.auth import (
     LoginRequest,
@@ -34,12 +35,32 @@ _test_email_limit = rate_limit("test-email", limit=3, window_s=60)
     dependencies=[Depends(_register_limit)],
 )
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
+    """Create an account and, with it, the organization that owns its data.
+
+    Every signup gets its own tenant — there is no way to join an existing one
+    from here.
+    # TODO(invites): a second user joins an EXISTING organization through an
+    # invite (tokened email → accept endpoint → users_repo.create_user with the
+    # inviting org's id) rather than this route. Only the flow is missing; the
+    # data model already supports many users per organization.
+    """
     if users_repo.get_by_email(db, body.email) is not None:
         raise HTTPException(status_code=409, detail="Email already registered")
-    user = users_repo.create_user(
-        db, email=body.email, password=body.password, name=body.name, company=body.company
+    org = organizations_repo.create_organization(
+        db,
+        organizations_repo.org_name_for_signup(
+            company=body.company, email=body.email, name=body.name
+        ),
     )
-    audit_repo.log(db, user, "auth.registered", "user", user.id)
+    user = users_repo.create_user(
+        db,
+        org.id,
+        email=body.email,
+        password=body.password,
+        name=body.name,
+        company=body.company,
+    )
+    audit_repo.log(db, org.id, user, "auth.registered", "user", user.id)
     token = create_access_token(user.id)
     return {"accessToken": token, "tokenType": "bearer", "user": user.to_dict()}
 
@@ -49,7 +70,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = users_repo.get_by_email(db, body.email)
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    audit_repo.log(db, user, "auth.logged_in", "user", user.id)
+    audit_repo.log(db, user.organization_id, user, "auth.logged_in", "user", user.id)
     token = create_access_token(user.id)
     return {"accessToken": token, "tokenType": "bearer", "user": user.to_dict()}
 
@@ -101,7 +122,7 @@ def send_test_email(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Test send failed: {exc}")
     audit_repo.log(
-        db, current_user, "email.test_sent", "user", current_user.id,
+        db, current_user.organization_id, current_user, "email.test_sent", "user", current_user.id,
         detail={"from": from_addr, "to": current_user.email, "mocked": sender.mocked},
     )
     return {

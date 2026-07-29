@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import Float, Integer, String
+from sqlalchemy import Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -15,6 +15,11 @@ class Project(Base):
     """
 
     __tablename__ = "projects"
+
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
 
     # Monotonic insertion-order key (assigned by the repo); the UI lists
     # newest-first via ORDER BY seq DESC.

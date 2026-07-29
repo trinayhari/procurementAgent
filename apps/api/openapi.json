@@ -30,6 +30,7 @@
           "auth"
         ],
         "summary": "Register",
+        "description": "Create an account and, with it, the organization that owns its data.\n\nEvery signup gets its own tenant \u2014 there is no way to join an existing one\nfrom here.\n# TODO(invites): a second user joins an EXISTING organization through an\n# invite (tokened email \u2192 accept endpoint \u2192 users_repo.create_user with the\n# inviting org's id) rather than this route. Only the flow is missing; the\n# data model already supports many users per organization.",
         "operationId": "register_api_auth_register_post",
         "requestBody": {
           "content": {
@@ -1993,7 +1994,7 @@
           "suppliers"
         ],
         "summary": "Create Supplier",
-        "description": "Add a supplier to the customer's directory (manually or from a search\nresult). Idempotent by name.",
+        "description": "Add a supplier to the customer's directory (manually or from a search\nresult). Idempotent by name within the organization.",
         "operationId": "create_supplier_api_suppliers_post",
         "requestBody": {
           "content": {
@@ -2243,7 +2244,7 @@
           "documents"
         ],
         "summary": "Get Document File Url",
-        "description": "Mint a signed, short-lived URL for previewing/downloading the original file.\n\nThe frontend loads files in an iframe (no Authorization header possible), so\naccess is granted via a scoped token bound to this one document.",
+        "description": "Mint a signed, short-lived URL for previewing/downloading the original file.\n\nThe frontend loads files in an iframe (no Authorization header possible), so\naccess is granted via a scoped token bound to this one document. The org\ncheck happens HERE \u2014 the token is only ever minted for a document the\ncaller's organization owns.",
         "operationId": "get_document_file_url_api_documents__document_id__file_url_get",
         "security": [
           {
@@ -2885,7 +2886,7 @@
           "timeline"
         ],
         "summary": "Set Event Done",
-        "description": "Human check-off for a milestone: the schedule can't know a milestone\nactually happened from dates alone, so completion is confirmed (or undone)\nby the user. Applies to every same-named event in the project, and survives\ndocument re-analysis.",
+        "description": "Human check-off for a milestone: the schedule can't know a milestone\nactually happened from dates alone, so completion is confirmed (or undone)\nby the user. Applies to every same-named event in the project, and survives\ndocument re-analysis.\n\nTimeline event ids are sequential integers, so another org's id is trivially\nguessable \u2014 set_done filters on the org and this route 404s when it misses.",
         "operationId": "set_event_done_api_timeline_events__event_id__done_post",
         "security": [
           {
@@ -3044,6 +3045,7 @@
           "audit"
         ],
         "summary": "List Audit Events",
+        "description": "The caller's organization's audit trail.\n\n`project_id` narrows within the org; it can't widen past it, so passing\nanother tenant's project id returns an empty list rather than their events.",
         "operationId": "list_audit_events_api_audit_get",
         "security": [
           {
@@ -5996,6 +5998,10 @@
             "type": "string",
             "title": "Company"
           },
+          "organizationId": {
+            "type": "string",
+            "title": "Organizationid"
+          },
           "senderEmail": {
             "anyOf": [
               {
@@ -6025,7 +6031,8 @@
           "id",
           "email",
           "name",
-          "company"
+          "company",
+          "organizationId"
         ],
         "title": "User",
         "description": "Public-safe user shape (never includes the password hash)."

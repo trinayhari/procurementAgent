@@ -30,7 +30,17 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register */
+        /**
+         * Register
+         * @description Create an account and, with it, the organization that owns its data.
+         *
+         *     Every signup gets its own tenant — there is no way to join an existing one
+         *     from here.
+         *     # TODO(invites): a second user joins an EXISTING organization through an
+         *     # invite (tokened email → accept endpoint → users_repo.create_user with the
+         *     # inviting org's id) rather than this route. Only the flow is missing; the
+         *     # data model already supports many users per organization.
+         */
         post: operations["register_api_auth_register_post"];
         delete?: never;
         options?: never;
@@ -669,7 +679,7 @@ export interface paths {
         /**
          * Create Supplier
          * @description Add a supplier to the customer's directory (manually or from a search
-         *     result). Idempotent by name.
+         *     result). Idempotent by name within the organization.
          */
         post: operations["create_supplier_api_suppliers_post"];
         delete?: never;
@@ -752,7 +762,9 @@ export interface paths {
          * @description Mint a signed, short-lived URL for previewing/downloading the original file.
          *
          *     The frontend loads files in an iframe (no Authorization header possible), so
-         *     access is granted via a scoped token bound to this one document.
+         *     access is granted via a scoped token bound to this one document. The org
+         *     check happens HERE — the token is only ever minted for a document the
+         *     caller's organization owns.
          */
         get: operations["get_document_file_url_api_documents__document_id__file_url_get"];
         put?: never;
@@ -1012,6 +1024,9 @@ export interface paths {
          *     actually happened from dates alone, so completion is confirmed (or undone)
          *     by the user. Applies to every same-named event in the project, and survives
          *     document re-analysis.
+         *
+         *     Timeline event ids are sequential integers, so another org's id is trivially
+         *     guessable — set_done filters on the org and this route 404s when it misses.
          */
         post: operations["set_event_done_api_timeline_events__event_id__done_post"];
         delete?: never;
@@ -1061,7 +1076,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Audit Events */
+        /**
+         * List Audit Events
+         * @description The caller's organization's audit trail.
+         *
+         *     `project_id` narrows within the org; it can't widen past it, so passing
+         *     another tenant's project id returns an empty list rather than their events.
+         */
         get: operations["list_audit_events_api_audit_get"];
         put?: never;
         post?: never;
@@ -2331,6 +2352,8 @@ export interface components {
             name: string;
             /** Company */
             company: string;
+            /** Organizationid */
+            organizationId: string;
             /** Senderemail */
             senderEmail?: string | null;
             /** Createdat */

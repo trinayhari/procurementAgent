@@ -1,8 +1,8 @@
 """Database accessors for extracted timeline events.
 
-Events are scoped to a project (the schedule is built across all of its
-documents) and to the source document (re-analysing or deleting a document
-replaces/removes only that document's events).
+Events are scoped to an organization, to a project (the schedule is built across
+all of its documents), and to the source document (re-analysing or deleting a
+document replaces/removes only that document's events).
 """
 from typing import Dict, List, Optional
 
@@ -18,7 +18,12 @@ def _key(name: str) -> str:
 
 
 def replace_for_document(
-    db: Session, project_id: str, document_id: str, doc_name: str, events: List[dict]
+    db: Session,
+    org_id: str,
+    project_id: str,
+    document_id: str,
+    doc_name: str,
+    events: List[dict],
 ) -> int:
     """Replace one document's extracted events with a fresh extraction's.
 
@@ -30,14 +35,22 @@ def replace_for_document(
         _key(name): done_at
         for name, done_at in db.execute(
             select(TimelineEvent.name, TimelineEvent.done_at).where(
-                TimelineEvent.project_id == project_id, TimelineEvent.done.is_(True)
+                TimelineEvent.organization_id == org_id,
+                TimelineEvent.project_id == project_id,
+                TimelineEvent.done.is_(True),
             )
         ).all()
     }
-    db.execute(sa_delete(TimelineEvent).where(TimelineEvent.document_id == document_id))
+    db.execute(
+        sa_delete(TimelineEvent).where(
+            TimelineEvent.organization_id == org_id,
+            TimelineEvent.document_id == document_id,
+        )
+    )
     for e in events:
         db.add(
             TimelineEvent(
+                organization_id=org_id,
                 project_id=project_id,
                 document_id=document_id,
                 name=e["name"],
@@ -56,16 +69,21 @@ def replace_for_document(
     return len(events)
 
 
-def set_done(db: Session, event_id: int, done: bool, when: str = "") -> Optional[dict]:
+def set_done(
+    db: Session, org_id: str, event_id: int, done: bool, when: str = ""
+) -> Optional[dict]:
     """Check a milestone off (or undo it). Applies to every same-named event in
     the project — the schedule dedupes those into one milestone, so its status
     must be consistent no matter which underlying row represents it."""
     ev = db.get(TimelineEvent, event_id)
-    if ev is None:
+    if ev is None or ev.organization_id != org_id:
         return None
     key = _key(ev.name)
     rows = db.scalars(
-        select(TimelineEvent).where(TimelineEvent.project_id == ev.project_id)
+        select(TimelineEvent).where(
+            TimelineEvent.organization_id == org_id,
+            TimelineEvent.project_id == ev.project_id,
+        )
     ).all()
     updated = 0
     for r in rows:
@@ -77,36 +95,52 @@ def set_done(db: Session, event_id: int, done: bool, when: str = "") -> Optional
     return {"projectId": ev.project_id, "name": ev.name, "updated": updated}
 
 
-def list_for_project(db: Session, project_id: str) -> List[dict]:
+def list_for_project(db: Session, org_id: str, project_id: str) -> List[dict]:
     rows = db.scalars(
         select(TimelineEvent)
-        .where(TimelineEvent.project_id == project_id)
+        .where(
+            TimelineEvent.organization_id == org_id,
+            TimelineEvent.project_id == project_id,
+        )
         .order_by(TimelineEvent.start, TimelineEvent.id)
     ).all()
     return [r.to_dict() for r in rows]
 
 
-def counts_by_document(db: Session, project_id: str) -> Dict[str, int]:
+def counts_by_document(db: Session, org_id: str, project_id: str) -> Dict[str, int]:
     """How many events each of the project's documents contributed — lets the
     documents UI point at the Timeline tab when a document changed it."""
     rows = db.execute(
         select(TimelineEvent.document_id, func.count())
-        .where(TimelineEvent.project_id == project_id)
+        .where(
+            TimelineEvent.organization_id == org_id,
+            TimelineEvent.project_id == project_id,
+        )
         .group_by(TimelineEvent.document_id)
     ).all()
     return {document_id: count for document_id, count in rows}
 
 
-def count_for_document(db: Session, document_id: str) -> int:
+def count_for_document(db: Session, org_id: str, document_id: str) -> int:
     return db.scalar(
-        select(func.count()).select_from(TimelineEvent).where(TimelineEvent.document_id == document_id)
+        select(func.count())
+        .select_from(TimelineEvent)
+        .where(
+            TimelineEvent.organization_id == org_id,
+            TimelineEvent.document_id == document_id,
+        )
     ) or 0
 
 
-def delete_for_documents(db: Session, document_ids: List[str]) -> None:
+def delete_for_documents(db: Session, org_id: str, document_ids: List[str]) -> None:
     """Remove events extracted from documents that are being deleted.
 
     Commits nothing — callers delete the documents in the same transaction."""
     if not document_ids:
         return
-    db.execute(sa_delete(TimelineEvent).where(TimelineEvent.document_id.in_(document_ids)))
+    db.execute(
+        sa_delete(TimelineEvent).where(
+            TimelineEvent.organization_id == org_id,
+            TimelineEvent.document_id.in_(document_ids),
+        )
+    )

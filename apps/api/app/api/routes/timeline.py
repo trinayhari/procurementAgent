@@ -31,20 +31,28 @@ def set_event_done(
     """Human check-off for a milestone: the schedule can't know a milestone
     actually happened from dates alone, so completion is confirmed (or undone)
     by the user. Applies to every same-named event in the project, and survives
-    document re-analysis."""
+    document re-analysis.
+
+    Timeline event ids are sequential integers, so another org's id is trivially
+    guessable — set_done filters on the org and this route 404s when it misses."""
+    org_id = current_user.organization_id
     result = timeline_repo.set_done(
-        db, event_id, payload.done, when=datetime.now().strftime("%b %d, %Y")
+        db, org_id, event_id, payload.done, when=datetime.now().strftime("%b %d, %Y")
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Timeline event not found")
     audit_repo.log(
-        db, current_user, "milestone.checked" if payload.done else "milestone.unchecked",
+        db, org_id, current_user,
+        "milestone.checked" if payload.done else "milestone.unchecked",
         "timeline_event", str(event_id), detail={"updated": result["updated"]},
     )
     # Checking off (not undoing) notifies the project's lenders in the
     # background — the PRO-16 progress email.
     if payload.done:
         background.add_task(
-            lender_updates.send_milestone_update, result["projectId"], result["name"]
+            lender_updates.send_milestone_update,
+            org_id,
+            result["projectId"],
+            result["name"],
         )
     return {"updated": result["updated"]}

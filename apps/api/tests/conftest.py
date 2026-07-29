@@ -51,6 +51,11 @@ def client():
     from app.main import app
 
     Base.metadata.drop_all(bind=engine)
+    # Drop pooled connections so startup schema reflection (_ensure_dev_columns)
+    # can't see a stale, cached view of a table a prior test's session touched —
+    # otherwise inspector.get_columns() raises NoSuchTableError on the shared
+    # SQLite engine. Prod never drops tables, so this is a test-only hazard.
+    engine.dispose()
     ratelimit._hits.clear()  # each test gets a fresh rate-limit window
     with TestClient(app) as c:  # runs startup (init_db etc.)
         yield c

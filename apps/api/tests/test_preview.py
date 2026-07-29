@@ -34,12 +34,15 @@ def _pdf_bytes(pages: int = 3, tag: str = "Sheet") -> bytes:
     return data
 
 
-def _upload(client, headers, filename, content, mime="application/pdf"):
+def _upload(client, headers, filename, content, mime="application/pdf", project_id="test-project"):
+    # Upload validates project ownership, so project_id must be a project the
+    # caller's org owns — "test-project" is what the conftest `project` fixture
+    # creates (slug of "Test Project").
     return client.post(
         "/api/documents",
         headers=headers,
         files={"file": (filename, io.BytesIO(content), mime)},
-        data={"project_id": "does-not-matter", "plan_type": "other"},
+        data={"project_id": project_id, "plan_type": "other"},
     )
 
 
@@ -118,13 +121,16 @@ def test_page_count_is_probed_and_persisted_for_older_documents(uploaded):
     client, headers, doc_id = uploaded
     from app.db import SessionLocal
     from app.repositories import documents as documents_repo
+    from app.repositories import users as users_repo
 
     with SessionLocal() as db:
-        documents_repo.update_status(db, doc_id, pages=0)
+        org_id = users_repo.get_by_email(db, "pm@example.com").organization_id
+        documents_repo.update_status(db, org_id, doc_id, pages=0)
 
     assert client.get(f"/api/documents/{doc_id}/preview", headers=headers).json()["pages"] == 3
     with SessionLocal() as db:
-        assert documents_repo.get(db, doc_id).pages == 3
+        org_id = users_repo.get_by_email(db, "pm@example.com").organization_id
+        assert documents_repo.get(db, org_id, doc_id).pages == 3
 
 
 def test_image_uploads_preview_as_a_single_page(project, monkeypatch):

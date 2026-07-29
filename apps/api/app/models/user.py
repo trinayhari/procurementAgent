@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -18,6 +18,11 @@ class User(Base):
     `password_hash`. `to_dict()` returns the public-safe shape (no hash)."""
 
     __tablename__ = "users"
+
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
 
     seq: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -37,6 +42,7 @@ class User(Base):
             "email": self.email,
             "name": self.name,
             "company": self.company,
+            "organizationId": self.organization_id,
             "senderEmail": self.sender_email,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

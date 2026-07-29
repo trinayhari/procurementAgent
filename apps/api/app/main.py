@@ -18,7 +18,7 @@ from app.api.routes import (
 )
 from app.config import settings
 from app.core.security import get_current_user
-from app.db import SessionLocal, init_db
+from app.db import DEMO_ORG_ID, SessionLocal, init_db
 from app.repositories import documents as documents_repo
 from app.repositories import jobs as jobs_repo
 
@@ -67,8 +67,12 @@ def _on_startup() -> None:
             logger.warning("Failed %d orphaned running job(s): %s", len(dead_jobs), dead_jobs)
         # Documents persist now, but pick up any files dropped into the upload
         # dir out-of-band so they stay previewable. Local-disk concept only.
-        if settings.storage_backend != "s3":
-            documents_repo.rehydrate_uploads(db, settings.upload_dir)
+        # Gated on demo seeding: an out-of-band file has no discoverable owner,
+        # and guessing an organization for it would put one tenant's file in
+        # another's document list. In a demo environment the demo org (which
+        # owns the `riverside` project these attach to) is the right home.
+        if settings.storage_backend != "s3" and settings.seed_demo_data:
+            documents_repo.rehydrate_uploads(db, settings.upload_dir, DEMO_ORG_ID)
 
 
 app.add_middleware(
