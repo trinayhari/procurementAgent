@@ -45,7 +45,7 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 // ----------------------------------------------------------------- auth token
 // The JWT minted by /api/auth/login is kept in localStorage and attached as a
 // Bearer header to every request. Components subscribe to changes via onAuthChange.
-const TOKEN_KEY = 'procureai_token'
+export const TOKEN_KEY = 'procureai_token'
 const authListeners = new Set<() => void>()
 
 export function getToken(): string | null {
@@ -544,6 +544,21 @@ export type ModelData = {
   milestones: Milestone[]
   gantt: GanttBar[]
   ganttCols: string[]
+}
+
+// The per-project slices of the bundle, in their empty state. App.tsx spreads
+// this over `data` when switching projects so the previous project's
+// documents/quotes never flash under the new project's route. A function (not a
+// shared constant) so callers never share mutable array references. Keep the key
+// list in sync with the per-project fields of ModelData above.
+export function emptyProjectSlices(): Pick<ModelData,
+  'projectActivity' | 'overviewCards' | 'packages' | 'docs' | 'lineItems' | 'quotes' |
+  'comparison' | 'rfqs' | 'rfqFolders' | 'milestones' | 'gantt' | 'ganttCols'> {
+  return {
+    projectActivity: [], overviewCards: [], packages: [], docs: [], lineItems: [], quotes: [],
+    comparison: { suppliers: [], rows: [], recommendation: '', reasons: [], savings: '', savingsNote: '' },
+    rfqs: [], rfqFolders: [], milestones: [], gantt: [], ganttCols: [],
+  }
 }
 
 // Fetches everything the current workspace renders, in parallel, and reshapes it
