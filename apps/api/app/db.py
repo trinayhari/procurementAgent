@@ -23,6 +23,37 @@ class Base(DeclarativeBase):
     """Declarative base shared by all ORM models."""
 
 
+# The organization demo/prototype data is seeded into. Real signups each get
+# their own org, so demo content is never visible to them.
+DEMO_ORG_ID = "demo"
+DEMO_ORG_NAME = "Meridian Civil Co."
+
+# Where rows that predate multi-tenancy land. Must match migration
+# 0017_organizations so a dev DB (create_all + _ensure_dev_columns) and a
+# migrated DB agree.
+BACKFILL_ORG_ID = "default"
+BACKFILL_ORG_NAME = "Default Organization"
+
+# Tables carrying `organization_id`. The reference/display tables and
+# supplier_comms are deliberately absent — they hold only seeded literals that
+# are identical for every tenant (see models/reference.py).
+SCOPED_TABLES = (
+    "users",
+    "projects",
+    "documents",
+    "suppliers",
+    "rfqs",
+    "quotes",
+    "found_suppliers",
+    "timeline_events",
+    "project_events",
+    "purchase_decisions",
+    "audit_events",
+    "background_jobs",
+    "lenders",
+)
+
+
 def get_db() -> Iterator[Session]:
     """FastAPI dependency yielding a request-scoped session."""
     db = SessionLocal()
@@ -40,6 +71,7 @@ def init_db() -> None:
     """
     from app import models  # noqa: F401  (registers tables on Base.metadata)
     from app.repositories import documents as documents_repo
+    from app.repositories import organizations as organizations_repo
     from app.repositories import projects as projects_repo
     from app.repositories import quotes as quotes_repo
     from app.repositories import reference as reference_repo
@@ -54,18 +86,23 @@ def init_db() -> None:
             # The app shows only real, user-generated content; use
             # /api/auth/register to create the first user.
             return
+        # Everything seeded below belongs to the demo user's own organization —
+        # demo data must not be visible to real signups, which get their own.
+        org = organizations_repo.ensure_organization(db, DEMO_ORG_ID, DEMO_ORG_NAME)
         # Demo login account (jordan@meridiancivil.com / procureai) so the
         # auth-gated UI is usable in demo environments without registering.
-        users_repo.seed_demo_user(db)
-        projects_repo.seed_starter_projects(db)
-        documents_repo.seed_starter_documents(db)
+        users_repo.seed_demo_user(db, org.id)
+        projects_repo.seed_starter_projects(db, org.id)
+        documents_repo.seed_starter_documents(db, org.id)
         # Reference/display data (dashboard, suppliers, comparison, timeline, the
         # demo RFQ inbox + quote list) — seeded once so the app renders fully.
-        suppliers_repo.seed_suppliers(db)
+        # The reference tables themselves are global (identical for every org);
+        # only the supplier directory is tenant data.
+        suppliers_repo.seed_suppliers(db, org.id)
         reference_repo.seed_reference_data(db)
         # Seed priced sample quotes for the demo project so the line-by-line
         # comparison + award flow works on a fresh checkout (idempotent).
-        quotes_repo.seed_sample_quotes(db, "riverside")
+        quotes_repo.seed_sample_quotes(db, org.id, "riverside")
 
 
 def _ensure_dev_columns() -> None:
@@ -98,3 +135,43 @@ def _ensure_dev_columns() -> None:
                     conn.execute(text("ALTER TABLE users RENAME COLUMN sender_email TO cc_email"))
                 else:
                     conn.execute(text("ALTER TABLE users ADD COLUMN cc_email VARCHAR"))
+    _ensure_organization_column(inspector, tables)
+
+
+def _ensure_organization_column(inspector, tables: set) -> None:
+    """Backfill `organization_id` on a dev DB created before multi-tenancy.
+
+    Mirrors migration 0017_organizations for the zero-config path: existing rows
+    land in the same `default` organization the migration uses, so a dev DB and a
+    migrated one behave identically.
+    """
+    missing = [
+        t
+        for t in SCOPED_TABLES
+        if t in tables
+        and "organization_id" not in {c["name"] for c in inspector.get_columns(t)}
+    ]
+    if not missing:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO organizations (seq, id, name, created_at) "
+                "SELECT :seq, :id, :name, CURRENT_TIMESTAMP "
+                "WHERE NOT EXISTS (SELECT 1 FROM organizations WHERE id = :id)"
+            ),
+            {"seq": 1, "id": BACKFILL_ORG_ID, "name": BACKFILL_ORG_NAME},
+        )
+        for table in missing:
+            conn.execute(
+                text(
+                    f"ALTER TABLE {table} ADD COLUMN organization_id VARCHAR "
+                    f"NOT NULL DEFAULT '{BACKFILL_ORG_ID}'"
+                )
+            )
+            conn.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_organization_id "
+                    f"ON {table} (organization_id)"
+                )
+            )

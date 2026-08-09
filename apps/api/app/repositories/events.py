@@ -3,6 +3,10 @@
 ``log()`` appends a real event as the user works a project; ``list_for_project``
 reads them back newest-first and renders each timestamp as a compact relative
 label ("just now", "12m", "3h", "2d", "Apr 14") for the Activity row UI.
+
+``list_recent`` powers the dashboard feed and is org-filtered — it is the one
+query here that spans projects, so it is also the one that would leak a whole
+tenant's activity if it weren't.
 """
 from datetime import datetime
 from typing import List
@@ -35,6 +39,7 @@ def _relative_time(then: datetime, now: datetime) -> str:
 
 def log(
     db: Session,
+    org_id: str,
     project_id: str,
     *,
     title: str,
@@ -47,7 +52,12 @@ def log(
     try:
         db.add(
             ProjectEvent(
-                project_id=project_id, icon=icon, tone=tone, title=title, meta=meta
+                organization_id=org_id,
+                project_id=project_id,
+                icon=icon,
+                tone=tone,
+                title=title,
+                meta=meta,
             )
         )
         db.commit()
@@ -55,11 +65,16 @@ def log(
         db.rollback()
 
 
-def list_for_project(db: Session, project_id: str, limit: int = 30) -> List[dict]:
+def list_for_project(
+    db: Session, org_id: str, project_id: str, limit: int = 30
+) -> List[dict]:
     """Newest-first activity events for a project, shaped for the Activity schema."""
     rows = db.scalars(
         select(ProjectEvent)
-        .where(ProjectEvent.project_id == project_id)
+        .where(
+            ProjectEvent.organization_id == org_id,
+            ProjectEvent.project_id == project_id,
+        )
         .order_by(ProjectEvent.created_at.desc(), ProjectEvent.id.desc())
         .limit(limit)
     ).all()
@@ -76,8 +91,8 @@ def list_for_project(db: Session, project_id: str, limit: int = 30) -> List[dict
     ]
 
 
-def list_recent(db: Session, limit: int = 8) -> List[dict]:
-    """Newest events across *all* projects, for the global dashboard feed.
+def list_recent(db: Session, org_id: str, limit: int = 8) -> List[dict]:
+    """Newest events across the caller's projects, for the dashboard feed.
 
     Same shape as ``list_for_project`` but each row's meta is prefixed with the
     project name so the aggregated feed shows which project each event belongs
@@ -87,6 +102,7 @@ def list_recent(db: Session, limit: int = 8) -> List[dict]:
     rows = db.execute(
         select(ProjectEvent, Project.name)
         .join(Project, Project.id == ProjectEvent.project_id)
+        .where(ProjectEvent.organization_id == org_id)
         .order_by(ProjectEvent.created_at.desc(), ProjectEvent.id.desc())
         .limit(limit)
     ).all()

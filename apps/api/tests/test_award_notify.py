@@ -62,8 +62,8 @@ BUYER_CC = SimpleNamespace(name="Jordan Mills", company="Meridian Civil",
 
 
 def _patch(monkeypatch, quotes, rfq=RFQ):
-    monkeypatch.setattr(award_notify.quotes_repo, "list_quotes", lambda db, pid, pkg: quotes)
-    monkeypatch.setattr(award_notify.rfqs_repo, "get_rfq", lambda db, rid: rfq)
+    monkeypatch.setattr(award_notify.quotes_repo, "list_quotes", lambda db, org_id, pid, pkg: quotes)
+    monkeypatch.setattr(award_notify.rfqs_repo, "get_rfq", lambda db, org_id, rid: rfq)
 
 
 def test_split_award_emails_each_winner_only_their_lines(monkeypatch):
@@ -71,7 +71,7 @@ def test_split_award_emails_each_winner_only_their_lines(monkeypatch):
     sender = RecordingSender()
 
     res = award_notify.notify_award(
-        None, project_id="p", package="water", package_label="Water Utilities",
+        None, org_id="org", project_id="p", package="water", package_label="Water Utilities",
         summary=SUMMARY, buyer=BUYER, sender=sender,
     )
 
@@ -116,7 +116,7 @@ def test_buyer_is_cced_on_every_award_email(monkeypatch):
     sender = RecordingSender()
 
     award_notify.notify_award(
-        None, project_id="p", package="water", package_label="Water Utilities",
+        None, org_id="org", project_id="p", package="water", package_label="Water Utilities",
         summary=SUMMARY, buyer=BUYER_CC, sender=sender,
     )
 
@@ -130,7 +130,7 @@ def test_declined_can_be_suppressed(monkeypatch):
     _patch(monkeypatch, [ALPHA, BETA, GAMMA])
     sender = RecordingSender()
     res = award_notify.notify_award(
-        None, project_id="p", package="water", package_label="Water Utilities",
+        None, org_id="org", project_id="p", package="water", package_label="Water Utilities",
         summary=SUMMARY, buyer=BUYER, sender=sender, notify_declined=False,
     )
     assert res["declined"] == []
@@ -142,7 +142,7 @@ def test_winner_without_email_is_recorded_failed(monkeypatch):
     _patch(monkeypatch, [no_email, BETA, GAMMA])
     sender = RecordingSender()
     res = award_notify.notify_award(
-        None, project_id="p", package="water", package_label="Water Utilities",
+        None, org_id="org", project_id="p", package="water", package_label="Water Utilities",
         summary=SUMMARY, buyer=BUYER, sender=sender,
     )
     assert [f["supplier"] for f in res["failed"]] == ["Alpha Supply"]
@@ -159,7 +159,7 @@ def test_no_thread_when_recipient_missing(monkeypatch):
     _patch(monkeypatch, [ALPHA, BETA], rfq=rfq_no_alpha)
     sender = RecordingSender()
     award_notify.notify_award(
-        None, project_id="p", package="water", package_label="Water Utilities",
+        None, org_id="org", project_id="p", package="water", package_label="Water Utilities",
         summary={"selections": {"Pipe": "a", "Valve": "b"}, "supplierIds": {"a", "b"},
                  "suppliers": ["Alpha Supply", "Beta Supply"], "total": 1630.0, "poCount": 2},
         buyer=BUYER, sender=sender, notify_declined=False,

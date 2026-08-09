@@ -7,6 +7,11 @@ from app.schemas.rfq import FollowupDraft, MessageCreate, RfqDetail, ThreadMessa
 
 router = APIRouter(prefix="/api/rfqs", tags=["rfqs"])
 
+# These endpoints serve ONLY the prototype's demo RFQ inbox (`demo_rfqs`), which
+# is global seed data identical for every organization — so there is nothing
+# tenant-specific here to scope. Real, generated RFQs live under
+# /api/projects/{project_id}/rfqs/{rfq_id} and are org-filtered there.
+
 
 @router.get("/{rfq_id}", response_model=RfqDetail)
 def get_rfq(rfq_id: str, db: Session = Depends(get_db)):

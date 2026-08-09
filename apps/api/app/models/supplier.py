@@ -1,6 +1,6 @@
 import json
 
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -11,6 +11,11 @@ class Supplier(Base):
     geocoded `found_suppliers` discovered via Places search)."""
 
     __tablename__ = "suppliers"
+
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
 
     seq: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -56,6 +61,10 @@ class SupplierComm(Base):
 
     Seeded as a shared list (the prototype shows the same history for every
     supplier); ordered by `seq`.
+
+    Deliberately NOT tenant-scoped: rows only ever come from the seed.py
+    literals (there is no create/update path), so this is global display data
+    identical for every organization.
     """
 
     __tablename__ = "supplier_comms"

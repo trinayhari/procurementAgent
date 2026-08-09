@@ -50,7 +50,7 @@ def _money(v) -> str:
     return f"${v:,.0f}" if isinstance(v, (int, float)) else "—"
 
 
-def build_conversation(db: Session, rfq: dict) -> dict:
+def build_conversation(db: Session, org_id: str, rfq: dict) -> dict:
     """Return {status, statusTone, gmail, thread} for an RFQ dict (rfqs_repo shape)."""
     if gmail_configured():
         emails = _gather_gmail(rfq)
@@ -59,14 +59,14 @@ def build_conversation(db: Session, rfq: dict) -> dict:
                 "status": rfq["status"],
                 "statusTone": rfq["statusTone"],
                 "gmail": True,
-                "thread": _emails_to_thread(emails, _known_sender_addrs(db)),
+                "thread": _emails_to_thread(emails, _known_sender_addrs(db, org_id)),
             }
 
     return {
         "status": rfq["status"],
         "statusTone": rfq["statusTone"],
         "gmail": False,
-        "thread": _fallback_thread(db, rfq),
+        "thread": _fallback_thread(db, org_id, rfq),
     }
 
 
@@ -98,17 +98,20 @@ def _gather_gmail(rfq: dict) -> Optional[List[gmail_reader.ThreadEmail]]:
     return emails
 
 
-def _known_sender_addrs(db: Session) -> set:
-    """Every address an RFQ of ours may have gone out from, for telling our own
+def _known_sender_addrs(db: Session, org_id: str) -> set:
+    """Every address this org's RFQs may have gone out from, for telling our own
     messages apart from supplier replies in a thread.
 
     New sends always come from the workspace mailbox (sender_address()). The
-    per-user addresses are historical: they used to be the `From:` header before
-    that address became a Cc, so old threads really do carry them — and a user's
-    Cc address also appears as the sender if they reply into the thread
-    themselves."""
+    per-user Cc addresses are also included: they used to be the `From:` header
+    before that address became a Cc, so old threads carry them — and a user's Cc
+    address appears as the sender if they reply into the thread themselves."""
     addrs = {sender_address().lower()}
-    for (cc,) in db.execute(select(User.cc_email).where(User.cc_email.is_not(None))):
+    for (cc,) in db.execute(
+        select(User.cc_email).where(
+            User.organization_id == org_id, User.cc_email.is_not(None)
+        )
+    ):
         addrs.add(cc.lower())
     return addrs
 
@@ -132,7 +135,7 @@ def _emails_to_thread(emails: List[gmail_reader.ThreadEmail], our_addrs: set) ->
     return thread
 
 
-def _fallback_thread(db: Session, rfq: dict) -> List[dict]:
+def _fallback_thread(db: Session, org_id: str, rfq: dict) -> List[dict]:
     """Offline thread: the sent RFQ, plus any ingested quotes as inbound replies."""
     thread: List[dict] = [{
         "dir": "out",
@@ -144,7 +147,7 @@ def _fallback_thread(db: Session, rfq: dict) -> List[dict]:
         "attach": None,
         "logoBg": None,
     }]
-    for q in quotes_repo.list_quotes(db, rfq["projectId"], rfq["package"]):
+    for q in quotes_repo.list_quotes(db, org_id, rfq["projectId"], rfq["package"]):
         if q.get("rfqId") and q["rfqId"] != rfq["id"]:
             continue
         name = q.get("supplierName") or q.get("supplierEmail") or "Supplier"

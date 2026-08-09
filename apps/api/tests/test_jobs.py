@@ -1,7 +1,17 @@
 """Durable background jobs: persistence, restart recovery, exception queue."""
 from app.db import SessionLocal
 from app.repositories import jobs as jobs_repo
+from app.repositories import users as users_repo
 from tests.conftest import make_confirmed_bom, run_supplier_search
+
+
+def _org_id(db) -> str:
+    """The organization id of the `project` fixture's user (pm@example.com).
+
+    Jobs are org-scoped, so a directly-created job must share the API user's org
+    or it won't surface through /api/jobs.
+    """
+    return users_repo.get_by_email(db, "pm@example.com").organization_id
 
 
 def test_search_job_is_persisted(project):
@@ -20,7 +30,7 @@ def test_orphaned_running_jobs_fail_on_boot(project):
     client, headers, pid = project
     # Simulate a job left 'running' by a crash…
     with SessionLocal() as db:
-        job = jobs_repo.start(db, "quote_ingest", pid, {"projectId": pid})
+        job = jobs_repo.start(db, _org_id(db), "quote_ingest", pid, {"projectId": pid})
     # …then a "restart": the startup recovery hook.
     from app.repositories.jobs import fail_orphaned_running
 
@@ -35,8 +45,9 @@ def test_orphaned_running_jobs_fail_on_boot(project):
 def test_exception_queue_retry(project):
     client, headers, pid = project
     with SessionLocal() as db:
-        job = jobs_repo.start(db, "quote_ingest", pid, {"projectId": pid})
-        jobs_repo.fail(db, job["id"], "boom")
+        org_id = _org_id(db)
+        job = jobs_repo.start(db, org_id, "quote_ingest", pid, {"projectId": pid})
+        jobs_repo.fail(db, org_id, job["id"], "boom")
 
     # Failed jobs are visible in the queue.
     r = client.get("/api/jobs?status=error", headers=headers)
@@ -61,5 +72,5 @@ def test_ingest_status_survives_process_state(project):
     client, headers, pid = project
     client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
     with SessionLocal() as db:  # separate session ≈ another worker
-        job = jobs_repo.latest(db, "quote_ingest", pid)
+        job = jobs_repo.latest(db, _org_id(db), "quote_ingest", pid)
     assert job is not None and job["status"] == "done"

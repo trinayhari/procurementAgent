@@ -4,6 +4,7 @@ import { Box, DcIcon, css, ic, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
+import AcceptInvite from './AcceptInvite'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
@@ -14,10 +15,12 @@ import {
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
   getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
+  getTeam, createInvite, revokeInvite,
+  TOKEN_KEY, emptyProjectSlices,
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
-  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender, EmailConfig,
+  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers, EmailConfig,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -94,6 +97,15 @@ function hashFor(s: Pick<State, 'nav' | 'projectId' | 'tab' | 'compare' | 'compa
   return `#/${s.nav}`
 }
 
+// The last signed-in account id, persisted so an account switch is detected
+// even across a full page reload (a stale #/project/<id> hash must never carry
+// one account's route into another account's session).
+const LAST_UID_KEY = 'procureai_last_uid'
+// Hard cap on how long the post-login splash may hold the app. If the backend
+// hangs (requests that never settle), the gate drops anyway and the app renders
+// with whatever arrived — a spinner that can never wedge beats a complete bundle.
+const HYDRATE_SPLASH_MAX_MS = 8000
+
 function parseHash(): Partial<State> {
   const raw = (typeof window !== 'undefined' ? window.location.hash : '').replace(/^#\/?/, '')
   const seg = raw.split('/').filter(Boolean)
@@ -129,6 +141,32 @@ export default function App() {
   // whether an existing token still resolves to a valid session.
   const [user, setUser] = useState<AuthUser | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  // Which account the current workspace bundle was hydrated for. The app holds
+  // a loading splash until it matches the signed-in user, so a login can never
+  // paint data left over from a previous session (and screens mount once, with
+  // real data, instead of animating in and swapping content mid-flight).
+  const [hydratedFor, setHydratedFor] = useState<string | null>(null)
+  // Mirrors `user` so async work can check, on resolve, whether the account it
+  // was started for is still the one signed in.
+  const userRef = useRef<AuthUser | null>(null)
+  userRef.current = user
+  // Monotonic id per workspace load: only the newest response may be applied,
+  // so an out-of-order or post-logout response can't resurrect old data.
+  const loadSeqRef = useRef(0)
+  // The (account, project) the current `s.data` bundle actually belongs to.
+  const bundleForRef = useRef<{ uid: string | null; pid: string }>({ uid: null, pid: '' })
+  // Mirrors s.projectId so async work can check, on resolve, whether the
+  // project it fetched for is still the one on screen.
+  const projectIdRef = useRef<string | undefined>(s.projectId)
+  projectIdRef.current = s.projectId
+  // Capture a team-invite token (#/invite/<token>) ONCE at mount, before the
+  // hash-mirror effect can rewrite the URL. Cleared when the invitee dismisses
+  // an invalid invite.
+  const [inviteToken, setInviteToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    const m = window.location.hash.match(/^#\/invite\/(.+)$/)
+    return m ? decodeURIComponent(m[1]) : null
+  })
 
   // On load, restore the session from a stored token (if any). A 401 clears it.
   useEffect(() => {
@@ -144,6 +182,20 @@ export default function App() {
   // Keep React state in sync if the token is cleared elsewhere (e.g. a 401 mid-session).
   useEffect(() => onAuthChange(() => { if (!getToken()) setUser(null) }), [])
 
+  // Another tab of this origin signing in/out rewrites the shared token.
+  // Without this listener the tab keeps rendering the OLD account's identity
+  // while its background fetches carry the NEW account's token — mixed-identity
+  // requests. Re-resolve the session whenever the token changes underneath us.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== TOKEN_KEY) return
+      if (!getToken()) { setUser(null); return }
+      getMe().then((u) => { if (getToken()) setUser(u) }).catch(() => setUser(null))
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
   const handleLogout = () => { apiLogout(); setUser(null) }
 
   useEffect(() => {
@@ -152,22 +204,110 @@ export default function App() {
     return () => window.removeEventListener('resize', f)
   }, [])
 
-  // Hydrate the backend bundle for one project; on failure the model falls back
-  // to its literals. Pass an explicit id (e.g. right after creating a project) to
-  // avoid the stale-closure value of s.projectId.
-  const reload = (pid = s.projectId) =>
-    loadModelData(pid || undefined).then((data) => set({ data })).catch(() => {})
-  // Hydrate once we're authenticated, and re-hydrate whenever the signed-in
-  // account changes — a fresh login (or a session restored from a stored token)
-  // flips `user` from null, which must re-run this so the workspace populates
-  // without a manual page reload. Keyed on `user?.id` (not the object) so a
-  // profile edit that returns a new user object doesn't refetch everything;
-  // guarded on `user` so we skip the unauthenticated mount and logout.
-  useEffect(() => { if (user) reload() }, [user?.id])
+  // Hydrate the backend bundle for one project. On failure the previous bundle
+  // (or the empty state) is left in place. Pass an explicit id (e.g. right
+  // after creating a project) to avoid the stale-closure value of s.projectId.
+  // Resolves to whether the response was APPLIED: it is dropped unless it is
+  // still the newest load, fetched for the account AND credentials still signed
+  // in, and for the project still on screen — a late response must never
+  // repaint another session's or another project's workspace.
+  const reload = (pid = s.projectId): Promise<boolean> => {
+    const uid = user ? user.id : null
+    if (!uid) return Promise.resolve(false)
+    // A stale closure (the 3s processing poll, a leftover callback) may still
+    // ask for a project the user already left — don't let it claim a slot.
+    if (pid && projectIdRef.current && pid !== projectIdRef.current) return Promise.resolve(false)
+    const seq = ++loadSeqRef.current
+    const tok = getToken()
+    return loadModelData(pid || undefined)
+      .then((data) => {
+        if (seq !== loadSeqRef.current) return false
+        if (!userRef.current || userRef.current.id !== uid) return false
+        if (getToken() !== tok) return false
+        // Which project is this bundle actually for? loadModelData falls back
+        // to the first project when the requested id doesn't exist (e.g. an
+        // optimistic not-yet-saved id, or a stale hash) — never paint that
+        // fallback under a different project's route.
+        const eff = pid && data.projects.some((p) => p.id === pid) ? pid : data.projects[0] ? data.projects[0].id : ''
+        if (projectIdRef.current && eff !== projectIdRef.current) return false
+        bundleForRef.current = { uid, pid: eff }
+        set({ data })
+        return true
+      })
+      .catch(() => false)
+  }
+  // React to the signed-in account changing. Keyed on `user?.id` (not the
+  // object) so a profile edit that returns a new user object doesn't refetch
+  // everything. Three cases:
+  //  - signed out (manual logout or a 401 dropping the token): purge every
+  //    account-scoped slice immediately so nothing can leak into the next
+  //    session; nav/hash is kept so the same user can resume after
+  //    re-authenticating.
+  //  - a *different* account signed in in the same tab: also leave the previous
+  //    account's route — its project ids mean nothing to this account.
+  //  - signed in (fresh login or restored token): hydrate, then mark the
+  //    bundle as belonging to this account, which drops the loading splash.
+  const lastUidRef = useRef<string | null>(null)
+  useEffect(() => {
+    const uid = user ? user.id : null
+    if (!uid) {
+      if (lastUidRef.current !== null) {
+        setHydratedFor(null)
+        bundleForRef.current = { uid: null, pid: '' }
+        loadSeqRef.current++ // invalidate any in-flight load
+        set({
+          data: null, docLineItems: null, customProjects: [], bomDraft: null,
+          editBom: false, bomBusy: false, uploadError: null, projError: null,
+        })
+      }
+      return
+    }
+    // Detect the switch across page reloads too (lastUidRef dies with the tab):
+    // the last signed-in uid is persisted so a stale #/project/<id> hash can't
+    // carry a previous account's route into a different account's session.
+    let storedUid: string | null = null
+    try { storedUid = localStorage.getItem(LAST_UID_KEY) } catch { /* storage unavailable */ }
+    const switched =
+      (lastUidRef.current !== null && lastUidRef.current !== uid) ||
+      (storedUid !== null && storedUid !== uid)
+    lastUidRef.current = uid
+    try { localStorage.setItem(LAST_UID_KEY, uid) } catch { /* storage unavailable */ }
+    if (switched) {
+      set({
+        nav: 'dashboard', projectId: undefined, tab: 'overview', compare: false,
+        comparePkg: undefined, supplierId: null, docIdx: 0, rfqIdx: 0, mnav: false,
+      })
+    }
+    // Hydrate, then drop the splash. The gate opens when this account's bundle
+    // was APPLIED (not merely settled — a response discarded as stale must not
+    // paint an empty workspace), or after a hard cap so a hung backend can
+    // never wedge the app on the spinner. A dropped-because-superseded load
+    // leaves the gate to the newer load's own effect run.
+    const hydrate = reload(switched ? undefined : s.projectId)
+    const cap = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), HYDRATE_SPLASH_MAX_MS))
+    Promise.race([hydrate, cap]).then((result) => {
+      if (result === false) return
+      if (userRef.current && userRef.current.id === uid) setHydratedFor(uid)
+    })
+  }, [user?.id])
 
   // Refetch the workspace bundle whenever the open project changes, so each
   // project shows its own documents/quotes/etc. instead of the last one's.
-  useEffect(() => { if (s.projectId) reload(s.projectId) }, [s.projectId])
+  // When the bundle in state belongs to a different project, blank the
+  // per-project slices first so the workspace never flashes another project's
+  // documents/quotes while its own are being fetched.
+  useEffect(() => {
+    const pid = s.projectId
+    if (!pid) return
+    // Functional update: the blank must be built on the latest state, not this
+    // render's closure, so it can't clobber a bundle applied in between.
+    setS((prev) =>
+      prev.data && bundleForRef.current.pid !== pid
+        ? { ...prev, data: { ...prev.data, ...emptyProjectSlices() }, docLineItems: null, docIdx: 0, rfqIdx: 0 }
+        : prev,
+    )
+    reload(pid)
+  }, [s.projectId])
 
   // Mirror the active page into the URL hash. In-app navigations push a real
   // history entry so browser Back/Forward walk through them instead of leaving
@@ -237,10 +377,14 @@ export default function App() {
     if (!pid) { set({ uploadError: 'Open a project before creating a BOM.' }); return }
     const name = window.prompt('Name this bill of materials', 'Custom BOM')
     if (name === null) return
+    const uid = user && user.id
     try {
       const doc = await createManualBom(pid, name.trim() || 'Custom BOM')
       await reload()
       const groups = await getDocumentLineItems(doc.id)
+      // Don't write another session's BOM into state if the account changed
+      // while the requests were in flight.
+      if (!userRef.current || userRef.current.id !== uid) return
       set({
         tab: 'documents', docIdx: 0, uploadError: null,
         docLineItems: { id: doc.id, groups },
@@ -264,7 +408,9 @@ export default function App() {
   useEffect(() => {
     const docs = s.data && s.data.docs
     const doc = docs && docs[s.docIdx]
-    if (!doc || !doc.id) { set({ docLineItems: null }); return }
+    // Skip the no-op write when already null (the purge/blank paths set it),
+    // so those paths don't trigger a second identical render commit.
+    if (!doc || !doc.id) { if (s.docLineItems !== null) set({ docLineItems: null }); return }
     let alive = true
     getDocumentLineItems(doc.id)
       .then((groups) => { if (alive) set({ docLineItems: { id: doc.id, groups } }) })
@@ -291,10 +437,14 @@ export default function App() {
   const saveBom = async () => {
     const doc = currentDoc()
     if (!doc) return
+    const uid = user && user.id
     set({ bomBusy: true })
     try {
       await saveDocumentLineItems(doc.id, s.bomDraft ?? [])
       const groups = await getDocumentLineItems(doc.id)
+      // Same guard as reload: never write a previous session's data back into
+      // state after the account changed mid-flight.
+      if (!userRef.current || userRef.current.id !== uid) return
       set({ editBom: false, bomDraft: null, docLineItems: { id: doc.id, groups } })
       await reload()
     } catch (e) {
@@ -310,6 +460,37 @@ export default function App() {
     try { await confirmDocument(doc.id); await reload() } finally { set({ bomBusy: false }) }
   }
 
+  // Until the stored token is validated, render nothing (avoids a login flash).
+  if (!authReady) {
+    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  }
+  // A public team-invite link (#/invite/<token>) takes precedence over the login
+  // gate: the invitee has no account yet. Accepting reloads into the app.
+  if (inviteToken && !user) {
+    return (
+      <AcceptInvite
+        token={inviteToken}
+        onDismiss={() => { setInviteToken(null); window.location.hash = '#/dashboard' }}
+      />
+    )
+  }
+  // Gate the whole app behind authentication.
+  if (!user) {
+    return <Login onAuthed={(u) => setUser(u)} />
+  }
+  // Hold a splash until this account's workspace bundle has loaded: the screens
+  // then mount once with real data (one clean entrance animation), instead of
+  // rendering stale or empty content and swapping it mid-animation.
+  if (hydratedFor !== user.id) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={css('width:22px;height:22px;border:2.5px solid var(--border-strong);border-top-color:var(--primary);border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')} />
+      </div>
+    )
+  }
+
+  // Below the gates deliberately: splash/login renders skip the whole
+  // view-model computation.
   const m = buildModel(s, set, {
     accent: 'blue', data: s.data, reload,
     user, onLogout: handleLogout, onUserUpdated: setUser,
@@ -319,15 +500,6 @@ export default function App() {
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
   })
-
-  // Until the stored token is validated, render nothing (avoids a login flash).
-  if (!authReady) {
-    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
-  }
-  // Gate the whole app behind authentication.
-  if (!user) {
-    return <Login onAuthed={(u) => setUser(u)} />
-  }
 
   return (
     <div
@@ -802,6 +974,97 @@ function Settings({ m }: MProps) {
           </div>
         </div>
       </div>
+      <TeamPanel currentEmail={m.userEmail} />
+    </div>
+  )
+}
+
+/* --------------------------------------------------------------------- Team */
+function TeamPanel({ currentEmail }: { currentEmail: string }) {
+  const [team, setTeam] = useState<TeamMembers | null>(null)
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+
+  const load = () => { getTeam().then(setTeam).catch(() => setTeam({ members: [], invites: [] })) }
+  useEffect(load, [])
+
+  const invite = async (e: FormEvent) => {
+    e.preventDefault()
+    const target = email.trim()
+    if (!target || busy) return
+    setBusy(true); setErr(null); setNote(null)
+    try {
+      await createInvite(target)
+      setEmail('')
+      setNote(`Invitation sent to ${target}.`)
+      load()
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Could not send the invite')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revoke = async (id: string) => {
+    setErr(null); setNote(null)
+    try { await revokeInvite(id); load() }
+    catch (ex) { setErr(ex instanceof Error ? ex.message : 'Could not revoke') }
+  }
+
+  const rowStyle = css('display:flex;align-items:center;gap:12px;padding:12px 18px;border-top:1px solid var(--border)')
+
+  return (
+    <div style={css('margin-top:22px;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
+      <div style={css('padding:16px 18px;border-bottom:1px solid var(--border)')}>
+        <div style={css('font-size:15px;font-weight:700;letter-spacing:-.01em')}>Team</div>
+        <div style={css('font-size:12.5px;color:var(--text-3);margin-top:2px')}>People with access to this workspace. Everyone here shares its projects, suppliers and quotes.</div>
+      </div>
+
+      {/* Members */}
+      {(team?.members || []).map((u) => (
+        <div key={u.id} style={rowStyle}>
+          <span style={css('width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;flex:none')}>
+            {(u.name || u.email).slice(0, 1).toUpperCase()}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={css('font-size:13.5px;font-weight:600')}>{u.name || u.email.split('@')[0]}{u.email === currentEmail ? ' (you)' : ''}</div>
+            <div style={css('font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{u.email}</div>
+          </div>
+          <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-2);border:1px solid var(--border);border-radius:999px;padding:3px 10px;flex:none')}>Member</span>
+        </div>
+      ))}
+
+      {/* Pending invites */}
+      {(team?.invites || []).map((inv) => (
+        <div key={inv.id} style={rowStyle}>
+          <span style={css('width:30px;height:30px;border-radius:50%;background:var(--panel-2);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:var(--text-3);flex:none')}>
+            {inv.email.slice(0, 1).toUpperCase()}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{inv.email}</div>
+            <div style={css('font-size:12px;color:var(--text-3)')}>Invitation pending</div>
+          </div>
+          <Box as="button" onClick={() => revoke(inv.id)} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);flex:none')} hover="background:var(--panel-2)">Revoke</Box>
+        </div>
+      ))}
+
+      {/* Invite form */}
+      <form onSubmit={invite} style={css('display:flex;align-items:center;gap:8px;padding:14px 18px;border-top:1px solid var(--border)')}>
+        <input
+          type="email" value={email} required
+          onChange={(e) => { setEmail(e.target.value); setErr(null); setNote(null) }}
+          placeholder="teammate@company.com"
+          style={css('flex:1;height:34px;padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:13px;outline:none')}
+        />
+        <Box as="button" type="submit" disabled={busy} style={css(`height:34px;padding:0 15px;border-radius:8px;background:var(--primary);color:var(--on-primary,#fff);font-size:12.5px;font-weight:600;flex:none;${busy ? 'opacity:.6' : ''}`)} hover="background:var(--primary-2)">
+          {busy ? 'Sending…' : 'Invite'}
+        </Box>
+      </form>
+      {(err || note) && (
+        <div style={css(`font-size:12px;padding:0 18px 14px;${err ? 'color:var(--danger)' : 'color:var(--success,#16a34a)'}`)}>{err || note}</div>
+      )}
     </div>
   )
 }
@@ -1321,7 +1584,7 @@ function pkgLabel(key: string): string {
 // created in the Documents panel and selected here by their document id — they
 // quote exactly like a package (replacing the old free-text ad-hoc flow).
 // Manages its own state + polling.
-function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<void> }) {
+function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<unknown> }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
   const [boms, setBoms] = useState<CustomBomSummary[]>([])     // custom BOMs on this project

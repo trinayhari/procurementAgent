@@ -39,12 +39,16 @@ from app.schemas.timeline import Timeline
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
-# Projects are persisted (SQLite via SQLAlchemy). The per-project sub-resources
-# below still serve prototype seed data; they only use the project to 404 on
-# unknown ids.
+# Projects are persisted (SQLite via SQLAlchemy) and scoped to the caller's
+# organization: `_require_project` 404s for an id that exists but belongs to
+# another tenant, so the response never confirms it exists. The per-project
+# sub-resources below still serve prototype seed data for unextracted views.
 @router.get("", response_model=List[Project])
-def list_projects(db: Session = Depends(get_db)):
-    return projects_repo.list_projects(db)
+def list_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return projects_repo.list_projects(db, current_user.organization_id)
 
 
 @router.post("", response_model=Project, status_code=201)
@@ -53,19 +57,22 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = current_user.organization_id
     project = projects_repo.create_project(
         db,
+        org_id,
         name=payload.name,
         loc=payload.loc,
         value=payload.value,
         stage=payload.stage.value,
     )
     audit_repo.log(
-        db, current_user, "project.created", "project", project["id"],
+        db, org_id, current_user, "project.created", "project", project["id"],
         project_id=project["id"], detail={"name": project["name"]},
     )
     events_repo.log(
         db,
+        org_id,
         project["id"],
         title="Project created",
         icon="sparkles",
@@ -82,81 +89,129 @@ def delete_project(
     current_user: User = Depends(get_current_user),
 ):
     """Delete a project and all of its documents, quotes, RFQs and suppliers."""
-    if not projects_repo.delete_project(db, project_id):
+    org_id = current_user.organization_id
+    if not projects_repo.delete_project(db, org_id, project_id):
         raise HTTPException(status_code=404, detail="Project not found")
-    audit_repo.log(db, current_user, "project.deleted", "project", project_id, project_id=project_id)
+    audit_repo.log(
+        db, org_id, current_user, "project.deleted", "project", project_id,
+        project_id=project_id,
+    )
     return None
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
-def get_project(project_id: str, db: Session = Depends(get_db)):
-    project = _require_project(project_id, db)
+def get_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    project = _require_project(org_id, project_id, db)
     return {
         **project,
         "overviewCards": reference_repo.list_overview_cards(db),
         "packages": reference_repo.list_packages(db),
-        "activity": events_repo.list_for_project(db, project_id),
+        "activity": events_repo.list_for_project(db, org_id, project_id),
     }
 
 
 @router.get("/{project_id}/documents", response_model=List[Document])
-def list_documents(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
-    docs = documents_repo.list_for_project(db, project_id)
+def list_documents(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    docs = documents_repo.list_for_project(db, org_id, project_id)
     # Annotate each document with how many schedule events it contributed, so
     # the Documents tab can nudge the user toward the Timeline tab.
-    counts = timeline_repo.counts_by_document(db, project_id)
+    counts = timeline_repo.counts_by_document(db, org_id, project_id)
     for d in docs:
         d["timelineEvents"] = counts.get(d["id"], 0)
     return docs
 
 
 @router.get("/{project_id}/line-items", response_model=List[LineItemGroup])
-def list_line_items(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
+def list_line_items(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_project(current_user.organization_id, project_id, db)
     return reference_repo.list_line_item_groups(db)
 
 
 @router.get("/{project_id}/suppliers", response_model=List[Supplier])
-def list_project_suppliers(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
-    return suppliers_repo.list_suppliers(db)
+def list_project_suppliers(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    return suppliers_repo.list_suppliers(db, org_id)
 
 
 @router.get("/{project_id}/quotes", response_model=List[Quote])
-def list_quotes(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
+def list_quotes(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
     # Prefer real ingested quotes; fall back to the demo quotes when none exist
     # (keeps the Riverside demo populated before any quotes are ingested).
-    rows = quotes_repo.list_quote_rows(db, project_id)
+    rows = quotes_repo.list_quote_rows(db, org_id, project_id)
     return rows if rows else reference_repo.list_demo_quotes(db)
 
 
 @router.get("/{project_id}/rfqs", response_model=List[Rfq])
-def list_rfqs(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
+def list_rfqs(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_project(current_user.organization_id, project_id, db)
     return reference_repo.list_demo_rfqs(db)
 
 
 @router.get("/{project_id}/rfq-folders", response_model=List[RfqFolder])
-def list_rfq_folders(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
+def list_rfq_folders(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_project(current_user.organization_id, project_id, db)
     return reference_repo.list_rfq_folders(db)
 
 
 # Lenders: the project's financing contacts. Stored per-project so timeline
 # progress emails (PRO-16) know who to update.
 @router.get("/{project_id}/lenders", response_model=List[Lender])
-def list_lenders(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
-    return lenders_repo.list_for_project(db, project_id)
+def list_lenders(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    return lenders_repo.list_for_project(db, org_id, project_id)
 
 
 @router.post("/{project_id}/lenders", response_model=Lender, status_code=201)
-def add_lender(project_id: str, payload: LenderCreate, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
+def add_lender(
+    project_id: str,
+    payload: LenderCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
     lender = lenders_repo.create(
         db,
+        org_id,
         project_id,
         name=payload.name,
         email=payload.email,
@@ -165,6 +220,7 @@ def add_lender(project_id: str, payload: LenderCreate, db: Session = Depends(get
     )
     events_repo.log(
         db,
+        org_id,
         project_id,
         title=f"Lender added: {lender['name']}",
         icon="supplier",
@@ -175,34 +231,53 @@ def add_lender(project_id: str, payload: LenderCreate, db: Session = Depends(get
 
 
 @router.delete("/{project_id}/lenders/{lender_id}", status_code=204)
-def remove_lender(project_id: str, lender_id: int, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
-    if lenders_repo.delete(db, project_id, lender_id) is None:
+def remove_lender(
+    project_id: str,
+    lender_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    if lenders_repo.delete(db, org_id, project_id, lender_id) is None:
         raise HTTPException(status_code=404, detail="Lender not found")
     return None
 
 
 @router.get("/{project_id}/timeline", response_model=Timeline)
-def get_timeline(project_id: str, db: Session = Depends(get_db)):
+def get_timeline(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """The project schedule, built from timeline events extracted out of the
     project's documents. Falls back to the demo timeline (present only when
     demo seeding is enabled) while nothing has been extracted."""
-    _require_project(project_id, db)
-    built = schedule_service.build_schedule(timeline_repo.list_for_project(db, project_id))
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    built = schedule_service.build_schedule(
+        timeline_repo.list_for_project(db, org_id, project_id)
+    )
     if built is not None:
         return built
     return reference_repo.get_timeline(db)
 
 
 @router.get("/{project_id}/packages/{pkg}/comparison", response_model=Comparison)
-def get_comparison(project_id: str, pkg: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
+def get_comparison(
+    project_id: str,
+    pkg: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
     # `pkg` may arrive as a package key ("water") or a display label
     # ("Water Utilities"); resolve to the canonical key for the quote lookup.
     key = pkg if packages.is_valid(pkg) else packages.category_for_label(pkg)
     label = packages.label_for(key) if key else pkg
     if key:
-        dynamic = comparison_service.build_comparison(db, project_id, key, label)
+        dynamic = comparison_service.build_comparison(db, org_id, project_id, key, label)
         if dynamic is not None:
             return dynamic
     # No ingested quotes yet → prototype demo comparison (keyed by label).
@@ -217,13 +292,19 @@ def get_comparison(project_id: str, pkg: str, db: Session = Depends(get_db)):
 @router.get(
     "/{project_id}/packages/{pkg}/line-comparison", response_model=LineComparison
 )
-def get_line_comparison(project_id: str, pkg: str, db: Session = Depends(get_db)):
+def get_line_comparison(
+    project_id: str,
+    pkg: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Line-by-line quote grid + freight-aware mix-and-match award strategies."""
-    _require_project(project_id, db)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
     key = pkg if packages.is_valid(pkg) else packages.category_for_label(pkg)
     label = packages.label_for(key) if key else pkg
     result = line_comparison_service.build_line_comparison(
-        db, project_id, key or pkg, label
+        db, org_id, project_id, key or pkg, label
     )
     if result is None:
         raise HTTPException(status_code=404, detail="No quotes to compare for package")
@@ -239,10 +320,11 @@ def award_package(
     current_user: User = Depends(get_current_user),
 ):
     """Submit a (possibly split) award for a package and issue the purchase orders."""
-    _require_project(project_id, db)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
     key = pkg if packages.is_valid(pkg) else packages.category_for_label(pkg)
     summary = line_comparison_service.compute_award(
-        db, project_id, key or pkg, payload.selections
+        db, org_id, project_id, key or pkg, payload.selections
     )
     if summary is None:
         raise HTTPException(status_code=404, detail="No quotes to award for package")
@@ -255,12 +337,13 @@ def award_package(
         pkg_label_for_record = packages.label_for(key)
     else:
         # A custom BOM's package key is its document id — record its name.
-        bom_doc = documents_repo.get(db, pkg)
+        bom_doc = documents_repo.get(db, org_id, pkg)
         pkg_label_for_record = bom_doc.name if bom_doc is not None else pkg
     # Stage the decision + audit record on the session, then let award_package's
     # commit persist everything atomically with the quote status flips.
     decision = purchase_decisions_repo.add_decision(
         db,
+        org_id,
         project_id=project_id,
         package=key or pkg,
         package_label=pkg_label_for_record,
@@ -270,7 +353,7 @@ def award_package(
         decided_by=current_user,
     )
     audit_repo.log(
-        db, current_user, "package.awarded", "purchase_decision", decision.id,
+        db, org_id, current_user, "package.awarded", "purchase_decision", decision.id,
         project_id=project_id,
         detail={
             "package": key or pkg,
@@ -280,12 +363,13 @@ def award_package(
         },
         commit=False,
     )
-    quotes_repo.award_package(db, project_id, key or pkg, summary["supplierIds"])
+    quotes_repo.award_package(db, org_id, project_id, key or pkg, summary["supplierIds"])
 
     # Notify suppliers of the outcome, threaded into each RFQ conversation. Runs
     # after the award is committed so a flaky email never rolls back the award.
     notify = award_notify.notify_award(
         db,
+        org_id=org_id,
         project_id=project_id,
         package=key or pkg,
         package_label=pkg_label_for_record,
@@ -296,7 +380,8 @@ def award_package(
     n_awarded, n_declined = len(notify["notified"]), len(notify["declined"])
     if n_awarded or n_declined or notify["failed"]:
         audit_repo.log(
-            db, current_user, "package.award_notified", "purchase_decision", decision.id,
+            db, org_id, current_user, "package.award_notified", "purchase_decision",
+            decision.id,
             project_id=project_id,
             detail={
                 "awarded": [w["email"] for w in notify["notified"]],
@@ -320,6 +405,7 @@ def award_package(
     )
     events_repo.log(
         db,
+        org_id,
         project_id,
         title=f"{pkg_label} awarded to {sup_list}",
         icon="check",
@@ -340,14 +426,24 @@ def award_package(
 
 
 @router.get("/{project_id}/purchase-decisions")
-def list_purchase_decisions(project_id: str, db: Session = Depends(get_db)):
+def list_purchase_decisions(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Award records for a project — who bought what, from whom, decided by whom."""
-    _require_project(project_id, db)
-    return purchase_decisions_repo.list_for_project(db, project_id)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    return purchase_decisions_repo.list_for_project(db, org_id, project_id)
 
 
-def _require_project(project_id: str, db: Session) -> dict:
-    project = projects_repo.get_project(db, project_id)
+def _require_project(org_id: str, project_id: str, db: Session) -> dict:
+    """The project, or 404.
+
+    Deliberately 404 (not 403) when the project exists but belongs to another
+    organization: a 403 would confirm the id is real.
+    """
+    project = projects_repo.get_project(db, org_id, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
