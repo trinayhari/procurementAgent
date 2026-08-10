@@ -383,9 +383,34 @@ export function getPackageBom(
 // supplier manually there, or from a project's search results. Idempotent by
 // name server-side, so saving the same supplier twice is a no-op.
 export type SupplierCreate = Schemas['SupplierCreate']
+export type SupplierUpdate = Schemas['SupplierUpdate']
 
 export function createSupplier(payload: SupplierCreate): Promise<Supplier> {
   return post<Supplier>('/api/suppliers', payload)
+}
+
+// Edit a supplier already in the network. Only the fields present in `payload`
+// are changed; the supplier id is stable even when the name changes.
+export async function updateSupplier(
+  supplierId: string,
+  payload: SupplierUpdate,
+): Promise<Supplier> {
+  const res = await fetch(`${BASE}/api/suppliers/${supplierId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    if (res.status === 409) throw new Error('Another supplier already has that name')
+    throw new Error(`update supplier -> ${res.status}`)
+  }
+  return res.json() as Promise<Supplier>
+}
+
+// One supplier's full detail, including its own communication history. Fetched
+// on demand when the supplier drawer opens (the timeline is per-supplier).
+export function getSupplierDetail(supplierId: string): Promise<SupplierDetail> {
+  return get<SupplierDetail>(`/api/suppliers/${supplierId}`)
 }
 
 // Remove a supplier from the customer's network.
@@ -584,7 +609,6 @@ export type ModelData = {
   overviewCards: OverviewCard[]
   packages: Package[]
   suppliers: Supplier[]
-  supplierComms: SupplierComm[]
   docs: Document[]
   lineItems: LineItemGroup[]
   quotes: Quote[]
@@ -641,17 +665,15 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
   const pid =
     (projectId && projects.some((p) => p.id === projectId) ? projectId : null) ||
     (projects[0] ? projects[0].id : null)
-  const supId = suppliers[0] ? suppliers[0].id : null
 
   // Per-project fetch that short-circuits to its fallback when there's no project.
   const proj = <T>(path: string, fb: T): Promise<T> => (pid ? safe(get<T>(path), fb) : Promise.resolve(fb))
   const emptyComparison = { suppliers: [], rows: [], recommendation: '', reasons: [], savings: '', savingsNote: '' } as unknown as Comparison
   const emptyTimeline = { milestones: [], gantt: [], ganttCols: [] } as unknown as Timeline
 
-  const [detail, supplierDetail, docs, lineItems, quotes, comparison, rfqs, rfqFolders, timeline] =
+  const [detail, docs, lineItems, quotes, comparison, rfqs, rfqFolders, timeline] =
     await Promise.all([
       proj(`/api/projects/${pid}`, { overviewCards: [], packages: [], activity: [] } as unknown as ProjectDetail),
-      supId ? safe(get<SupplierDetail>(`/api/suppliers/${supId}`), { comms: [] } as unknown as SupplierDetail) : Promise.resolve({ comms: [] } as unknown as SupplierDetail),
       proj(`/api/projects/${pid}/documents`, [] as Document[]),
       proj(`/api/projects/${pid}/line-items`, [] as LineItemGroup[]),
       proj(`/api/projects/${pid}/quotes`, [] as Quote[]),
@@ -669,7 +691,6 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
     overviewCards: detail.overviewCards,
     packages: detail.packages,
     suppliers,
-    supplierComms: supplierDetail.comms,
     docs,
     lineItems,
     quotes,

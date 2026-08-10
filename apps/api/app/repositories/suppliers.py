@@ -1,8 +1,9 @@
 """Database accessors for the supplier directory + comms history.
 
 The directory is per-organization: each customer curates its own vendor list, so
-every read and write filters on `org_id`. The seeded comms history is global
-display data (see models/supplier.py) and is not scoped.
+every read and write filters on `org_id`. Comms history is per-supplier (each
+row carries `supplier_id`) and is read only after the owning supplier has been
+resolved within the caller's org.
 """
 import json
 import re
@@ -113,6 +114,29 @@ def create_supplier(
     return row.to_dict()
 
 
+def update_supplier(
+    db: Session, org_id: str, supplier_id: str, fields: dict
+) -> Optional[dict]:
+    """Apply a partial edit to a directory supplier. `fields` holds only the keys
+    the caller sent (from SupplierUpdate). Returns the updated row, or None if no
+    supplier with that id exists in this org. The id is intentionally left
+    unchanged even when the name changes, so existing references stay valid; the
+    avatar initials track the new name."""
+    row = _get_row(db, org_id, supplier_id)
+    if row is None:
+        return None
+    if "name" in fields:
+        row.name = fields["name"]
+        row.logo = _initials(fields["name"])
+    for key in ("contact", "phone", "email", "web"):
+        if key in fields:
+            setattr(row, key, fields[key] or "")
+    if "cats" in fields:
+        row.cats = json.dumps(fields["cats"] or [])
+    db.commit()
+    return row.to_dict()
+
+
 def delete_supplier(db: Session, org_id: str, supplier_id: str) -> bool:
     """Remove a supplier from the org's directory. False if it didn't exist."""
     row = _get_row(db, org_id, supplier_id)
@@ -123,9 +147,15 @@ def delete_supplier(db: Session, org_id: str, supplier_id: str) -> bool:
     return True
 
 
-def list_comms(db: Session) -> List[dict]:
-    """Seeded comms history — global display data, shared by every org."""
-    rows = db.scalars(select(SupplierComm).order_by(SupplierComm.seq)).all()
+def list_comms(db: Session, supplier_id: str) -> List[dict]:
+    """This supplier's communication history, oldest-slot-first by `seq`. Empty
+    when the supplier has never been contacted. Callers validate org ownership of
+    the supplier (via get_supplier) before reading its timeline."""
+    rows = db.scalars(
+        select(SupplierComm)
+        .where(SupplierComm.supplier_id == supplier_id)
+        .order_by(SupplierComm.seq)
+    ).all()
     return [c.to_dict() for c in rows]
 
 
@@ -156,15 +186,17 @@ def seed_suppliers(db: Session, org_id: str) -> None:
                 )
             )
     if not db.scalar(select(func.count()).select_from(SupplierComm)):
-        for i, c in enumerate(seed.SUPPLIER_COMMS, start=1):
-            db.add(
-                SupplierComm(
-                    seq=i,
-                    tone=c.get("tone", "blue"),
-                    title=c["title"],
-                    body=c.get("body", ""),
-                    time=c.get("time", ""),
-                    icon=c.get("icon", "rfq"),
+        for supplier_id, comms in seed.SUPPLIER_COMMS.items():
+            for i, c in enumerate(comms, start=1):
+                db.add(
+                    SupplierComm(
+                        supplier_id=supplier_id,
+                        seq=i,
+                        tone=c.get("tone", "blue"),
+                        title=c["title"],
+                        body=c.get("body", ""),
+                        time=c.get("time", ""),
+                        icon=c.get("icon", "rfq"),
+                    )
                 )
-            )
     db.commit()

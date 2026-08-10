@@ -823,7 +823,12 @@ export interface paths {
         delete: operations["delete_supplier_api_suppliers__supplier_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Supplier
+         * @description Edit a supplier's details in the customer's directory. Only the fields
+         *     present in the request body are changed.
+         */
+        patch: operations["update_supplier_api_suppliers__supplier_id__patch"];
         trace?: never;
     };
     "/api/documents/plan-types": {
@@ -2548,6 +2553,25 @@ export interface components {
             /** Suppliers */
             suppliers: components["schemas"]["FoundSupplier"][];
         };
+        /**
+         * SupplierUpdate
+         * @description Edit an existing directory supplier. Every field is optional — only the
+         *     fields that are sent are changed; anything omitted is left untouched.
+         */
+        SupplierUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Web */
+            web?: string | null;
+            /** Cats */
+            cats?: string[] | null;
+        };
         /** TeamMembers */
         TeamMembers: {
             /** Members */
@@ -4214,6 +4238,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_supplier_api_suppliers__supplier_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Supplier"];
+                };
             };
             /** @description Validation Error */
             422: {
