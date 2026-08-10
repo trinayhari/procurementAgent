@@ -82,6 +82,7 @@ def search_suppliers(
     cached_latlng: Optional[LatLng] = None,
     keywords: Optional[List[str]] = None,
     label: Optional[str] = None,
+    verify_hint: Optional[str] = None,
 ) -> Tuple[List[FoundSupplierResult], Optional[LatLng], bool]:
     """Return (results, latlng_used, mocked).
 
@@ -91,6 +92,8 @@ def search_suppliers(
 
     ``keywords``/``label`` override the buy-package presets — this is how an
     ad-hoc RFQ searches on a free-text description instead of a fixed package.
+    ``verify_hint`` overrides the relevance-verification hint (used by trade/
+    subcontractor searches, which want installers rather than distributors).
     """
     ad_hoc = keywords is not None
     if not places.is_configured():
@@ -106,12 +109,13 @@ def search_suppliers(
     radius_m = int(min(radius_mi, settings.search_tier3_max_mi) * 1609.34)
     label = label or packages.label_for(category_key)
     search_keywords = keywords if ad_hoc else packages.keywords_for(category_key)
-    verify_hint = (
-        f"Wholesale distributor or supplier of {label} materials to contractors — "
-        "not a consumer retail store."
-        if ad_hoc
-        else packages.verify_hint_for(category_key)
-    )
+    if verify_hint is None:
+        verify_hint = (
+            f"Wholesale distributor or supplier of {label} materials to contractors — "
+            "not a consumer retail store."
+            if ad_hoc
+            else packages.verify_hint_for(category_key)
+        )
 
     # 2. Text Search across the keywords; dedupe by place_id.
     raw: dict = {}

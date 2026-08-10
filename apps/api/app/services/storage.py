@@ -146,6 +146,27 @@ def exists(locator: Optional[str]) -> bool:
     return os.path.exists(locator)
 
 
+def size(locator: Optional[str]) -> Optional[int]:
+    """The stored file's size in bytes, or None when it can't be determined.
+
+    Cheap on both backends (a HEAD for S3, a stat locally) — used to validate
+    email-attachment totals without downloading anything.
+    """
+    if not locator:
+        return None
+    if _is_s3(locator):
+        bucket, key = _parse_s3(locator)
+        try:
+            head = _s3().head_object(Bucket=bucket, Key=key)
+            return int(head["ContentLength"])
+        except Exception:
+            return None
+    try:
+        return os.path.getsize(locator)
+    except OSError:
+        return None
+
+
 @contextmanager
 def local_copy(locator: str) -> Iterator[str]:
     """Yield a local filesystem path for `locator` (extraction needs a path).

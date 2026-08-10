@@ -12,11 +12,14 @@ Sender identity (important):
 """
 import base64
 import logging
+import mimetypes
 import uuid
 from dataclasses import dataclass
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, parseaddr
-from typing import Optional, Protocol
+from typing import List, Optional, Protocol
 
 from app.config import settings
 
@@ -37,6 +40,20 @@ UNCONFIGURED_SENDER_ADDRESS = "rfq@procureai.local"
 
 class GmailUnavailable(Exception):
     """Raised when the Gmail API cannot be called (missing creds / deps / error)."""
+
+
+@dataclass
+class EmailAttachment:
+    """A file to attach to an outbound email, already loaded into memory.
+
+    Bytes (not a path/locator) so the send path is storage-agnostic: the route
+    hydrates each document once via storage.local_copy() and reuses the same
+    list for every recipient.
+    """
+
+    filename: str
+    content: bytes
+    mime_type: Optional[str] = None
 
 
 @dataclass
@@ -64,6 +81,7 @@ class EmailSender(Protocol):
         cc: Optional[str] = None,
         thread_id: Optional[str] = None,
         in_reply_to: Optional[str] = None,
+        attachments: Optional[List[EmailAttachment]] = None,
     ) -> SentMessage:
         """Send one email and return its Gmail message + thread ids.
 
@@ -73,6 +91,9 @@ class EmailSender(Protocol):
         `thread_id` (a Gmail thread id) and `in_reply_to` (the RFC822 Message-ID of
         the message being replied to) make the email land inside an existing thread
         — e.g. an award reply in the supplier's original RFQ conversation.
+
+        `attachments` are project documents the user chose to include (already
+        loaded into memory); when absent the message is a plain-text email.
         """
         ...
 
@@ -104,8 +125,22 @@ def _build_mime(
     *,
     cc: Optional[str] = None,
     in_reply_to: Optional[str] = None,
+    attachments: Optional[List[EmailAttachment]] = None,
 ) -> str:
-    msg = MIMEText(body)
+    if attachments:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(body))
+        for att in attachments:
+            mime_type = att.mime_type or mimetypes.guess_type(att.filename)[0]
+            subtype = (mime_type or "application/octet-stream").split("/", 1)[-1]
+            part = MIMEApplication(att.content, _subtype=subtype)
+            part.add_header(
+                "Content-Disposition", "attachment", filename=att.filename
+            )
+            msg.attach(part)
+    else:
+        # No attachments → keep the historical plain-text shape byte-for-byte.
+        msg = MIMEText(body)
     msg["To"] = to
     msg["From"] = from_addr
     cc = resolve_cc(cc, to, from_addr)
@@ -138,12 +173,18 @@ class MockSender:
         cc: Optional[str] = None,
         thread_id: Optional[str] = None,
         in_reply_to: Optional[str] = None,
+        attachments: Optional[List[EmailAttachment]] = None,
     ) -> SentMessage:
         mid = f"mock-{uuid.uuid4().hex[:12]}"
+        att_desc = (
+            ", ".join(f"{a.filename} ({len(a.content)}b)" for a in attachments)
+            if attachments
+            else "-"
+        )
         logger.info(
-            "[MOCK SEND] id=%s from=%s to=%s cc=%s subject=%r thread=%s (%d chars)",
+            "[MOCK SEND] id=%s from=%s to=%s cc=%s subject=%r thread=%s (%d chars) attachments=%s",
             mid, from_addr, to, resolve_cc(cc, to, from_addr) or "-", subject,
-            thread_id or "-", len(body),
+            thread_id or "-", len(body), att_desc,
         )
         return SentMessage(message_id=mid, thread_id=thread_id or mid)
 
@@ -184,11 +225,15 @@ class GmailSender:
         cc: Optional[str] = None,
         thread_id: Optional[str] = None,
         in_reply_to: Optional[str] = None,
+        attachments: Optional[List[EmailAttachment]] = None,
     ) -> SentMessage:
         service = self._service()
         # Gmail delivers to every address in the headers, so a Cc: header is all
         # that's needed to copy the buyer.
-        raw = _build_mime(to, subject, body, from_addr, cc=cc, in_reply_to=in_reply_to)
+        raw = _build_mime(
+            to, subject, body, from_addr,
+            cc=cc, in_reply_to=in_reply_to, attachments=attachments,
+        )
         message: dict = {"raw": raw}
         if thread_id:
             message["threadId"] = thread_id
