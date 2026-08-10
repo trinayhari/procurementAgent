@@ -60,12 +60,39 @@ SUPPLIERS: List[dict] = [
     {"id": "graybar", "name": "Graybar Electric", "cats": ["Electrical"], "contact": "Sara Lin", "phone": "(775) 555-0166", "email": "slin@graybar.com", "web": "graybar.com", "rfq": "Draft", "rfqTone": "gray", "last": "—", "quotes": "0", "quoteVal": "—", "lead": "—", "logo": "GB", "logoBg": "#7c3aed", "fin": {"submitted": "0", "total": "—", "avg": "—"}},
 ]
 
-SUPPLIER_COMMS: List[dict] = [
-    {"tone": "success", "title": "Quote submitted — Water Utilities", "body": "$145,686 total · 21-day lead · Quote-RV-Water.pdf", "time": "Today · 9:42 AM", "icon": "quote"},
-    {"tone": "blue", "title": "Follow-up email sent", "body": "Requested confirmation on DI pipe class and hydrant lead times.", "time": "Yesterday · 4:10 PM", "icon": "rfq"},
-    {"tone": "success", "title": "Email received", "body": '"We can confirm Class 350 DI. Hydrants ship in ~3 weeks." — Mark Reyes', "time": "Yesterday · 2:30 PM", "icon": "rfq"},
-    {"tone": "violet", "title": "RFQ sent — Water Utilities package", "body": "42 line items · due Jun 20", "time": "Jun 12 · 11:05 AM", "icon": "sparkles"},
-]
+# Communication history is per-supplier: each supplier's timeline reflects its
+# own RFQ/quote activity and matches its card state (quoted vs. sent vs. draft).
+# A supplier with no entries here (e.g. a brand-new or never-contacted one) shows
+# the drawer's "No communication yet." empty state. Keyed by supplier id.
+SUPPLIER_COMMS: Dict[str, List[dict]] = {
+    "ferguson": [
+        {"tone": "success", "title": "Quote submitted — Water Utilities", "body": "$145,686 total · 21-day lead · Quote-RV-Water.pdf", "time": "Today · 9:42 AM", "icon": "quote"},
+        {"tone": "blue", "title": "Follow-up email sent", "body": "Requested confirmation on DI pipe class and hydrant lead times.", "time": "Yesterday · 4:10 PM", "icon": "rfq"},
+        {"tone": "success", "title": "Email received", "body": '"We can confirm Class 350 DI. Hydrants ship in ~3 weeks." — Mark Reyes', "time": "Yesterday · 2:30 PM", "icon": "rfq"},
+        {"tone": "violet", "title": "RFQ sent — Water Utilities package", "body": "42 line items · due Jun 20", "time": "Jun 12 · 11:05 AM", "icon": "sparkles"},
+    ],
+    "coremain": [
+        {"tone": "success", "title": "Quote submitted — Sanitary Sewer", "body": "$116,140 total · 12-day lead · Quote-RV-Sewer.pdf", "time": "Today · 8:15 AM", "icon": "quote"},
+        {"tone": "success", "title": "Quote submitted — Water Utilities", "body": "$145,472 total · 16-day lead · lowest water bid", "time": "Yesterday · 5:02 PM", "icon": "quote"},
+        {"tone": "success", "title": "Email received", "body": '"Both packages priced — sewer can ship in under two weeks." — Dana Whitfield', "time": "Yesterday · 4:40 PM", "icon": "rfq"},
+        {"tone": "violet", "title": "RFQ sent — Water + Sewer packages", "body": "73 line items · due Jun 20", "time": "Jun 12 · 11:05 AM", "icon": "sparkles"},
+    ],
+    "fortiline": [
+        {"tone": "success", "title": "Quote submitted — Water Utilities", "body": "$152,190 total · 26-day lead · Quote-RV-Water.pdf", "time": "Today · 10:20 AM", "icon": "quote"},
+        {"tone": "blue", "title": "Follow-up email sent", "body": "Asked whether the 26-day lead could be shortened on DI fittings.", "time": "Yesterday · 3:15 PM", "icon": "rfq"},
+        {"tone": "violet", "title": "RFQ sent — Water Utilities package", "body": "42 line items · due Jun 20", "time": "Jun 12 · 11:05 AM", "icon": "sparkles"},
+    ],
+    "hdsupply": [
+        {"tone": "success", "title": "Quote submitted — Sanitary Sewer", "body": "$115,730 total · 10-day lead · lowest sewer bid", "time": "Today · 7:48 AM", "icon": "quote"},
+        {"tone": "success", "title": "Email received", "body": '"Fastest lead time in the region — 10 days on the full sewer scope." — Priya Anand', "time": "Yesterday · 1:12 PM", "icon": "rfq"},
+        {"tone": "violet", "title": "RFQ sent — Sanitary Sewer package", "body": "31 line items · due Jun 20", "time": "Jun 12 · 11:07 AM", "icon": "sparkles"},
+    ],
+    "wesco": [
+        {"tone": "gray", "title": "Awaiting response", "body": "No reply yet — AI follow-up scheduled for Jun 22.", "time": "Yesterday · 9:00 AM", "icon": "rfq"},
+        {"tone": "blue", "title": "RFQ sent — Electrical package", "body": "23 line items · due Jun 24", "time": "2 days ago · 9:30 AM", "icon": "sparkles"},
+    ],
+    # graybar: RFQ still a draft — never contacted, so no history yet (empty state).
+}
 
 # --------------------------------------------------------------------- documents
 # Documents are scoped to a project via `projectId`. Only Riverside is fleshed out

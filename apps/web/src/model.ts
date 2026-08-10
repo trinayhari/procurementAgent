@@ -1,7 +1,8 @@
 import type { CSSProperties } from 'react'
 import { tone, badge, chip, bar, ic, lb } from './lib'
-import { post, deleteProject as apiDeleteProject, deleteSupplier as apiDeleteSupplier } from './api'
-import type { ModelData, PlanType, LineItemGroup, AuthUser } from './api'
+import { post, deleteProject as apiDeleteProject, deleteSupplier as apiDeleteSupplier, updateSupplier as apiUpdateSupplier } from './api'
+import type { SupplierUpdate } from './api'
+import type { ModelData, PlanType, LineItemGroup, AuthUser, SupplierComm } from './api'
 
 // ---- App state threaded through buildModel (held in App.tsx's useState) ----
 export interface State {
@@ -11,6 +12,9 @@ export interface State {
   docIdx: number
   rfqIdx: number
   supplierId: string | null
+  // Communication history for the open supplier, fetched on drawer open.
+  // null = not loaded yet (loading); [] = loaded, supplier has no history.
+  activeSupplierComms: SupplierComm[] | null
   vw: number
   mnav: boolean
   data: ModelData | null
@@ -195,7 +199,10 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const suppliers = supRaw.map((x) => ({ ...x, onOpen: () => set({ supplierId: x.id }), rfqBadge: badge(x.rfqTone), logoStyle: lb(x.logoBg, 42) }))
   const supplierOpen = !!s.supplierId
   const activeSupplier = suppliers.find((x) => x.id === s.supplierId) || suppliers[0]
-  const supComms = (D.supplierComms || []).map((c) => ({ ...c, chipStyle: chip(c.tone), iconHtml: ic(c.icon) }))
+  // Per-supplier timeline: comms are fetched for whichever supplier is open
+  // (see the supplierId effect in App.tsx). null while that fetch is in flight.
+  const supCommsLoading = !!s.supplierId && s.activeSupplierComms === null
+  const supComms = (s.activeSupplierComms || []).map((c) => ({ ...c, chipStyle: chip(c.tone), iconHtml: ic(c.icon) }))
 
   const docRaw: DocInput[] = D.docs || []
   const docs = docRaw.map((d, i) => ({
@@ -410,7 +417,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     tabOverview: s.tab === 'overview', tabDocuments: s.tab === 'documents', tabSuppliers: s.tab === 'suppliers',
     tabRfqs: s.tab === 'rfqs', tabQuotesTable: s.tab === 'quotes' && !s.compare, tabCompare: s.tab === 'quotes' && s.compare, tabTimeline: s.tab === 'timeline',
     overviewCards, packages,
-    suppliers, supplierOpen, activeSupplier, supComms,
+    suppliers, supplierOpen, activeSupplier, supComms, supCommsLoading,
     docs, doc, extracted,
     // Plan slots + additional documents (see App.tsx + TabDocuments).
     docSlots, additionalDocs, customBoms,
@@ -455,6 +462,13 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       } catch {
         set({ projError: 'Couldn’t remove the supplier — is the backend running?' })
       }
+    },
+    // Save edits to a supplier already in the network, then refresh the
+    // directory so the card and open drawer reflect the new details. Throws on
+    // failure so the edit form can surface the error and stay open.
+    updateSupplier: async (id: string, payload: SupplierUpdate) => {
+      await apiUpdateSupplier(id, payload)
+      if (props && props.reload) await props.reload()
     },
     badgeBlue: badge('blue'), badgeSuccess: badge('success'), badgeWarn: badge('warn'),
     badgeDanger: badge('danger'), badgeViolet: badge('violet'), badgeGray: badge('gray'),

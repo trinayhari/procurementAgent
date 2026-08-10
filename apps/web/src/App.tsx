@@ -9,7 +9,7 @@ import {
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   getDocumentPreview, sendTestEmail, getEmailConfig,
-  listProjectBoms, createSupplier,
+  listProjectBoms, createSupplier, getSupplierDetail,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
@@ -115,7 +115,7 @@ function parseHash(): Partial<State> {
 export default function App() {
   const [s, setS] = useState<State>({
     nav: 'dashboard', tab: 'overview', compare: false, docIdx: 0, rfqIdx: 0,
-    supplierId: null, vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
+    supplierId: null, activeSupplierComms: null, vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
     data: null,
     planTypes: null, planType: 'site_plan', uploading: false, uploadError: null, docLineItems: null,
     editBom: false, bomDraft: null, bomBusy: false,
@@ -168,6 +168,20 @@ export default function App() {
   // Refetch the workspace bundle whenever the open project changes, so each
   // project shows its own documents/quotes/etc. instead of the last one's.
   useEffect(() => { if (s.projectId) reload(s.projectId) }, [s.projectId])
+
+  // Load the open supplier's own communication history (the timeline is
+  // per-supplier). Clears to null first so the drawer shows its loading state
+  // rather than the previous supplier's entries; a stale response is ignored.
+  useEffect(() => {
+    const id = s.supplierId
+    if (!id) { set({ activeSupplierComms: null }); return }
+    let cancelled = false
+    set({ activeSupplierComms: null })
+    getSupplierDetail(id)
+      .then((d) => { if (!cancelled) set({ activeSupplierComms: d.comms }) })
+      .catch(() => { if (!cancelled) set({ activeSupplierComms: [] }) })
+    return () => { cancelled = true }
+  }, [s.supplierId])
 
   // Mirror the active page into the URL hash. In-app navigations push a real
   // history entry so browser Back/Forward walk through them instead of leaving
@@ -680,6 +694,66 @@ function AddSupplierModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
           <Box as="button" type="button" onClick={onClose} style={css('height:36px;padding:0 15px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">Cancel</Box>
           <Box as="button" type="submit" disabled={saving} style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${saving ? '.6' : '1'}`)} hover="background:var(--primary-2)">
             {saving ? 'Adding…' : 'Add supplier'}
+          </Box>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// Edit a supplier already in the network. Prefilled from the current row; only
+// the name is required. Saves via PATCH /api/suppliers/{id} through the model.
+function EditSupplierModal({ m, onClose }: { m: Model; onClose: () => void }) {
+  const a = m.activeSupplier
+  const [name, setName] = useState(a.name)
+  const [contact, setContact] = useState(a.contact)
+  const [phone, setPhone] = useState(a.phone)
+  const [email, setEmail] = useState(a.email)
+  const [web, setWeb] = useState(a.web)
+  const [cats, setCats] = useState(a.cats.join(', '))
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) { setErr('A supplier name is required.'); return }
+    setSaving(true); setErr(null)
+    try {
+      await m.updateSupplier(a.id, {
+        name: name.trim(), contact, phone, email, web,
+        cats: cats.split(',').map((c) => c.trim()).filter(Boolean),
+      })
+      onClose()
+    } catch (e) {
+      setErr(e instanceof Error && e.message.includes('name') ? e.message : 'Could not save changes — is the backend running?')
+      setSaving(false)
+    }
+  }
+
+  const field = css("width:100%;height:36px;padding:0 11px;border-radius:9px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:13px;box-sizing:border-box")
+  const label = css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:5px')
+  return (
+    <div onClick={onClose} style={css('position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:70')}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);width:460px;max-width:100%;max-height:90vh;overflow:auto;padding:22px')}>
+        <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:16px')}>
+          <span style={css('width:26px;height:26px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} sw={2} d='M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z' /></span>
+          <h2 style={css('margin:0;font-size:15px;font-weight:600;flex:1')}>Edit supplier details</h2>
+        </div>
+        <div style={css('display:flex;flex-direction:column;gap:13px')}>
+          <div><div style={label}>Name *</div><input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ferguson Waterworks" style={field} /></div>
+          <div style={css('display:flex;gap:11px')}>
+            <div style={css('flex:1')}><div style={label}>Contact</div><input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Contact name" style={field} /></div>
+            <div style={css('flex:1')}><div style={label}>Phone</div><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-0100" style={field} /></div>
+          </div>
+          <div><div style={label}>Email</div><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="sales@example.com" style={field} /></div>
+          <div><div style={label}>Website</div><input value={web} onChange={(e) => setWeb(e.target.value)} placeholder="example.com" style={field} /></div>
+          <div><div style={label}>Categories</div><input value={cats} onChange={(e) => setCats(e.target.value)} placeholder="Water, Sewer (comma-separated)" style={field} /></div>
+        </div>
+        {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:12px')}>{err}</div>}
+        <div style={css('display:flex;justify-content:flex-end;gap:9px;margin-top:20px')}>
+          <Box as="button" type="button" onClick={onClose} style={css('height:36px;padding:0 15px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">Cancel</Box>
+          <Box as="button" type="submit" disabled={saving} style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${saving ? '.6' : '1'}`)} hover="background:var(--primary-2)">
+            {saving ? 'Saving…' : 'Save changes'}
           </Box>
         </div>
       </form>
@@ -2307,6 +2381,10 @@ function LendersPanel({ projectId }: { projectId: string }) {
 /* ------------------------------------------------------- Supplier drawer */
 function SupplierDrawer({ m }: MProps) {
   const a = m.activeSupplier
+  const [editing, setEditing] = useState(false)
+  // Inline remove confirmation (not window.confirm — native dialogs are
+  // suppressed in embedded/webview browsers, which silently swallowed the delete).
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
   return (
     <div style={css('position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end')}>
       <div onClick={m.closeSupplier} style={css('position:absolute;inset:0;background:rgba(15,20,30,.4)')}></div>
@@ -2314,6 +2392,7 @@ function SupplierDrawer({ m }: MProps) {
         <div style={css('display:flex;align-items:flex-start;gap:13px;padding:20px;border-bottom:1px solid var(--border)')}>
           <div style={a.logoStyle}>{a.logo}</div>
           <div style={css('flex:1;min-width:0')}><div style={css('font-size:16px;font-weight:700')}>{a.name}</div><div style={css('font-size:12.5px;color:var(--text-3);margin-top:1px')}>{a.contact} · Account rep</div><div style={css('margin-top:7px')}><span style={a.rfqBadge}>{a.rfq}</span></div></div>
+          <Box as="button" onClick={() => setEditing(true)} title="Edit details" style={css('width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={16} sw={1.9} d='M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z' /></Box>
           <Box as="button" onClick={m.closeSupplier} style={css('width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={18} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
         <div style={css('padding:20px;display:flex;flex-direction:column;gap:22px')}>
@@ -2333,27 +2412,59 @@ function SupplierDrawer({ m }: MProps) {
           <div>
             <div style={css('font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--text-3);text-transform:uppercase;margin-bottom:13px')}>Communication history</div>
             <div style={css('display:flex;flex-direction:column')}>
-              {m.supComms.map((c, i) => (
-                <div key={i} style={css('display:flex;gap:12px')}>
-                  <div style={css('display:flex;flex-direction:column;align-items:center;flex:none')}><div style={c.chipStyle}><IconHtml html={c.iconHtml} size={14} /></div><span style={css('flex:1;width:2px;background:var(--border);min-height:14px')}></span></div>
-                  <div style={css('flex:1;padding-bottom:16px')}><div style={css('font-size:13px;font-weight:600')}>{c.title}</div><div style={css('font-size:12px;color:var(--text-2);margin-top:2px;line-height:1.45')}>{c.body}</div><div style={css('font-size:11px;color:var(--text-3);margin-top:4px')}>{c.time}</div></div>
-                </div>
-              ))}
-              {m.supComms.length === 0 && (
-                <div style={css('font-size:12.5px;color:var(--text-3)')}>No communication yet.</div>
+              {m.supCommsLoading ? (
+                <div style={css('font-size:12.5px;color:var(--text-3)')}>Loading…</div>
+              ) : m.supComms.length === 0 ? (
+                <div style={css('font-size:12.5px;color:var(--text-3)')}>No communication with {a.name} yet.</div>
+              ) : (
+                m.supComms.map((c, i) => (
+                  <div key={i} style={css('display:flex;gap:12px')}>
+                    <div style={css('display:flex;flex-direction:column;align-items:center;flex:none')}><div style={c.chipStyle}><IconHtml html={c.iconHtml} size={14} /></div><span style={css('flex:1;width:2px;background:var(--border);min-height:14px')}></span></div>
+                    <div style={css('flex:1;padding-bottom:16px')}><div style={css('font-size:13px;font-weight:600')}>{c.title}</div><div style={css('font-size:12px;color:var(--text-2);margin-top:2px;line-height:1.45')}>{c.body}</div><div style={css('font-size:11px;color:var(--text-3);margin-top:4px')}>{c.time}</div></div>
+                  </div>
+                ))
               )}
             </div>
           </div>
           <div style={css('border-top:1px solid var(--border);padding-top:18px')}>
-            <Box as="button"
-              onClick={() => { if (window.confirm(`Remove “${a.name}” from your network? This won't affect RFQs already sent.`)) m.deleteSupplier(a.id) }}
-              style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3);font-size:13px;font-weight:600')}
-              hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)">
-              <Svg size={15} sw={1.9} d={TRASH} />Remove from network
-            </Box>
+            {!confirmingRemove ? (
+              <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
+                <Box as="button"
+                  onClick={() => setEditing(true)}
+                  style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')}
+                  hover="background:var(--panel-2)">
+                  <Svg size={15} sw={1.9} d='M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z' />Edit details
+                </Box>
+                <Box as="button"
+                  onClick={() => setConfirmingRemove(true)}
+                  style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3);font-size:13px;font-weight:600')}
+                  hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)">
+                  <Svg size={15} sw={1.9} d={TRASH} />Remove from network
+                </Box>
+              </div>
+            ) : (
+              <div>
+                <div style={css('font-size:13px;color:var(--text-2);margin-bottom:11px;line-height:1.45')}>Remove “{a.name}” from your network? This won't affect RFQs already sent.</div>
+                <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
+                  <Box as="button"
+                    onClick={() => m.deleteSupplier(a.id)}
+                    style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--danger,#dc2626);border:1px solid var(--danger,#dc2626);color:#fff;font-size:13px;font-weight:600')}
+                    hover="opacity:.9">
+                    <Svg size={15} sw={1.9} d={TRASH} />Remove
+                  </Box>
+                  <Box as="button"
+                    onClick={() => setConfirmingRemove(false)}
+                    style={css('display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')}
+                    hover="background:var(--panel-2)">
+                    Cancel
+                  </Box>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+      {editing && <EditSupplierModal m={m} onClose={() => setEditing(false)} />}
     </div>
   )
 }
