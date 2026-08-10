@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -41,6 +41,18 @@ class SupplierCreate(BaseModel):
     email: str = ""
     web: str = ""
     cats: List[str] = []
+
+
+class SupplierUpdate(BaseModel):
+    """Edit an existing directory supplier. Every field is optional — only the
+    fields that are sent are changed; anything omitted is left untouched."""
+
+    name: Optional[str] = None
+    contact: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    web: Optional[str] = None
+    cats: Optional[List[str]] = None
 
 
 class SupplierComm(BaseModel):
