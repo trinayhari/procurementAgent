@@ -75,3 +75,22 @@ class CustomBomSummary(BaseModel):
     name: str
     count: int
     reviewed: bool = False
+
+
+class TradeScopeSummary(BaseModel):
+    """A subcontractor trade scope, surfaced as a selectable package in the
+    supplier search. Searching on it finds trade contractors (installers) and
+    generating from it produces a scope-of-work bid request."""
+
+    id: str  # the underlying document id — used as the `package` in search/RFQ
+    name: str  # the trade, e.g. "Concrete flatwork"
+    scope: str = ""  # scope-of-work description (goes into the bid request)
+
+
+class TradeScopeCreate(BaseModel):
+    name: str
+    scope: str = ""
+
+
+class TradeScopeUpdate(BaseModel):
+    scope: str
