@@ -83,6 +83,7 @@ scripts/             dev scripts — export_openapi.py dumps openapi.json for th
 | GET | `/api/projects/{id}/documents` | Project documents |
 | GET | `/api/projects/{id}/line-items` | AI-extracted material groups |
 | GET | `/api/projects/{id}/suppliers` | Suppliers on a project |
+| GET | `/api/projects/{id}/trades` | Subcontractor trade scopes (selectable packages for trade search + bid requests) |
 | GET | `/api/projects/{id}/quotes` | Quotes table |
 | GET | `/api/projects/{id}/rfqs` | RFQ list |
 | GET | `/api/projects/{id}/rfq-folders` | RFQ folder counts |
@@ -102,6 +103,8 @@ scripts/             dev scripts — export_openapi.py dumps openapi.json for th
 | --- | --- | --- |
 | POST | `/api/documents` | Upload a plan set (multipart `file` + `plan_type`); runs GPT-4.1 vision extraction in the background |
 | POST | `/api/documents/{id}/analyze` | Re-run extraction for an uploaded document |
+| POST | `/api/projects/{id}/trades` | Create a named subcontractor trade scope (e.g. "Concrete flatwork") |
+| PUT | `/api/projects/{id}/trades/{trade_id}` | Update a trade's scope-of-work text |
 | POST | `/api/rfqs/{id}/messages` | Send a reply in the thread |
 | POST | `/api/rfqs/{id}/followup` | Draft an AI follow-up (stub) |
 | POST | `/api/quotes/{id}/select` | Select supplier & issue PO |
