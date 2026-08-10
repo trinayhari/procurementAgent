@@ -31,6 +31,7 @@ def create_rfq_draft(
     body: str,
     line_items: List[dict],
     recipients: List[dict],
+    kind: str = "materials",
 ) -> dict:
     row = Rfq(
         organization_id=org_id,
@@ -43,6 +44,7 @@ def create_rfq_draft(
         body=body,
         line_items=json.dumps(line_items),
         recipients=json.dumps(recipients),
+        kind=kind,
     )
     db.add(row)
     db.commit()
@@ -71,6 +73,7 @@ def update_rfq(
     subject: str,
     body: str,
     recipients: List[dict],
+    attachments: Optional[List[dict]] = None,
 ) -> Optional[dict]:
     row = _get_row(db, org_id, rfq_id)
     if row is None:
@@ -78,6 +81,8 @@ def update_rfq(
     row.subject = subject
     row.body = body
     row.recipients = json.dumps(recipients)
+    if attachments is not None:
+        row.attachments = json.dumps(attachments)
     db.commit()
     db.refresh(row)
     return row.to_dict()
