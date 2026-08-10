@@ -143,7 +143,9 @@ def test_save_rejects_oversized_attachments(project, monkeypatch):
     monkeypatch.setattr(sourcing_routes, "_MAX_ATTACHMENT_TOTAL_BYTES", 10)
     r = _save(client, headers, pid, rfq, [doc_id])
     assert r.status_code == 400
-    assert "15 MB" in r.json()["detail"]
+    # The message derives its number from the (patched) constant, so assert the
+    # semantic marker rather than a hardcoded size.
+    assert "email limit" in r.json()["detail"]
 
 
 def test_save_without_attachment_ids_field_leaves_attachments_unchanged(
@@ -230,6 +232,9 @@ def test_deleted_attachment_is_skipped_at_send(project, monkeypatch):
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200, r.text  # send still goes out
     assert all(m["attachments"] is None for m in recorder.sent)
+    # The stored attachment list is reconciled: the UI must not present the
+    # skipped document as if recipients received it.
+    assert r.json()["attachments"] == []
 
 
 # ------------------------------------------------------------- MIME building
@@ -270,3 +275,75 @@ def test_build_mime_unknown_extension_falls_back_to_octet_stream():
     assert att_part.get_content_type() == "application/octet-stream"
     assert att_part.get_filename() == "takeoff.zz9"
     assert att_part.get_payload(decode=True) == b"\x00\x01\x02"
+
+
+def test_build_mime_preserves_non_application_mime_types():
+    """Every allowed upload type must keep its real MIME type — a .png is
+    image/png, not application/png (the MIMEApplication trap)."""
+    cases = [
+        ("photo.png", b"\x89PNG\r\n", "image/png"),
+        ("takeoff.csv", b"a,b\n1,2\n", "text/csv"),
+        ("scan.jpg", b"\xff\xd8\xff", "image/jpeg"),
+    ]
+    for filename, content, expected in cases:
+        att = rfq_sender.EmailAttachment(filename=filename, content=content)
+        raw = rfq_sender._build_mime(
+            "a@b.com", "Subj", "Body", "us@ours.com", attachments=[att]
+        )
+        _, att_part = _decode_raw(raw).get_payload()
+        assert att_part.get_content_type() == expected, filename
+        assert att_part.get_payload(decode=True) == content
+
+
+def test_sent_filename_borrows_extension_only_when_name_has_none(
+    project, monkeypatch
+):
+    """Display names with dots ("Rev 2.1 Plans") are NOT treated as extensions;
+    a name without one borrows the stored file's suffix so mail clients can
+    type the attachment."""
+    from app.db import SessionLocal
+    from app.repositories import documents as documents_repo
+
+    client, headers, pid = project
+    monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
+    doc_id = _upload_doc(client, headers, pid)
+    rfq = _draft_rfq(client, headers, pid)
+
+    # Rename the doc to a display name whose only dot is mid-name — the old
+    # '"." in name' check wrongly treated it as already having an extension.
+    with SessionLocal() as db:
+        row = db.query(documents_repo.Document).get(doc_id)
+        org_id = row.organization_id
+        documents_repo.update_status(db, org_id, doc_id, name="Rev 2.1 Plans")
+
+    assert _save(client, headers, pid, rfq, [doc_id]).status_code == 200
+    recorder = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    assert (
+        client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers).status_code
+        == 200
+    )
+    (att,) = recorder.sent[0]["attachments"]
+    # splitext sees no extension on "Rev 2.1 Plans", so the stored file's
+    # ".pdf" is borrowed and mail clients can type the attachment.
+    assert att.filename == "Rev 2.1 Plans.pdf"
+
+
+def test_storage_size_s3_head(monkeypatch):
+    """S3 branch of storage.size(): ContentLength on success, None on failure —
+    the attachment budget must treat None as un-attachable, never 0."""
+    from app.services import storage
+
+    class FakeS3:
+        def head_object(self, Bucket, Key):
+            assert (Bucket, Key) == ("bucket", "key.pdf")
+            return {"ContentLength": 123}
+
+    class BrokenS3:
+        def head_object(self, Bucket, Key):
+            raise RuntimeError("no auth")
+
+    monkeypatch.setattr(storage, "_s3", lambda: FakeS3())
+    assert storage.size("s3://bucket/key.pdf") == 123
+    monkeypatch.setattr(storage, "_s3", lambda: BrokenS3())
+    assert storage.size("s3://bucket/key.pdf") is None

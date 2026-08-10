@@ -4,6 +4,8 @@ Search runs as a background task (geocode → Places → website email scrape is
 and the frontend polls GET .../suppliers/found, mirroring the document-extraction
 UX. With no Google/Gmail keys the whole flow runs against mocks.
 """
+import os
+import re
 from datetime import datetime
 from typing import List, Optional, Tuple
 
@@ -523,7 +525,7 @@ def create_trade_scope(
     )
     scope = (payload.scope or "").strip()
     if scope:
-        documents_repo.update_status(db, org_id, doc.id, summary=scope)
+        doc = documents_repo.update_status(db, org_id, doc.id, summary=scope)
     audit_repo.log(
         db, org_id, current_user, "trade_scope.created", "document", doc.id,
         project_id=project_id, detail={"name": name},
@@ -534,7 +536,7 @@ def create_trade_scope(
         icon="file", tone="blue",
         meta="Subcontractor trade",
     )
-    return _trade_scope_summary(documents_repo.get(db, org_id, doc.id))
+    return _trade_scope_summary(doc)
 
 
 @router.put("/{project_id}/trades/{trade_id}", response_model=TradeScopeSummary)
@@ -758,16 +760,21 @@ def _resolve_attachments(
             raise HTTPException(
                 status_code=400, detail="Attachment document not found on this project"
             )
-        if not doc.has_file or not storage.exists(doc.source_path):
+        # One storage.size() covers existence AND size (a single stat / S3 HEAD).
+        # None means the file is missing or its size can't be determined — either
+        # way it must not silently count as 0 bytes against the budget.
+        size = storage.size(doc.source_path) if doc.has_file else None
+        if size is None:
             raise HTTPException(
                 status_code=400,
                 detail=f"'{doc.name}' has no attachable file",
             )
-        total += storage.size(doc.source_path) or 0
+        total += size
         if total > _MAX_ATTACHMENT_TOTAL_BYTES:
+            limit_mb = _MAX_ATTACHMENT_TOTAL_BYTES // (1024 * 1024)
             raise HTTPException(
                 status_code=400,
-                detail="Attachments exceed the 15 MB email limit — remove some files",
+                detail=f"Attachments exceed the {limit_mb} MB email limit — remove some files",
             )
         out.append({"documentId": doc.id, "name": doc.name})
     return out
@@ -855,8 +862,11 @@ def send_generated_rfq(
 
     # Hydrate the chosen attachments once (bytes reused for every recipient).
     # A document deleted since the RFQ was saved is skipped rather than fatal —
-    # the send still goes out and the skip is recorded in the audit entry.
+    # the send still goes out, the skip is recorded in the audit entry, and the
+    # RFQ's stored attachment list is trimmed so the UI never shows a document
+    # as attached when recipients didn't receive it.
     email_attachments: List[rfq_sender.EmailAttachment] = []
+    sent_attachments: List[dict] = []
     skipped_attachments: List[str] = []
     for att in rfq.get("attachments") or []:
         doc = documents_repo.get(db, org_id, att.get("documentId", ""))
@@ -871,13 +881,18 @@ def send_generated_rfq(
         with storage.local_copy(doc.source_path) as path:
             with open(path, "rb") as fh:
                 content = fh.read()
-        ext = (doc.source_path or "").rsplit(".", 1)
-        filename = doc.name if "." in doc.name else (
-            f"{doc.name}.{ext[1]}" if len(ext) == 2 else doc.name
-        )
+        # A dot in the display name isn't necessarily an extension ("Rev 2.1
+        # Plans") — only a short alphanumeric suffix counts. Names without one
+        # borrow the stored file's suffix so mail clients can type the file.
+        source_ext = os.path.splitext(os.path.basename(doc.source_path or ""))[1]
+        has_real_ext = bool(re.search(r"\.[A-Za-z0-9]{1,5}$", doc.name))
+        filename = doc.name if has_real_ext else f"{doc.name}{source_ext}"
         email_attachments.append(
             rfq_sender.EmailAttachment(filename=filename, content=content)
         )
+        sent_attachments.append(att)
+    if skipped_attachments:
+        rfqs_repo.set_attachments(db, org_id, rfq_id, sent_attachments)
 
     sender = rfq_sender.get_sender()
     # Always the workspace mailbox (with the sender's name/company as the display

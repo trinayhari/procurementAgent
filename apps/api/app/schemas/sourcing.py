@@ -87,10 +87,13 @@ class TradeScopeSummary(BaseModel):
     scope: str = ""  # scope-of-work description (goes into the bid request)
 
 
+# Caps: the name feeds Places search keywords and the LLM relevance hint; the
+# scope is stored, embedded verbatim in the LLM prompt, and mailed in the bid
+# body — unbounded input would inflate all three.
 class TradeScopeCreate(BaseModel):
-    name: str
-    scope: str = ""
+    name: str = Field(max_length=120)
+    scope: str = Field(default="", max_length=20_000)
 
 
 class TradeScopeUpdate(BaseModel):
-    scope: str
+    scope: str = Field(max_length=20_000)

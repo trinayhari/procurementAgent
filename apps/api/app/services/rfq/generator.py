@@ -222,17 +222,16 @@ def _sub_request_sentence(trade_label: str, project_name: str, location: str) ->
     return f"{sentence}."
 
 
-def _sub_template_body(opening: str, scope: str, has_attachments_note: bool = True) -> str:
-    closing = (
-        "Project documents are attached for your review. "
-        if has_attachments_note
-        else ""
-    )
+def _sub_template_body(opening: str, scope: str) -> str:
+    # Attachments are chosen later in the review modal and may be absent at
+    # send, so the body must not promise them — "any attached" stays truthful
+    # either way.
     return (
         f"{opening}\n\n"
         "Scope of work:\n"
         f"{scope}\n\n"
-        f"{closing}Your prompt response is appreciated. Please let us know if "
+        "Please review any attached project documents for additional detail. "
+        "Your prompt response is appreciated. Please let us know if "
         "you need additional information to prepare your bid."
     )
 
@@ -253,7 +252,8 @@ def _sub_llm_body(trade_label: str, scope: str, opening: str) -> Optional[str]:
             "paragraph below verbatim — it names the buyer, the trade, and the "
             "project, so do not reword it or add details it leaves out. Then "
             "include the scope of work below verbatim under a 'Scope of work:' "
-            "heading. Mention that project documents are attached for review. "
+            "heading. Mention that any attached project documents provide "
+            "additional detail (do not assert that documents are attached). "
             "Close with a brief sentence inviting follow-up if more information "
             "is needed. Do not add a greeting, project header, or signature.\n\n"
             f"{opening}\n\n"

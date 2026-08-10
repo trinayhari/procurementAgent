@@ -139,7 +139,7 @@ def _ensure_dev_columns() -> None:
         cols = {c["name"] for c in inspector.get_columns("rfqs")}
         with engine.begin() as conn:
             if "kind" not in cols:
-                # Mirrors 0019_rfq_kind_attachments: pre-existing RFQs are all
+                # Mirrors 0020_rfq_kind_attachments: pre-existing RFQs are all
                 # materials RFQs.
                 conn.execute(text("ALTER TABLE rfqs ADD COLUMN kind VARCHAR NOT NULL DEFAULT 'materials'"))
             if "attachments" not in cols:

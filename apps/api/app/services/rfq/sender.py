@@ -15,7 +15,8 @@ import logging
 import mimetypes
 import uuid
 from dataclasses import dataclass
-from email.mime.application import MIMEApplication
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, parseaddr
@@ -132,8 +133,10 @@ def _build_mime(
         msg.attach(MIMEText(body))
         for att in attachments:
             mime_type = att.mime_type or mimetypes.guess_type(att.filename)[0]
-            subtype = (mime_type or "application/octet-stream").split("/", 1)[-1]
-            part = MIMEApplication(att.content, _subtype=subtype)
+            maintype, _, subtype = (mime_type or "application/octet-stream").partition("/")
+            part = MIMEBase(maintype, subtype or "octet-stream")
+            part.set_payload(att.content)
+            encoders.encode_base64(part)
             part.add_header(
                 "Content-Disposition", "attachment", filename=att.filename
             )

@@ -88,6 +88,18 @@ def update_rfq(
     return row.to_dict()
 
 
+def set_attachments(
+    db: Session, org_id: str, rfq_id: str, attachments: List[dict]
+) -> None:
+    """Overwrite the stored attachment list (send-time reconciliation when a
+    chosen document disappeared between save and send)."""
+    row = _get_row(db, org_id, rfq_id)
+    if row is None:
+        return
+    row.attachments = json.dumps(attachments)
+    db.commit()
+
+
 def mark_rfq_sent(
     db: Session, org_id: str, rfq_id: str, recipients: List[dict], status: str = "Awaiting"
 ) -> Optional[dict]:

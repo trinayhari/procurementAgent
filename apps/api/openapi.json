@@ -5310,6 +5310,10 @@
           },
           "kind": {
             "type": "string",
+            "enum": [
+              "materials",
+              "subcontractor"
+            ],
             "title": "Kind",
             "default": "materials"
           },
@@ -5927,7 +5931,8 @@
           "scope": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 20000
               },
               {
                 "type": "null"
@@ -6792,10 +6797,12 @@
         "properties": {
           "name": {
             "type": "string",
+            "maxLength": 120,
             "title": "Name"
           },
           "scope": {
             "type": "string",
+            "maxLength": 20000,
             "title": "Scope",
             "default": ""
           }
@@ -6834,6 +6841,7 @@
         "properties": {
           "scope": {
             "type": "string",
+            "maxLength": 20000,
             "title": "Scope"
           }
         },

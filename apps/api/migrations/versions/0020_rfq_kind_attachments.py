@@ -1,7 +1,7 @@
 """rfqs.kind + rfqs.attachments
 
-Revision ID: 0019_rfq_kind_attachments
-Revises: 0018_organization_invites
+Revision ID: 0020_rfq_kind_attachments
+Revises: 0019_supplier_comm_supplier_id
 Create Date: 2026-08-09
 
 Two additions to support subcontractor bid requests and user-selected email
@@ -21,8 +21,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0019_rfq_kind_attachments"
-down_revision: Union[str, None] = "0018_organization_invites"
+revision: str = "0020_rfq_kind_attachments"
+down_revision: Union[str, None] = "0019_supplier_comm_supplier_id"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

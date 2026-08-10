@@ -1396,6 +1396,7 @@ function CustomBomsCard({ m }: MProps) {
 // Suppliers tab — the same search → select → RFQ flow custom BOMs use, but the
 // RFQ is a bid request built from the scope instead of line items.
 const TRADE_ICON = 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'
+const PAPERCLIP = 'M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8'
 
 function TradeScopesCard({ m }: MProps) {
   return (
@@ -1414,7 +1415,7 @@ function TradeScopesCard({ m }: MProps) {
       ) : (
         m.tradeScopes.map((d, i) => (
           <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
-            <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--violet-soft,#ede9fe);color:var(--violet);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={TRADE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
+            <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--violet-soft);color:var(--violet);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={TRADE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{(d.summary || '').trim() ? 'Scope written' : 'No scope yet'}</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
             <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
@@ -1446,15 +1447,25 @@ function TradeScopeEditor({ m }: MProps) {
     } catch { setNote('Could not save the scope — is the backend running?') }
     finally { setBusy(false) }
   }
+  // Same contract as the Suppliers-tab scope panel: leaving the field saves,
+  // the button stays as the explicit affordance. No reload on blur — the
+  // heavier workspace refresh only runs on an explicit save.
+  const saveOnBlur = async () => {
+    if (scope === ((doc && doc.summary) || '')) return
+    try {
+      await updateTradeScope(projectId, doc.id!, scope)
+      setNote('Scope saved.')
+    } catch { setNote('Could not save the scope — is the backend running?') }
+  }
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
       <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
         <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{doc.name}</span></div>
-        <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--violet);background:var(--violet-soft,#ede9fe);padding:3px 9px;border-radius:999px')}>Trade scope</span>
+        <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--violet);background:var(--violet-soft);padding:3px 9px;border-radius:999px')}>Trade scope</span>
       </div>
       <div style={css('padding:16px;display:flex;flex-direction:column;gap:10px')}>
         <div style={css('font-size:12.5px;color:var(--text-3)')}>Describe the scope of work you want bids on — it becomes the body of the bid request. Attach plans and specs when you review the RFQ.</div>
-        <textarea value={scope} onChange={(e) => setScope(e.target.value)} rows={10}
+        <textarea value={scope} onChange={(e) => { setScope(e.target.value); setNote(null) }} onBlur={saveOnBlur} rows={10}
           placeholder={'e.g. Furnish and install all cast-in-place concrete flatwork: 12,400 SF of 5" sidewalk, 3,200 SF of 8" dock apron, curb & gutter per C-401. Include forming, reinforcement, finishing, and curing.'}
           style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
         <div style={css('display:flex;align-items:center;gap:10px')}>
@@ -1799,11 +1810,13 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
     return () => { alive = false }
   }, [projectId])
 
-  // Seed the scope textarea from the selected trade's saved scope.
+  // Seed the scope textarea from the selected trade's saved scope. Keyed on the
+  // resolved trade id (not the trades array) so saveScope's list update doesn't
+  // clobber in-progress typing, while switching chips always re-seeds.
   useEffect(() => {
     setScope(trade ? trade.scope || '' : '')
     setScopeNote(null)
-  }, [pkg, trades.length])
+  }, [trade ? trade.id : null])
 
   const saveScope = async () => {
     if (!trade || scope === (trade.scope || '')) return
@@ -1826,17 +1839,19 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
 
   // Load the selected package/BOM's line items (what we'll ask suppliers to
   // quote). A trade scope has no BOM — its ask is the scope-of-work text.
+  // Keyed on isTrade (not the trades array) so the trades list resolving
+  // doesn't refetch the same BOM for a non-trade package.
   useEffect(() => {
     let alive = true
     setBom(null)
-    if (trades.some((t) => t.id === pkg)) { setBomLoading(false); return }
+    if (isTrade) { setBomLoading(false); return }
     setBomLoading(true)
     getPackageBom(projectId, pkg)
       .then((b) => { if (alive) setBom(b) })
       .catch(() => {})
       .finally(() => { if (alive) setBomLoading(false) })
     return () => { alive = false }
-  }, [projectId, pkg, trades.length])
+  }, [projectId, pkg, isTrade])
 
   // Poll while a background search runs.
   useEffect(() => {
@@ -2024,7 +2039,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
           placeholder={'Describe the work you want bids on — takeoff quantities, spec sections, inclusions/exclusions.'}
           style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
         {scopeNote && <div style={css('font-size:12px;color:var(--text-3);margin-top:6px')}>{scopeNote}</div>}
-        {!scope.trim() && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:6px')}>Write a scope of work before generating the bid request.</div>}
+        {!scope.trim() && <div style={css('font-size:12px;color:var(--text-3);margin-top:6px')}>Write a scope of work to enable the bid request.</div>}
       </div>
       ) : (
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
@@ -2089,8 +2104,10 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
       {selectedIds.length > 0 && (
         <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--primary-soft);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
           <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} {isTrade ? 'subcontractor' : 'supplier'}{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</span>
-          <Box as="button" onClick={generate} disabled={generating}
-            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating ? '.6' : '1'}`)}
+          {/* A trade bid request needs a scope — disable rather than 400 later. */}
+          <Box as="button" onClick={generate} disabled={generating || (isTrade && !scope.trim())}
+            title={isTrade && !scope.trim() ? 'Write a scope of work first' : undefined}
+            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating || (isTrade && !scope.trim()) ? '.6' : '1'}`)}
             hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />{generating ? 'Generating…' : isTrade ? 'Generate bid request' : 'Generate RFQ draft'}</Box>
         </div>
       )}
@@ -2166,7 +2183,7 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
         <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:4px')}><span style={css('font-size:12.5px;font-weight:600')}>{t.who}</span><span style={css('font-size:11px;color:var(--text-3)')}>{t.time}</span></div>
         {t.subject && <div style={css('font-size:13px;font-weight:600;margin-bottom:3px')}>{t.subject}</div>}
         <div style={css('font-size:13px;line-height:1.55;color:var(--text);white-space:pre-wrap;word-break:break-word')}>{t.body}</div>
-        {t.attach && <div style={css('display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}><Svg size={14} sw={1.8} stroke="var(--text-3)" d='M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8' />{t.attach}</div>}
+        {t.attach && <div style={css('display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}><Svg size={14} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />{t.attach}</div>}
       </div>
     </div>
   )
@@ -2287,7 +2304,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
                         style={css(`display:flex;align-items:center;gap:9px;padding:7px 11px;border:1px solid ${on ? 'var(--primary)' : 'var(--border)'};border-radius:9px;background:${on ? 'var(--primary-soft)' : 'var(--panel-2)'};text-align:left;cursor:pointer`)}
                         hover="border-color:var(--primary)">
                         <input type="checkbox" checked={on} readOnly style={{ accentColor: 'var(--primary)', pointerEvents: 'none', flex: 'none' }} />
-                        <Svg size={14} sw={1.8} stroke="var(--text-3)" d='M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8' />
+                        <Svg size={14} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />
                         <span style={css('flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span>
                       </Box>
                     )
@@ -2302,7 +2319,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
               <div style={css('display:flex;gap:7px;flex-wrap:wrap')}>
                 {attachNames.map((n, i) => (
                   <span key={i} style={css('display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}>
-                    <Svg size={13} sw={1.8} stroke="var(--text-3)" d='M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8' />{n}
+                    <Svg size={13} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />{n}
                   </span>
                 ))}
               </div>

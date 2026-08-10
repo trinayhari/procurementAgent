@@ -2043,8 +2043,9 @@ export interface components {
             /**
              * Kind
              * @default materials
+             * @enum {string}
              */
-            kind: string;
+            kind: "materials" | "subcontractor";
             /**
              * Attachments
              * @default []

@@ -1,6 +1,6 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import RfqStatus, Tone
 
@@ -80,7 +80,7 @@ class PersistedRfq(Rfq):
     lineItems: List[RfqLineItem] = []
     recipients: List[RfqRecipient] = []
     # "materials" (BOM quote request) or "subcontractor" (scope-of-work bid).
-    kind: str = "materials"
+    kind: Literal["materials", "subcontractor"] = "materials"
     attachments: List[RfqAttachment] = []
 
 
@@ -109,7 +109,7 @@ class RfqGenerateRequest(BaseModel):
     supplier_ids: List[str]
     # Scope-of-work text for a subcontractor bid request (trade-scope packages
     # only). When set it is also persisted back onto the trade scope document.
-    scope: Optional[str] = None
+    scope: Optional[str] = Field(default=None, max_length=20_000)
 
 
 class RfqUpdate(BaseModel):
