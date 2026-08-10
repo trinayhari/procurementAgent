@@ -159,7 +159,10 @@ def size(locator: Optional[str]) -> Optional[int]:
         try:
             head = _s3().head_object(Bucket=bucket, Key=key)
             return int(head["ContentLength"])
-        except Exception:
+        except Exception as exc:
+            # None means "not attachable" to callers; log the cause so a
+            # transient S3 failure is distinguishable from a missing file.
+            logger.warning("storage.size failed for %s: %s", locator, exc)
             return None
     try:
         return os.path.getsize(locator)

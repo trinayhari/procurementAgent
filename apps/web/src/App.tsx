@@ -2210,6 +2210,13 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
   const [attachIds, setAttachIds] = useState<string[]>((rfq.attachments || []).map((a) => a.documentId))
   const [attachNames, setAttachNames] = useState<string[]>((rfq.attachments || []).map((a) => a.name))
   const attachable = (docs || []).filter((d) => d.hasFile && d.id)
+  // Ids chosen earlier can go stale (document deleted since the draft was
+  // saved). Sending stale ids would 400 at save with no checkbox to uncheck —
+  // a dead end — so both the count and the save payload use the live set.
+  // Only filter when we actually know the project's documents.
+  const liveAttachIds = docs !== undefined
+    ? attachIds.filter((id) => attachable.some((d) => d.id === id))
+    : attachIds
   const isSub = rfq.kind === 'subcontractor'
   const draft = status === 'Draft'
 
@@ -2234,7 +2241,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
   const send = async () => {
     setBusy(true); setErr(null)
     try {
-      await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: attachIds })
+      await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
       const out = await sendRfq(projectId, rfq.id)
       setRecipients(out.recipients || [])
       setStatus(out.status)
@@ -2292,7 +2299,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
               the email. Editable on a draft; read-only once sent. */}
           {draft ? (
             <div>
-              <label style={fieldLabel}>Attachments ({attachIds.length})</label>
+              <label style={fieldLabel}>Attachments ({liveAttachIds.length})</label>
               {attachable.length === 0 ? (
                 <div style={css('font-size:12.5px;color:var(--text-3)')}>No attachable documents on this project — upload plans or specs in the Documents tab first.</div>
               ) : (

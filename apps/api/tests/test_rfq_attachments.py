@@ -347,3 +347,19 @@ def test_storage_size_s3_head(monkeypatch):
     assert storage.size("s3://bucket/key.pdf") == 123
     monkeypatch.setattr(storage, "_s3", lambda: BrokenS3())
     assert storage.size("s3://bucket/key.pdf") is None
+
+
+def test_build_mime_strips_control_chars_from_filename():
+    """A crafted upload filename must not inject mail headers via
+    Content-Disposition (CRLF stripped before the header is built)."""
+    att = rfq_sender.EmailAttachment(
+        filename="plans\r\nBcc: x@evil.com.pdf", content=b"x"
+    )
+    raw = rfq_sender._build_mime(
+        "a@b.com", "Subj", "Body", "us@ours.com", attachments=[att]
+    )
+    msg = _decode_raw(raw)
+    assert msg["Bcc"] is None
+    _, att_part = msg.get_payload()
+    assert "\r" not in (att_part.get_filename() or "")
+    assert "\n" not in (att_part.get_filename() or "")

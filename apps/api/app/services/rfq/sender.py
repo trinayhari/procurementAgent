@@ -132,13 +132,19 @@ def _build_mime(
         msg = MIMEMultipart()
         msg.attach(MIMEText(body))
         for att in attachments:
-            mime_type = att.mime_type or mimetypes.guess_type(att.filename)[0]
+            # Filenames derive from user-controlled upload names; strip control
+            # characters so a crafted name can't inject mail headers through
+            # Content-Disposition.
+            filename = "".join(
+                c for c in att.filename if c.isprintable()
+            ).strip() or "attachment"
+            mime_type = att.mime_type or mimetypes.guess_type(filename)[0]
             maintype, _, subtype = (mime_type or "application/octet-stream").partition("/")
             part = MIMEBase(maintype, subtype or "octet-stream")
             part.set_payload(att.content)
             encoders.encode_base64(part)
             part.add_header(
-                "Content-Disposition", "attachment", filename=att.filename
+                "Content-Disposition", "attachment", filename=filename
             )
             msg.attach(part)
     else:
