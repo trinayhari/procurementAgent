@@ -4,6 +4,9 @@ Search runs as a background task (geocode → Places → website email scrape is
 and the frontend polls GET .../suppliers/found, mirroring the document-extraction
 UX. With no Google/Gmail keys the whole flow runs against mocks.
 """
+import os
+import re
+from datetime import datetime
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
@@ -34,7 +37,11 @@ from app.schemas.sourcing import (
     SupplierSearchAccepted,
     SupplierSearchRequest,
     SupplierSearchResult,
+    TradeScopeCreate,
+    TradeScopeSummary,
+    TradeScopeUpdate,
 )
+from app.services import storage
 from app.services.quotes import ingest as quotes_ingest
 from app.services.rfq import conversation as rfq_conversation
 from app.services.rfq import generator as rfq_generator
@@ -66,11 +73,14 @@ def _require_project(org_id: str, project_id: str, db: Session) -> dict:
 
 
 def _require_package(org_id: str, package: str, project_id: str, db: Session) -> None:
-    """A `package` is either a preset buy-package key (water, rebar, …) or the
-    document id of a hand-built custom BOM on this project. Custom BOMs are
-    searched and quoted exactly like packages, using their doc id as the key."""
-    if packages.is_valid(package) or documents_repo.is_custom_bom(
-        db, org_id, project_id, package
+    """A `package` is either a preset buy-package key (water, rebar, …), the
+    document id of a hand-built custom BOM, or the document id of a subcontractor
+    trade scope on this project. Custom BOMs and trade scopes are searched and
+    quoted exactly like packages, using their doc id as the key."""
+    if (
+        packages.is_valid(package)
+        or documents_repo.is_custom_bom(db, org_id, project_id, package)
+        or documents_repo.is_trade_scope(db, org_id, project_id, package)
     ):
         return
     raise HTTPException(status_code=400, detail=f"Unknown package '{package}'")
@@ -83,10 +93,20 @@ def _custom_bom(db: Session, org_id: str, project_id: str, package: str):
     return None
 
 
+def _trade_scope(db: Session, org_id: str, project_id: str, package: str):
+    """The trade scope document when `package` names one on this project, else None."""
+    if documents_repo.is_trade_scope(db, org_id, project_id, package):
+        return documents_repo.get(db, org_id, package)
+    return None
+
+
 def _package_label(db: Session, org_id: str, project_id: str, package: str) -> str:
-    """Display label for a package or custom BOM (the BOM's own name)."""
+    """Display label for a package, custom BOM, or trade scope (the doc's name)."""
     bom = _custom_bom(db, org_id, project_id, package)
-    return bom.name if bom is not None else packages.label_for(package)
+    if bom is not None:
+        return bom.name
+    trade = _trade_scope(db, org_id, project_id, package)
+    return trade.name if trade is not None else packages.label_for(package)
 
 
 # --------------------------------------------------------------- supplier search
@@ -112,14 +132,22 @@ def search_suppliers(
     )
 
     # A custom BOM has no preset keywords — search on its name (its "description"),
-    # mirroring the old free-text ad-hoc search. Preset packages pass keywords=None
-    # so the service uses their built-in query presets.
+    # mirroring the old free-text ad-hoc search. A trade scope searches on its
+    # trade name with installer-oriented keyword variants and a verify hint that
+    # steers relevance toward contractors rather than material suppliers. Preset
+    # packages pass keywords=None so the service uses their built-in presets.
     keywords: Optional[List[str]] = None
     label: Optional[str] = None
+    verify_hint: Optional[str] = None
     bom = _custom_bom(db, org_id, project_id, package)
+    trade = _trade_scope(db, org_id, project_id, package)
     if bom is not None:
         keywords = packages.adhoc_keywords(bom.name)
         label = bom.name
+    elif trade is not None:
+        keywords = packages.trade_keywords(trade.name)
+        label = trade.name
+        verify_hint = packages.trade_verify_hint(trade.name)
 
     job = jobs_repo.start(
         db,
@@ -137,7 +165,7 @@ def search_suppliers(
     )
     background.add_task(
         run_search_job, job["id"], org_id, project_id, project["loc"], package,
-        payload.radius_mi, keywords, label,
+        payload.radius_mi, keywords, label, verify_hint,
     )
     return {"status": "searching", "package": package}
 
@@ -151,11 +179,13 @@ def run_search_job(
     radius_mi: int,
     keywords: Optional[List[str]] = None,
     label: Optional[str] = None,
+    verify_hint: Optional[str] = None,
 ) -> None:
     """Background worker: search + persist. Opens its own DB session.
 
     ``keywords``/``label`` are set for ad-hoc searches (free-text query);
-    otherwise the package presets are used. Progress is written to the
+    otherwise the package presets are used. ``verify_hint`` overrides the
+    relevance hint (trade/subcontractor searches). Progress is written to the
     background_jobs row so the poller (and the exception queue) see it.
     ``org_id`` comes from the request that scheduled the job, so the worker's
     own session writes into the same tenant that was authorized.
@@ -164,7 +194,8 @@ def run_search_job(
     try:
         cached = sourcing_repo.get_cached_latlng(db, org_id, project_id, loc)
         results, latlng, mocked = sourcing_service.search_suppliers(
-            loc, package, radius_mi, cached_latlng=cached, keywords=keywords, label=label
+            loc, package, radius_mi, cached_latlng=cached, keywords=keywords,
+            label=label, verify_hint=verify_hint,
         )
         if latlng is not None and cached is None:
             sourcing_repo.cache_latlng(db, org_id, project_id, loc, latlng[0], latlng[1])
@@ -438,6 +469,101 @@ def list_project_boms(
     return out
 
 
+# --------------------------------------------------------------- trade scopes
+def _trade_scope_summary(doc) -> dict:
+    return {"id": doc.id, "name": doc.name, "scope": doc.summary or ""}
+
+
+@router.get("/{project_id}/trades", response_model=List[TradeScopeSummary])
+def list_trade_scopes(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The project's subcontractor trade scopes — the selectable trade packages
+    in the supplier search. Each scope's document id doubles as its package key."""
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    return [
+        _trade_scope_summary(doc)
+        for doc in documents_repo.list_trade_scopes(db, org_id, project_id)
+    ]
+
+
+@router.post(
+    "/{project_id}/trades", response_model=TradeScopeSummary, status_code=201
+)
+def create_trade_scope(
+    project_id: str,
+    payload: TradeScopeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a subcontractor trade scope — a free-text trade the user wants
+    bids for (e.g. "Concrete flatwork"), with a scope-of-work description.
+
+    Like a custom BOM there is no file and no extraction: the document id
+    becomes a package key, so the trade flows through the same search → select
+    → RFQ pipeline. The RFQ it generates is a bid request built from the scope
+    text rather than BOM line items.
+    """
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    name = payload.name.strip() or "Trade"
+    doc = documents_repo.add(
+        db,
+        org_id=org_id,
+        name=name,
+        doc_type="Trade Scope",
+        pages=0,
+        plan_type=documents_repo.TRADE_SCOPE_PLAN_TYPE,
+        date=datetime.now().strftime("%b %d, %Y"),
+        project_id=project_id,
+        has_file=False,
+        status="Draft",
+        status_tone="gray",
+    )
+    scope = (payload.scope or "").strip()
+    if scope:
+        doc = documents_repo.update_status(db, org_id, doc.id, summary=scope)
+    audit_repo.log(
+        db, org_id, current_user, "trade_scope.created", "document", doc.id,
+        project_id=project_id, detail={"name": name},
+    )
+    events_repo.log(
+        db, org_id, project_id,
+        title=f"Trade scope created — {name}",
+        icon="file", tone="blue",
+        meta="Subcontractor trade",
+    )
+    return _trade_scope_summary(doc)
+
+
+@router.put("/{project_id}/trades/{trade_id}", response_model=TradeScopeSummary)
+def update_trade_scope(
+    project_id: str,
+    trade_id: str,
+    payload: TradeScopeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update a trade scope's scope-of-work description."""
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    if not documents_repo.is_trade_scope(db, org_id, project_id, trade_id):
+        raise HTTPException(status_code=404, detail="Trade scope not found")
+    doc = documents_repo.update_status(
+        db, org_id, trade_id, summary=(payload.scope or "").strip()
+    )
+    if doc is None:  # deleted between the check and the write
+        raise HTTPException(status_code=404, detail="Trade scope not found")
+    audit_repo.log(
+        db, org_id, current_user, "trade_scope.edited", "document", trade_id,
+        project_id=project_id, detail={"name": doc.name},
+    )
+    return _trade_scope_summary(doc)
+
+
 @router.post(
     "/{project_id}/packages/{package}/rfqs/generate",
     response_model=PersistedRfq,
@@ -470,21 +596,43 @@ def generate_rfq(
     if not suppliers:
         raise HTTPException(status_code=400, detail="No matching suppliers")
 
-    # Approval gate: an RFQ only ever quotes human-confirmed BOM items.
-    line_items, _seeded, pending = _line_items_for_package(
-        db, org_id, project_id, package, approved_only=True
-    )
-    if not line_items:
-        detail = (
-            f"No approved BOM items for this package — confirm the extracted BOM "
-            f"on {pending} document{'s' if pending != 1 else ''} first"
-            if pending
-            else "No approved BOM items for this package"
+    # A trade scope generates a scope-of-work bid request instead of a BOM
+    # quote. The line-items approval gate doesn't apply (there are no extracted
+    # items — the scope is human-authored by definition); a non-empty scope is
+    # required instead. The bypass is keyed strictly on is_trade_scope so
+    # custom BOMs keep the full approval gate.
+    trade = _trade_scope(db, org_id, project_id, package)
+    if trade is not None:
+        scope = (payload.scope or "").strip() or (trade.summary or "").strip()
+        if not scope:
+            raise HTTPException(
+                status_code=400,
+                detail="Add a scope of work before generating the bid request",
+            )
+        if scope != (trade.summary or "").strip():
+            # Keep the chip's stored scope in sync with what was actually sent.
+            documents_repo.update_status(db, org_id, package, summary=scope)
+        draft = rfq_generator.generate_sub_rfq_draft(
+            project, label, scope, suppliers, buyer=current_user
         )
-        raise HTTPException(status_code=409, detail=detail)
-    draft = rfq_generator.generate_rfq_draft(
-        project, label, line_items, suppliers, buyer=current_user
-    )
+        kind = "subcontractor"
+    else:
+        # Approval gate: an RFQ only ever quotes human-confirmed BOM items.
+        line_items, _seeded, pending = _line_items_for_package(
+            db, org_id, project_id, package, approved_only=True
+        )
+        if not line_items:
+            detail = (
+                f"No approved BOM items for this package — confirm the extracted BOM "
+                f"on {pending} document{'s' if pending != 1 else ''} first"
+                if pending
+                else "No approved BOM items for this package"
+            )
+            raise HTTPException(status_code=409, detail=detail)
+        draft = rfq_generator.generate_rfq_draft(
+            project, label, line_items, suppliers, buyer=current_user
+        )
+        kind = "materials"
     if not draft.recipients:
         raise HTTPException(
             status_code=400,
@@ -500,6 +648,7 @@ def generate_rfq(
         body=draft.body,
         line_items=draft.line_items,
         recipients=draft.recipients,
+        kind=kind,
     )
     audit_repo.log(
         db, org_id, current_user, "rfq.drafted", "rfq", rfq["id"], project_id=project_id,
@@ -585,6 +734,54 @@ def delete_generated_rfq(
     return Response(status_code=204)
 
 
+# Total attachment budget per email. Gmail's nominal limit is 25 MB, but the
+# raw payload is base64 (~37% inflation) and large JSON `{"raw": ...}` sends via
+# the google-api-python-client are unreliable well below that — 15 MB of source
+# files keeps the encoded message comfortably inside. Switching to a media
+# upload is the escape hatch if bigger attachments are ever needed.
+_MAX_ATTACHMENT_TOTAL_BYTES = 15 * 1024 * 1024
+
+
+def _resolve_attachments(
+    db: Session, org_id: str, project_id: str, attachment_ids: List[str]
+) -> List[dict]:
+    """Validate user-chosen attachment document ids → stored {documentId, name}.
+
+    Each id must be a document in this org and project that actually has a
+    stored file; the combined size must fit the email budget. 400 otherwise.
+    """
+    out: List[dict] = []
+    total = 0
+    seen: set = set()
+    for doc_id in attachment_ids:
+        if doc_id in seen:
+            continue
+        seen.add(doc_id)
+        doc = documents_repo.get(db, org_id, doc_id)
+        if doc is None or doc.project_id != project_id:
+            raise HTTPException(
+                status_code=400, detail="Attachment document not found on this project"
+            )
+        # One storage.size() covers existence AND size (a single stat / S3 HEAD).
+        # None means the file is missing or its size can't be determined — either
+        # way it must not silently count as 0 bytes against the budget.
+        size = storage.size(doc.source_path) if doc.has_file else None
+        if size is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{doc.name}' has no attachable file",
+            )
+        total += size
+        if total > _MAX_ATTACHMENT_TOTAL_BYTES:
+            limit_mb = _MAX_ATTACHMENT_TOTAL_BYTES // (1024 * 1024)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Attachments exceed the {limit_mb} MB email limit — remove some files",
+            )
+        out.append({"documentId": doc.id, "name": doc.name})
+    return out
+
+
 @router.put("/{project_id}/rfqs/{rfq_id}", response_model=PersistedRfq)
 def update_generated_rfq(
     project_id: str,
@@ -603,6 +800,11 @@ def update_generated_rfq(
             status_code=409,
             detail=f"RFQ can no longer be edited (status: {existing['status']})",
         )
+    attachments = (
+        _resolve_attachments(db, org_id, project_id, payload.attachment_ids)
+        if payload.attachment_ids is not None
+        else None
+    )
     updated = rfqs_repo.update_rfq(
         db,
         org_id,
@@ -610,10 +812,18 @@ def update_generated_rfq(
         subject=payload.subject,
         body=payload.body,
         recipients=[r.model_dump() for r in payload.recipients],
+        attachments=attachments,
     )
     audit_repo.log(
         db, org_id, current_user, "rfq.edited", "rfq", rfq_id, project_id=project_id,
-        detail={"recipients": [r.email for r in payload.recipients]},
+        detail={
+            "recipients": [r.email for r in payload.recipients],
+            **(
+                {"attachments": [a["name"] for a in attachments]}
+                if attachments is not None
+                else {}
+            ),
+        },
     )
     return updated
 
@@ -652,6 +862,55 @@ def send_generated_rfq(
         # status flip itself failed last time) — just reconcile the status.
         return rfqs_repo.mark_rfq_sent(db, org_id, rfq_id, recipients, status="Awaiting")
 
+    # Hydrate the chosen attachments once (bytes reused for every recipient).
+    # A document deleted since the RFQ was saved is skipped rather than fatal —
+    # the send still goes out, the skip is recorded in the audit entry, and the
+    # RFQ's stored attachment list is trimmed so the UI never shows a document
+    # as attached when recipients didn't receive it.
+    email_attachments: List[rfq_sender.EmailAttachment] = []
+    sent_attachments: List[dict] = []
+    skipped_attachments: List[str] = []
+    for att in rfq.get("attachments") or []:
+        doc = documents_repo.get(db, org_id, att.get("documentId", ""))
+        if (
+            doc is None
+            or doc.project_id != project_id
+            or not doc.has_file
+            or not storage.exists(doc.source_path)
+        ):
+            skipped_attachments.append(att.get("name") or att.get("documentId", ""))
+            continue
+        try:
+            with storage.local_copy(doc.source_path) as path:
+                with open(path, "rb") as fh:
+                    content = fh.read()
+        except Exception:
+            # A transient storage failure (S3 blip between exists() and the
+            # download) must not 500 the whole send — same skip semantics as a
+            # deleted document, recorded in the audit detail below.
+            skipped_attachments.append(att.get("name") or att.get("documentId", ""))
+            continue
+        # A dot in the display name isn't necessarily an extension ("Rev 2.1
+        # Plans") — only a short alphanumeric suffix counts. Names without one
+        # borrow the stored file's suffix so mail clients can type the file.
+        source_ext = os.path.splitext(os.path.basename(doc.source_path or ""))[1]
+        has_real_ext = bool(re.search(r"\.[A-Za-z0-9]{1,5}$", doc.name))
+        filename = doc.name if has_real_ext else f"{doc.name}{source_ext}"
+        email_attachments.append(
+            rfq_sender.EmailAttachment(filename=filename, content=content)
+        )
+        sent_attachments.append(att)
+    # Save-time validation sized the files then; re-check the actual hydrated
+    # bytes so content that grew since save can't push the payload past Gmail.
+    if sum(len(a.content) for a in email_attachments) > _MAX_ATTACHMENT_TOTAL_BYTES:
+        limit_mb = _MAX_ATTACHMENT_TOTAL_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Attachments exceed the {limit_mb} MB email limit — remove some files",
+        )
+    if skipped_attachments:
+        rfqs_repo.set_attachments(db, org_id, rfq_id, sent_attachments)
+
     sender = rfq_sender.get_sender()
     # Always the workspace mailbox (with the sender's name/company as the display
     # name) — see services/rfq/sender.py. The user's own address is Cc'd so they
@@ -659,10 +918,14 @@ def send_generated_rfq(
     # ingest reads.
     from_addr = rfq_sender.from_header(current_user)
     cc = current_user.cc_email
+    # Only pass the attachments kwarg when there is something to attach, so the
+    # attachment-free path (and any EmailSender built against the pre-attachment
+    # signature) behaves exactly as before.
+    send_kwargs = {"attachments": email_attachments} if email_attachments else {}
     for r in to_send:
         try:
             sent = sender.send(r["email"], rfq["subject"], rfq["body"],
-                               from_addr=from_addr, cc=cc)
+                               from_addr=from_addr, cc=cc, **send_kwargs)
             r["sentMessageId"] = sent.message_id
             r["threadId"] = sent.thread_id
             r["sendStatus"] = "sent"
@@ -684,6 +947,8 @@ def send_generated_rfq(
             "from": rfq_sender.from_display(current_user),
             "cc": cc,
             "mock": type(sender).__name__ == "MockSender",
+            "attachments": [a.filename for a in email_attachments],
+            "skippedAttachments": skipped_attachments,
         },
     )
     events_repo.log(

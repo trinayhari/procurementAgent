@@ -23,6 +23,37 @@ from app.repositories import seed
 # that create, list, and source from these documents agree on one key.
 CUSTOM_BOM_PLAN_TYPE = "custom_bom"
 
+# Plan type for a "trade scope" — a named subcontractor trade (e.g. "Concrete
+# flatwork") the user types by hand, with a scope-of-work description stored in
+# `Document.summary`. Like a custom BOM it has no file and its document id
+# doubles as a package key in the sourcing/RFQ pipeline.
+TRADE_SCOPE_PLAN_TYPE = "trade_scope"
+
+
+def list_trade_scopes(db: Session, org_id: str, project_id: str) -> List[Document]:
+    """The project's subcontractor trade scopes, newest first."""
+    return list(
+        db.scalars(
+            select(Document)
+            .where(
+                Document.organization_id == org_id,
+                Document.project_id == project_id,
+                Document.plan_type == TRADE_SCOPE_PLAN_TYPE,
+            )
+            .order_by(Document.seq.desc())
+        ).all()
+    )
+
+
+def is_trade_scope(db: Session, org_id: str, project_id: str, doc_id: str) -> bool:
+    """True when `doc_id` is a trade scope belonging to `project_id` in this org."""
+    doc = get(db, org_id, doc_id)
+    return (
+        doc is not None
+        and doc.project_id == project_id
+        and doc.plan_type == TRADE_SCOPE_PLAN_TYPE
+    )
+
 
 def list_custom_boms(db: Session, org_id: str, project_id: str) -> List[Document]:
     """The project's hand-built custom BOMs, newest first."""

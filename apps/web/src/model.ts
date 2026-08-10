@@ -59,6 +59,7 @@ export interface ModelProps {
   onUpload?: (file: File, planType?: string) => void
   onDeleteDoc?: (id: string) => void
   onCreateBom?: () => void
+  onCreateTradeScope?: () => void
   editBom?: boolean
   bomDraft?: LineItemGroup[] | null
   bomBusy?: boolean
@@ -236,10 +237,18 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   // They render in their own section and are selectable as packages in sourcing.
   const CUSTOM_BOM_TYPE = 'custom_bom'
   const customBoms = docs.filter((d) => d.planType === CUSTOM_BOM_TYPE)
-  // Everything not occupying a plan slot and not a custom BOM (planType 'other',
-  // or legacy/seed docs with no planType) is an additional reference document.
+  // Subcontractor trade scopes (also hand-built, no file) — their own Documents
+  // section, and selectable as trade "packages" in the supplier search.
+  const TRADE_SCOPE_TYPE = 'trade_scope'
+  const tradeScopes = docs.filter((d) => d.planType === TRADE_SCOPE_TYPE)
+  // Everything not occupying a plan slot and not a custom BOM or trade scope
+  // (planType 'other', or legacy/seed docs with no planType) is an additional
+  // reference document.
   const additionalDocs = docs.filter(
-    (d) => !SLOT_KEYS.includes((d.planType as string) || '') && d.planType !== CUSTOM_BOM_TYPE,
+    (d) =>
+      !SLOT_KEYS.includes((d.planType as string) || '') &&
+      d.planType !== CUSTOM_BOM_TYPE &&
+      d.planType !== TRADE_SCOPE_TYPE,
   )
   const additionalSpec = specFor('other')
 
@@ -420,11 +429,13 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     suppliers, supplierOpen, activeSupplier, supComms, supCommsLoading,
     docs, doc, extracted,
     // Plan slots + additional documents (see App.tsx + TabDocuments).
-    docSlots, additionalDocs, customBoms,
+    docSlots, additionalDocs, customBoms, tradeScopes,
     additionalLabel: (additionalSpec && additionalSpec.label) || 'Additional Document',
     additionalKey: 'other',
     customBomType: CUSTOM_BOM_TYPE,
+    tradeScopeType: TRADE_SCOPE_TYPE,
     createBom: (props && props.onCreateBom) || (() => {}),
+    createTradeScope: (props && props.onCreateTradeScope) || (() => {}),
     // Upload / extraction wiring (see App.tsx + TabDocuments).
     planTypes: (props && props.planTypes) || null,
     planType: (props && props.planType) || 'site_plan',

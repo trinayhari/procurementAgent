@@ -135,6 +135,15 @@ def _ensure_dev_columns() -> None:
                     conn.execute(text("ALTER TABLE users RENAME COLUMN sender_email TO cc_email"))
                 else:
                     conn.execute(text("ALTER TABLE users ADD COLUMN cc_email VARCHAR"))
+    if "rfqs" in tables:
+        cols = {c["name"] for c in inspector.get_columns("rfqs")}
+        with engine.begin() as conn:
+            if "kind" not in cols:
+                # Mirrors 0020_rfq_kind_attachments: pre-existing RFQs are all
+                # materials RFQs.
+                conn.execute(text("ALTER TABLE rfqs ADD COLUMN kind VARCHAR NOT NULL DEFAULT 'materials'"))
+            if "attachments" not in cols:
+                conn.execute(text("ALTER TABLE rfqs ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'"))
     _ensure_organization_column(inspector, tables)
 
 

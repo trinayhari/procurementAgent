@@ -11,6 +11,7 @@ import {
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   getDocumentPreview, sendTestEmail, getEmailConfig,
   listProjectBoms, createSupplier, getSupplierDetail,
+  listTradeScopes, createTradeScope, updateTradeScope,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
@@ -20,7 +21,7 @@ import {
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
-  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers, EmailConfig,
+  CustomBomSummary, TradeScopeSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers, EmailConfig,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -410,6 +411,23 @@ export default function App() {
     }
   }
 
+  // Create a subcontractor trade scope (no file). We name the trade, create the
+  // document, then select it so the user can write the scope of work in its
+  // editor. It sorts newest-first, so it lands at docIdx 0.
+  const createTrade = async () => {
+    const pid = activePid()
+    if (!pid) { set({ uploadError: 'Open a project before creating a trade scope.' }); return }
+    const name = window.prompt('Which trade do you need bids for?', 'Concrete flatwork')
+    if (name === null) return
+    try {
+      await createTradeScope(pid, name.trim() || 'Trade')
+      await reload()
+      set({ tab: 'documents', docIdx: 0, uploadError: null })
+    } catch (e) {
+      set({ uploadError: 'Could not create the trade scope.' })
+    }
+  }
+
   // Poll while any document is still being analyzed.
   useEffect(() => {
     const docs = s.data && s.data.docs
@@ -511,6 +529,7 @@ export default function App() {
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
     docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onCreateBom: createBom,
+    onCreateTradeScope: createTrade,
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
   })
@@ -1372,6 +1391,108 @@ function CustomBomsCard({ m }: MProps) {
   )
 }
 
+// Subcontractor trade scopes: name a trade (e.g. "Concrete flatwork"), write a
+// scope of work, then find trade contractors and request bids from the
+// Suppliers tab — the same search → select → RFQ flow custom BOMs use, but the
+// RFQ is a bid request built from the scope instead of line items.
+const TRADE_ICON = 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'
+const PAPERCLIP = 'M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8'
+
+function TradeScopesCard({ m }: MProps) {
+  return (
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
+      <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
+        <div style={css('display:flex;align-items:center;gap:8px')}>
+          <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Subcontractor trades</h2>
+          <span style={css('font-size:12px;color:var(--text-3)')}>{m.tradeScopes.length}</span>
+        </div>
+        <Box as="button" onClick={m.createTradeScope}
+          style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
+          hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New trade</Box>
+      </div>
+      {m.tradeScopes.length === 0 ? (
+        <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No trades yet — name a trade you need bids for (e.g. concrete flatwork), write its scope of work, then find subcontractors from the Suppliers tab.</div>
+      ) : (
+        m.tradeScopes.map((d, i) => (
+          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+            <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--violet-soft);color:var(--violet);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={TRADE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
+            <span style={css('font-size:12px;color:var(--text-2)')}>{(d.summary || '').trim() ? 'Scope written' : 'No scope yet'}</span>
+            <span><span style={d.statusBadge}>{d.status}</span></span>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
+// Scope-of-work editor for a selected trade scope (Documents tab). The scope is
+// what the bid-request email asks subcontractors to price, so it saves back to
+// the trade scope document (and the Suppliers tab shows the same text).
+function TradeScopeEditor({ m }: MProps) {
+  const doc = m.doc
+  const projectId = m.activeProject.id
+  const [scope, setScope] = useState((doc && doc.summary) || '')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  // Last text successfully persisted. `doc.summary` alone goes stale after a
+  // blur-save (which skips the workspace reload), so both the dirty check and
+  // the re-seed compare against this ref, not the prop.
+  const savedRef = useRef((doc && doc.summary) || '')
+  // Re-seed when the user switches to a different trade scope.
+  useEffect(() => {
+    savedRef.current = (doc && doc.summary) || ''
+    setScope(savedRef.current)
+    setNote(null)
+  }, [doc && doc.id])
+  if (!doc || !doc.id) return null
+  const save = async () => {
+    setBusy(true); setNote(null)
+    try {
+      await updateTradeScope(projectId, doc.id!, scope)
+      savedRef.current = scope
+      setNote('Scope saved.')
+      await m.reload()
+    } catch { setNote('Could not save the scope — is the backend running?') }
+    finally { setBusy(false) }
+  }
+  // Same contract as the Suppliers-tab scope panel: leaving the field saves,
+  // the button stays as the explicit affordance. Only fires when the text
+  // actually changed, then refreshes so doc.summary can't go stale.
+  const saveOnBlur = async () => {
+    if (scope === savedRef.current) return
+    try {
+      await updateTradeScope(projectId, doc.id!, scope)
+      savedRef.current = scope
+      setNote('Scope saved.')
+      await m.reload()
+    } catch { setNote('Could not save the scope — is the backend running?') }
+  }
+  return (
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
+      <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
+        <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{doc.name}</span></div>
+        <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--violet);background:var(--violet-soft);padding:3px 9px;border-radius:999px')}>Trade scope</span>
+      </div>
+      <div style={css('padding:16px;display:flex;flex-direction:column;gap:10px')}>
+        <div style={css('font-size:12.5px;color:var(--text-3)')}>Describe the scope of work you want bids on — it becomes the body of the bid request. Attach plans and specs when you review the RFQ.</div>
+        <textarea value={scope} onChange={(e) => { setScope(e.target.value); setNote(null) }} onBlur={saveOnBlur} rows={10}
+          placeholder={'e.g. Furnish and install all cast-in-place concrete flatwork: 12,400 SF of 5" sidewalk, 3,200 SF of 8" dock apron, curb & gutter per C-401. Include forming, reinforcement, finishing, and curing.'}
+          style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
+        <div style={css('display:flex;align-items:center;gap:10px')}>
+          <span style={css('flex:1;font-size:12px;color:var(--text-3)')}>{note}</span>
+          <Box as="button" onClick={save} disabled={busy}
+            style={css(`display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 15px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:12.5px;font-weight:600;opacity:${busy ? '.6' : '1'}`)}
+            hover="background:var(--primary-2)">{busy ? 'Saving…' : 'Save scope'}</Box>
+          <Box as="button" onClick={m.setSuppliers}
+            style={css('display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 15px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
+            hover="background:var(--panel-2)">Find subcontractors →</Box>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Derive the preview filename shown on the plan-sheet placeholder from the
 // selected document's name, so the preview reflects the clicked document.
 function previewFileName(name: string): string {
@@ -1389,6 +1510,9 @@ function TabDocuments({ m }: MProps) {
   // Custom BOMs have no source file — skip the plan-sheet / PDF preview and show
   // a simple card; the line items are edited in the panel on the right.
   const isCustomBom = !!(m.doc && m.doc.planType === m.customBomType)
+  // Trade scopes have no file either — their "document" is the scope-of-work
+  // text, edited in place of the preview.
+  const isTradeScope = !!(m.doc && m.doc.planType === m.tradeScopeType)
   return (
     <>
       <div style={css('margin-bottom:6px;font-size:12.5px;color:var(--text-3)')}>
@@ -1402,6 +1526,7 @@ function TabDocuments({ m }: MProps) {
         {m.docSlots.map((slot) => <PlanSlotCard key={slot.key} m={m} slot={slot} />)}
       </div>
       <CustomBomsCard m={m} />
+      <TradeScopesCard m={m} />
       <AdditionalDocsCard m={m} />
       {m.doc && !m.doc.processing && (m.doc.timelineEvents || 0) > 0 && (
         <div style={css('display:flex;align-items:center;gap:10px;background:var(--primary-soft);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px')}>
@@ -1410,9 +1535,11 @@ function TabDocuments({ m }: MProps) {
           <Box as="button" onClick={m.setTimeline} style={css('font-size:12px;font-weight:600;color:var(--primary);padding:5px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);white-space:nowrap')} hover="background:var(--primary-softer)">View timeline →</Box>
         </div>
       )}
-      <div style={css('display:grid;grid-template-columns:minmax(0,1.7fr) 330px;gap:16px;align-items:start')}>
+      <div style={css(`display:grid;grid-template-columns:${isTradeScope ? 'minmax(0,1fr)' : 'minmax(0,1.7fr) 330px'};gap:16px;align-items:start`)}>
         <div style={css('display:flex;flex-direction:column;gap:16px;min-width:0')}>
-          {m.doc && isCustomBom ? (
+          {m.doc && isTradeScope ? (
+          <TradeScopeEditor m={m} />
+          ) : m.doc && isCustomBom ? (
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
               <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.items === '—' ? '0' : m.doc.items} line items</span></div>
@@ -1445,7 +1572,8 @@ function TabDocuments({ m }: MProps) {
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:40px 16px;text-align:center;font-size:12.5px;color:var(--text-3)')}>No document selected — upload a plan set or pick a file above to see its AI analysis.</div>
           )}
         </div>
-        <ExtractedPanel m={m} />
+        {/* A trade scope has no BOM — the extracted-items panel doesn't apply. */}
+        {!isTradeScope && <ExtractedPanel m={m} />}
       </div>
     </>
   )
@@ -1658,10 +1786,11 @@ function pkgLabel(key: string): string {
 // created in the Documents panel and selected here by their document id — they
 // quote exactly like a package (replacing the old free-text ad-hoc flow).
 // Manages its own state + polling.
-function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<unknown> }) {
+function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<unknown>; docs?: AttachableDoc[] }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
   const [boms, setBoms] = useState<CustomBomSummary[]>([])     // custom BOMs on this project
+  const [trades, setTrades] = useState<TradeScopeSummary[]>([])  // subcontractor trade scopes
   const [result, setResult] = useState<SupplierSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<Record<string, boolean>>({})
@@ -1671,19 +1800,43 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
   const [bom, setBom] = useState<PackageBom | null>(null)   // what we're asking suppliers to quote
   const [bomLoading, setBomLoading] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)   // found supplier currently being added
+  const [scope, setScope] = useState('')       // scope of work for the selected trade
+  const [scopeNote, setScopeNote] = useState<string | null>(null)
 
-  // Resolve a package key — a preset key or a custom BOM's document id — to its
-  // display label. Custom BOMs show their own name.
-  const labelFor = (key: string) => boms.find((b) => b.id === key)?.name || pkgLabel(key)
+  // Resolve a package key — a preset key, a custom BOM's document id, or a trade
+  // scope's document id — to its display label.
+  const labelFor = (key: string) =>
+    boms.find((b) => b.id === key)?.name || trades.find((t) => t.id === key)?.name || pkgLabel(key)
   const subjectLabel = labelFor(pkg)
   const isCustom = !!(bom && bom.custom)
+  // A trade scope quotes subcontractors on a scope of work, not BOM items.
+  const trade = trades.find((t) => t.id === pkg) || null
+  const isTrade = !!trade
 
-  // Load this project's custom BOMs (the extra selectable "packages").
+  // Load this project's custom BOMs + trade scopes (the extra selectable "packages").
   useEffect(() => {
     let alive = true
     listProjectBoms(projectId).then((b) => { if (alive) setBoms(b) }).catch(() => {})
+    listTradeScopes(projectId).then((t) => { if (alive) setTrades(t) }).catch(() => {})
     return () => { alive = false }
   }, [projectId])
+
+  // Seed the scope textarea from the selected trade's saved scope. Keyed on the
+  // resolved trade id (not the trades array) so saveScope's list update doesn't
+  // clobber in-progress typing, while switching chips always re-seeds.
+  useEffect(() => {
+    setScope(trade ? trade.scope || '' : '')
+    setScopeNote(null)
+  }, [trade ? trade.id : null])
+
+  const saveScope = async () => {
+    if (!trade || scope === (trade.scope || '')) return
+    try {
+      const updated = await updateTradeScope(projectId, trade.id, scope)
+      setTrades((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
+      setScopeNote('Scope saved.')
+    } catch { setScopeNote('Could not save the scope.') }
+  }
 
   // Load any prior results when the package changes.
   useEffect(() => {
@@ -1695,16 +1848,21 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
     return () => { alive = false }
   }, [projectId, pkg])
 
-  // Load the selected package/BOM's line items (what we'll ask suppliers to quote).
+  // Load the selected package/BOM's line items (what we'll ask suppliers to
+  // quote). A trade scope has no BOM — its ask is the scope-of-work text.
+  // Keyed on isTrade (not the trades array) so the trades list resolving
+  // doesn't refetch the same BOM for a non-trade package.
   useEffect(() => {
     let alive = true
-    setBom(null); setBomLoading(true)
+    setBom(null)
+    if (isTrade) { setBomLoading(false); return }
+    setBomLoading(true)
     getPackageBom(projectId, pkg)
       .then((b) => { if (alive) setBom(b) })
       .catch(() => {})
       .finally(() => { if (alive) setBomLoading(false) })
     return () => { alive = false }
-  }, [projectId, pkg])
+  }, [projectId, pkg, isTrade])
 
   // Poll while a background search runs.
   useEffect(() => {
@@ -1752,7 +1910,8 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
   const generate = async () => {
     setGenerating(true); setErr(null)
     try {
-      const rfq = await generateRfq(projectId, pkg, selectedIds)
+      if (isTrade) await saveScope() // the modal shows what's actually stored
+      const rfq = await generateRfq(projectId, pkg, selectedIds, isTrade ? scope : undefined)
       setDraft(rfq)
     } catch (e) {
       // Surface backend reasons (e.g. the BOM approval gate: "confirm the
@@ -1841,6 +2000,17 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
               {boms.length === 0 && <span style={css('font-size:12px;color:var(--text-3)')}>None yet — create one in the Documents tab to quote items by hand.</span>}
             </div>
           </div>
+          <div>
+            <div style={css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:7px')}>Subcontractor trades</div>
+            <div style={css('display:flex;gap:7px;flex-wrap:wrap;align-items:center')}>
+              {trades.map((t) => (
+                <Box as="button" key={t.id} onClick={() => setPkg(t.id)} style={chip(pkg === t.id)} hover="background:var(--panel-2)">
+                  <Svg size={13} sw={1.9} d={TRADE_ICON} />{t.name}
+                </Box>
+              ))}
+              {trades.length === 0 && <span style={css('font-size:12px;color:var(--text-3)')}>None yet — create a trade in the Documents tab to request subcontractor bids.</span>}
+            </div>
+          </div>
         </div>
 
         <div style={css('display:flex;align-items:center;gap:16px;flex-wrap:wrap')}>
@@ -1857,7 +2027,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
             {searching
               ? <span style={css('width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>
               : <Svg size={15} d='<circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/>' />}
-            {searching ? 'Searching…' : 'Search suppliers'}
+            {searching ? 'Searching…' : isTrade ? 'Search subcontractors' : 'Search suppliers'}
           </Box>
         </div>
         <div style={css('font-size:11.5px;color:var(--text-3);margin-top:10px')}>
@@ -1867,7 +2037,22 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
         {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>{err}</div>}
       </div>
 
-      {/* What we're asking suppliers to quote — the package's or custom BOM's items */}
+      {/* What we're asking for — the package/BOM's line items, or (for a trade
+          scope) the editable scope of work the bid request is built from. */}
+      {isTrade ? (
+      <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
+        <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:4px')}>
+          <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>Scope of work · {labelFor(pkg)}</h2>
+          <span style={{ ...DcBadge('violet') }}>Sub bid</span>
+        </div>
+        <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:12px')}>This scope goes into the bid request — subcontractors price this, plus any documents you attach before sending.</div>
+        <textarea value={scope} onChange={(e) => { setScope(e.target.value); setScopeNote(null) }} onBlur={saveScope} rows={6}
+          placeholder={'Describe the work you want bids on — takeoff quantities, spec sections, inclusions/exclusions.'}
+          style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
+        {scopeNote && <div style={css('font-size:12px;color:var(--text-3);margin-top:6px')}>{scopeNote}</div>}
+        {!scope.trim() && <div style={css('font-size:12px;color:var(--text-3);margin-top:6px')}>Write a scope of work to enable the bid request.</div>}
+      </div>
+      ) : (
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
         <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:4px')}>
           <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>What we're asking for · {labelFor(pkg)}</h2>
@@ -1898,6 +2083,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
           </div>
         )}
       </div>
+      )}
 
       {/* Results */}
       {searching && total === 0 && (
@@ -1928,15 +2114,17 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
       {/* Action bar */}
       {selectedIds.length > 0 && (
         <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--primary-soft);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
-          <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} supplier{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</span>
-          <Box as="button" onClick={generate} disabled={generating}
-            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating ? '.6' : '1'}`)}
-            hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />{generating ? 'Generating…' : 'Generate RFQ draft'}</Box>
+          <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} {isTrade ? 'subcontractor' : 'supplier'}{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</span>
+          {/* A trade bid request needs a scope — disable rather than 400 later. */}
+          <Box as="button" onClick={generate} disabled={generating || (isTrade && !scope.trim())}
+            title={isTrade && !scope.trim() ? 'Write a scope of work first' : undefined}
+            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating || (isTrade && !scope.trim()) ? '.6' : '1'}`)}
+            hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />{generating ? 'Generating…' : isTrade ? 'Generate bid request' : 'Generate RFQ draft'}</Box>
         </div>
       )}
 
       {draft && (
-        <RfqReviewModal projectId={projectId} rfq={draft} onClose={() => setDraft(null)} />
+        <RfqReviewModal projectId={projectId} rfq={draft} docs={docs} onClose={() => setDraft(null)} />
       )}
     </>
   )
@@ -2006,7 +2194,7 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
         <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:4px')}><span style={css('font-size:12.5px;font-weight:600')}>{t.who}</span><span style={css('font-size:11px;color:var(--text-3)')}>{t.time}</span></div>
         {t.subject && <div style={css('font-size:13px;font-weight:600;margin-bottom:3px')}>{t.subject}</div>}
         <div style={css('font-size:13px;line-height:1.55;color:var(--text);white-space:pre-wrap;word-break:break-word')}>{t.body}</div>
-        {t.attach && <div style={css('display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}><Svg size={14} sw={1.8} stroke="var(--text-3)" d='M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8' />{t.attach}</div>}
+        {t.attach && <div style={css('display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}><Svg size={14} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />{t.attach}</div>}
       </div>
     </div>
   )
@@ -2016,7 +2204,10 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 // via Gmail or the logging mock). Once sent it becomes the conversation view:
 // the full email thread is read live from Gmail, and "Check for replies" pulls
 // any supplier response — flipping the RFQ to 'Replied' when one has arrived.
-function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: PersistedRfq; onClose: () => void }) {
+// Attachable project documents for the RFQ modal — anything with a stored file.
+type AttachableDoc = { id?: string; name: string; hasFile?: boolean }
+
+function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void }) {
   const [subject, setSubject] = useState(rfq.subject)
   const [body, setBody] = useState(rfq.body)
   const [recipients, setRecipients] = useState<RfqRecipient[]>(rfq.recipients || [])
@@ -2025,7 +2216,23 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
   const [err, setErr] = useState<string | null>(null)
   const [conv, setConv] = useState<RfqConversation | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
+  // The user chooses which project documents ride along on the email. Custom
+  // BOMs and trade scopes have no file, so they're excluded automatically.
+  const [attachIds, setAttachIds] = useState<string[]>((rfq.attachments || []).map((a) => a.documentId))
+  const [attachNames, setAttachNames] = useState<string[]>((rfq.attachments || []).map((a) => a.name))
+  const attachable = (docs || []).filter((d) => d.hasFile && d.id)
+  // Ids chosen earlier can go stale (document deleted since the draft was
+  // saved). Sending stale ids would 400 at save with no checkbox to uncheck —
+  // a dead end — so both the count and the save payload use the live set.
+  // Only filter when we actually know the project's documents.
+  const liveAttachIds = docs !== undefined
+    ? attachIds.filter((id) => attachable.some((d) => d.id === id))
+    : attachIds
+  const isSub = rfq.kind === 'subcontractor'
   const draft = status === 'Draft'
+
+  const toggleAttach = (id: string) =>
+    setAttachIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
 
   const dropRecipient = (email: string) => setRecipients((rs) => rs.filter((r) => r.email !== email))
 
@@ -2045,10 +2252,11 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
   const send = async () => {
     setBusy(true); setErr(null)
     try {
-      await saveRfq(projectId, rfq.id, { subject, body, recipients })
+      await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
       const out = await sendRfq(projectId, rfq.id)
       setRecipients(out.recipients || [])
       setStatus(out.status)
+      setAttachNames((out.attachments || []).map((a) => a.name))
       loadConversation() // surface the just-sent message as the thread
     } catch (e) {
       // Backend reasons (already sent, no approved BOM items, …) come through
@@ -2065,7 +2273,8 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
       <div style={css('position:relative;width:min(640px,100%);max-height:90vh;overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);animation:pcUp .2s ease both')}>
         <div style={css('display:flex;align-items:center;gap:9px;padding:16px 18px;border-bottom:1px solid var(--border)')}>
           <span style={css('width:26px;height:26px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} fill d={SPARKLE_SM} /></span>
-          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? 'Review RFQ draft' : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
+          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? (isSub ? 'Review bid request' : 'Review RFQ draft') : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
+          {isSub && <span style={DcBadge('violet')}>Sub bid</span>}
           {!draft && <span style={DcBadge(STATUS_TONE[status] || 'gray')}>{status}</span>}
           <Box as="button" onClick={onClose} style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={17} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
@@ -2096,7 +2305,50 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
               <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12}
                 style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
             </div>
-          ) : (
+          ) : null}
+          {/* Attachments: the user picks which project documents ride along on
+              the email. Editable on a draft; read-only once sent. */}
+          {draft ? (
+            <div>
+              <label style={fieldLabel}>Attachments ({liveAttachIds.length})</label>
+              {liveAttachIds.length < attachIds.length && (
+                <div style={css('font-size:11.5px;color:var(--warn);font-weight:600;margin-bottom:6px')}>
+                  {attachIds.length - liveAttachIds.length} previously chosen attachment{attachIds.length - liveAttachIds.length === 1 ? ' was' : 's were'} removed — the document no longer exists.
+                </div>
+              )}
+              {attachable.length === 0 ? (
+                <div style={css('font-size:12.5px;color:var(--text-3)')}>No attachable documents on this project — upload plans or specs in the Documents tab first.</div>
+              ) : (
+                <div style={css('display:flex;flex-direction:column;gap:6px')}>
+                  {attachable.map((d) => {
+                    const on = attachIds.includes(d.id!)
+                    return (
+                      <Box as="button" key={d.id} onClick={() => toggleAttach(d.id!)}
+                        style={css(`display:flex;align-items:center;gap:9px;padding:7px 11px;border:1px solid ${on ? 'var(--primary)' : 'var(--border)'};border-radius:9px;background:${on ? 'var(--primary-soft)' : 'var(--panel-2)'};text-align:left;cursor:pointer`)}
+                        hover="border-color:var(--primary)">
+                        <input type="checkbox" checked={on} readOnly style={{ accentColor: 'var(--primary)', pointerEvents: 'none', flex: 'none' }} />
+                        <Svg size={14} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />
+                        <span style={css('flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span>
+                      </Box>
+                    )
+                  })}
+                  <div style={css('font-size:11.5px;color:var(--text-3)')}>Attachments are capped at 15 MB total per email.</div>
+                </div>
+              )}
+            </div>
+          ) : attachNames.length > 0 ? (
+            <div>
+              <label style={fieldLabel}>Attachments ({attachNames.length})</label>
+              <div style={css('display:flex;gap:7px;flex-wrap:wrap')}>
+                {attachNames.map((n, i) => (
+                  <span key={i} style={css('display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}>
+                    <Svg size={13} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />{n}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {!draft ? (
             <div>
               <div style={css('display:flex;align-items:center;justify-content:space-between;margin-bottom:10px')}>
                 <label style={{ ...fieldLabel, marginBottom: 0 }}>Conversation</label>
@@ -2111,7 +2363,7 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
                 {conv && conv.thread.map((t, i) => <ThreadBubble key={i} t={t} />)}
               </div>
             </div>
-          )}
+          ) : null}
           {err && <div style={css('font-size:12.5px;color:var(--danger)')}>{err}</div>}
         </div>
         <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border)')}>
@@ -2120,7 +2372,7 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
           {draft && (
             <Box as="button" onClick={send} disabled={busy || recipients.length === 0}
               style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || recipients.length === 0 ? '.6' : '1'}`)}
-              hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send RFQ (${recipients.length})`}</Box>
+              hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send ${isSub ? 'bid request' : 'RFQ'} (${recipients.length})`}</Box>
           )}
         </div>
       </div>
@@ -2132,7 +2384,7 @@ function TabSuppliers({ m }: MProps) {
   // Names already in the customer's network — the search marks matching results
   // as "In your network" and adding one refreshes the global list via m.reload.
   const networkNames = new Set<string>((m.suppliers || []).map((s) => s.name.toLowerCase()))
-  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} />
+  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} docs={m.docs} />
 }
 
 /* ----------------------------------------------------------------- RFQs tab */
@@ -2204,6 +2456,7 @@ function TabRfqs({ m }: MProps) {
                     <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.subject}</div>
                     <div style={css('font-size:11.5px;color:var(--text-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.pkg || pkgLabel(rq.package)} · {(rq.recipients || []).length} recipient{(rq.recipients || []).length === 1 ? '' : 's'}</div>
                   </div>
+                  {rq.kind === 'subcontractor' && <span style={DcBadge('violet')}>Sub bid</span>}
                   <span style={DcBadge(rq.statusTone)}>{rq.status}</span>
                   {rq.status === 'Draft' && (
                     <Box as="button" onClick={(e: { stopPropagation: () => void }) => remove(rq, e)} disabled={busyId === rq.id}
@@ -2218,7 +2471,7 @@ function TabRfqs({ m }: MProps) {
           </div>
         </div>
       </div>
-      {open && <RfqReviewModal projectId={projectId} rfq={open} onClose={() => { setOpen(null); load() }} />}
+      {open && <RfqReviewModal projectId={projectId} rfq={open} docs={m.docs} onClose={() => { setOpen(null); load() }} />}
     </div>
   )
 }

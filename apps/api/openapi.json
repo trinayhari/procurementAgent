@@ -1685,6 +1685,181 @@
         }
       }
     },
+    "/api/projects/{project_id}/trades": {
+      "get": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "List Trade Scopes",
+        "description": "The project's subcontractor trade scopes \u2014 the selectable trade packages\nin the supplier search. Each scope's document id doubles as its package key.",
+        "operationId": "list_trade_scopes_api_projects__project_id__trades_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TradeScopeSummary"
+                  },
+                  "title": "Response List Trade Scopes Api Projects  Project Id  Trades Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Create Trade Scope",
+        "description": "Create a subcontractor trade scope \u2014 a free-text trade the user wants\nbids for (e.g. \"Concrete flatwork\"), with a scope-of-work description.\n\nLike a custom BOM there is no file and no extraction: the document id\nbecomes a package key, so the trade flows through the same search \u2192 select\n\u2192 RFQ pipeline. The RFQ it generates is a bid request built from the scope\ntext rather than BOM line items.",
+        "operationId": "create_trade_scope_api_projects__project_id__trades_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeScopeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeScopeSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/trades/{trade_id}": {
+      "put": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Update Trade Scope",
+        "description": "Update a trade scope's scope-of-work description.",
+        "operationId": "update_trade_scope_api_projects__project_id__trades__trade_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "trade_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trade Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeScopeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeScopeSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
       "post": {
         "tags": [
@@ -5132,6 +5307,23 @@
             "type": "array",
             "title": "Recipients",
             "default": []
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "materials",
+              "subcontractor"
+            ],
+            "title": "Kind",
+            "default": "materials"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/RfqAttachment"
+            },
+            "type": "array",
+            "title": "Attachments",
+            "default": []
           }
         },
         "type": "object",
@@ -5586,6 +5778,25 @@
         ],
         "title": "Rfq"
       },
+      "RfqAttachment": {
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "title": "Documentid"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "documentId",
+          "name"
+        ],
+        "title": "RfqAttachment",
+        "description": "A project document the user chose to attach to the outgoing email."
+      },
       "RfqConversation": {
         "properties": {
           "rfqId": {
@@ -5716,6 +5927,18 @@
             },
             "type": "array",
             "title": "Supplier Ids"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
           }
         },
         "type": "object",
@@ -5842,6 +6065,21 @@
             },
             "type": "array",
             "title": "Recipients"
+          },
+          "attachment_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachment Ids"
           }
         },
         "type": "object",
@@ -6555,6 +6793,64 @@
         ],
         "title": "Tone",
         "description": "Semantic color token consumed by the frontend (maps to a CSS variable)."
+      },
+      "TradeScopeCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Name"
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 20000,
+            "title": "Scope",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TradeScopeCreate"
+      },
+      "TradeScopeSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "TradeScopeSummary",
+        "description": "A subcontractor trade scope, surfaced as a selectable package in the\nsupplier search. Searching on it finds trade contractors (installers) and\ngenerating from it produces a scope-of-work bid request."
+      },
+      "TradeScopeUpdate": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "maxLength": 20000,
+            "title": "Scope"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scope"
+        ],
+        "title": "TradeScopeUpdate"
       },
       "UpdateMeRequest": {
         "properties": {

@@ -50,7 +50,9 @@ suite force-blanks all provider credentials so it can never send real email.
 
 To send real RFQ emails, connect one Gmail account — every message goes out from
 it, carrying the sending user's name as the display name and Cc'ing them if they
-ask. Step-by-step guide: [docs/email-setup.md](docs/email-setup.md).
+ask. RFQs and bid requests can carry user-selected project documents as email
+attachments (capped at 15 MB per email). Step-by-step guide:
+[docs/email-setup.md](docs/email-setup.md).
 
 The frontend reads `VITE_API_URL` (default `http://localhost:8000`); copy
 `apps/web/.env.example` to `apps/web/.env` to override. On load,
@@ -92,9 +94,10 @@ Workspaces live under `apps/`; the repo root holds only shared config
 - **Dashboard** — portfolio metrics, project overview table, recent activity.
 - **Projects / Suppliers / Settings** — top-level sections.
 - **Project workspace** (open any project) — tabbed:
-  Overview · Documents (with AI-extracted materials) · Suppliers · RFQs
-  (email thread view) · Quotes table · **Quote Comparison** (flagship,
-  with AI recommendation) · Timeline (gantt + milestones).
+  Overview · Documents (AI-extracted materials + subcontractor trade scopes) ·
+  Suppliers · RFQs (email thread view; material RFQs and subcontractor bid
+  requests) · Quotes table · **Quote Comparison** (flagship, with AI
+  recommendation) · Timeline (gantt + milestones).
 
 State (active tab, selected document/RFQ, theme, supplier drawer, mobile nav)
 lives in `App`'s `useState` and flows through `buildModel`.

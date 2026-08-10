@@ -177,7 +177,18 @@ def generate_rfq_draft(
         opening, items_text
     )
 
-    recipients = [
+    recipients = _recipients(suppliers)
+
+    return RfqDraft(
+        subject=subject,
+        body=body,
+        line_items=line_items,
+        recipients=recipients,
+    )
+
+
+def _recipients(suppliers: List[dict]) -> List[dict]:
+    return [
         {
             "supplierId": s.get("id"),
             "name": s.get("name"),
@@ -187,9 +198,110 @@ def generate_rfq_draft(
         if s.get("email")
     ][:_MAX_RECIPIENTS]
 
+
+# ------------------------------------------------------------- subcontractor
+
+_SUB_ASK = (
+    "Please provide your lump-sum bid price, current schedule availability, "
+    "inclusions and exclusions, and how long your bid remains valid."
+)
+
+
+def _sub_request_sentence(trade_label: str, project_name: str, location: str) -> str:
+    """Names the trade and the job it is for — a sub's first two questions."""
+    trade = _material_phrase(trade_label)
+    sentence = "We are seeking bids"
+    if trade:
+        sentence += f" from qualified {trade} subcontractors"
+    if project_name and location:
+        sentence += f" for our {project_name} project in {location}"
+    elif project_name:
+        sentence += f" for our {project_name} project"
+    elif location:
+        sentence += f" for our project in {location}"
+    return f"{sentence}."
+
+
+def _sub_template_body(opening: str, scope: str) -> str:
+    # Attachments are chosen later in the review modal and may be absent at
+    # send, so the body must not promise them — "any attached" stays truthful
+    # either way.
+    return (
+        f"{opening}\n\n"
+        "Scope of work:\n"
+        f"{scope}\n\n"
+        "Please review any attached project documents for additional detail. "
+        "Your prompt response is appreciated. Please let us know if "
+        "you need additional information to prepare your bid."
+    )
+
+
+def _sub_llm_body(trade_label: str, scope: str, opening: str) -> Optional[str]:
+    if not settings.openai_api_key:
+        return None
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url or None,
+        )
+        prompt = (
+            "Write a concise, professional construction bid-request (RFQ) email "
+            f"body inviting a {trade_label} subcontractor to bid. Open with the "
+            "paragraph below verbatim — it names the buyer, the trade, and the "
+            "project, so do not reword it or add details it leaves out. Then "
+            "include the scope of work below verbatim under a 'Scope of work:' "
+            "heading. Mention that any attached project documents provide "
+            "additional detail (do not assert that documents are attached). "
+            "Close with a brief sentence inviting follow-up if more information "
+            "is needed. Do not add a greeting, project header, or signature.\n\n"
+            f"{opening}\n\n"
+            "Scope of work:\n"
+            f"{scope}\n\n"
+            "Return only the email body (no subject line)."
+        )
+        resp = client.chat.completions.create(
+            model=settings.openai_vision_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=600,
+        )
+        return (resp.choices[0].message.content or "").strip() or None
+    except Exception:
+        return None
+
+
+def generate_sub_rfq_draft(
+    project: dict,
+    trade_label: str,
+    scope: str,
+    suppliers: List[dict],
+    buyer=None,
+) -> RfqDraft:
+    """Build subject/body/recipients for a subcontractor bid request. Never raises.
+
+    Unlike a materials RFQ there are no line items: the user-written scope of
+    work (plus any attached documents) carries the detail.
+    """
+    project_name = (project.get("name") or "").strip()
+    location = _clean_location(project)
+    scope = (scope or "").strip()
+    subject = f"Bid Request: {trade_label} — {project_name or 'Project'}"
+
+    parts = (
+        _buyer_intro(buyer),
+        _sub_request_sentence(trade_label, project_name, location),
+        _SUB_ASK,
+    )
+    opening = " ".join(p for p in parts if p)
+    body = _sub_llm_body(trade_label, scope, opening) or _sub_template_body(
+        opening, scope
+    )
+
     return RfqDraft(
         subject=subject,
         body=body,
-        line_items=line_items,
-        recipients=recipients,
+        line_items=[],
+        recipients=_recipients(suppliers),
     )
