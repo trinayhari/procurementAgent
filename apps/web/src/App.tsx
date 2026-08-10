@@ -1435,26 +1435,37 @@ function TradeScopeEditor({ m }: MProps) {
   const [scope, setScope] = useState((doc && doc.summary) || '')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  // Last text successfully persisted. `doc.summary` alone goes stale after a
+  // blur-save (which skips the workspace reload), so both the dirty check and
+  // the re-seed compare against this ref, not the prop.
+  const savedRef = useRef((doc && doc.summary) || '')
   // Re-seed when the user switches to a different trade scope.
-  useEffect(() => { setScope((doc && doc.summary) || ''); setNote(null) }, [doc && doc.id])
+  useEffect(() => {
+    savedRef.current = (doc && doc.summary) || ''
+    setScope(savedRef.current)
+    setNote(null)
+  }, [doc && doc.id])
   if (!doc || !doc.id) return null
   const save = async () => {
     setBusy(true); setNote(null)
     try {
       await updateTradeScope(projectId, doc.id!, scope)
+      savedRef.current = scope
       setNote('Scope saved.')
       await m.reload()
     } catch { setNote('Could not save the scope — is the backend running?') }
     finally { setBusy(false) }
   }
   // Same contract as the Suppliers-tab scope panel: leaving the field saves,
-  // the button stays as the explicit affordance. No reload on blur — the
-  // heavier workspace refresh only runs on an explicit save.
+  // the button stays as the explicit affordance. Only fires when the text
+  // actually changed, then refreshes so doc.summary can't go stale.
   const saveOnBlur = async () => {
-    if (scope === ((doc && doc.summary) || '')) return
+    if (scope === savedRef.current) return
     try {
       await updateTradeScope(projectId, doc.id!, scope)
+      savedRef.current = scope
       setNote('Scope saved.')
+      await m.reload()
     } catch { setNote('Could not save the scope — is the backend running?') }
   }
   return (
@@ -2300,6 +2311,11 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
           {draft ? (
             <div>
               <label style={fieldLabel}>Attachments ({liveAttachIds.length})</label>
+              {liveAttachIds.length < attachIds.length && (
+                <div style={css('font-size:11.5px;color:var(--warn);font-weight:600;margin-bottom:6px')}>
+                  {attachIds.length - liveAttachIds.length} previously chosen attachment{attachIds.length - liveAttachIds.length === 1 ? ' was' : 's were'} removed — the document no longer exists.
+                </div>
+              )}
               {attachable.length === 0 ? (
                 <div style={css('font-size:12.5px;color:var(--text-3)')}>No attachable documents on this project — upload plans or specs in the Documents tab first.</div>
               ) : (

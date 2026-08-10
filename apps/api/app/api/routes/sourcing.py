@@ -555,6 +555,8 @@ def update_trade_scope(
     doc = documents_repo.update_status(
         db, org_id, trade_id, summary=(payload.scope or "").strip()
     )
+    if doc is None:  # deleted between the check and the write
+        raise HTTPException(status_code=404, detail="Trade scope not found")
     audit_repo.log(
         db, org_id, current_user, "trade_scope.edited", "document", trade_id,
         project_id=project_id, detail={"name": doc.name},
@@ -878,9 +880,16 @@ def send_generated_rfq(
         ):
             skipped_attachments.append(att.get("name") or att.get("documentId", ""))
             continue
-        with storage.local_copy(doc.source_path) as path:
-            with open(path, "rb") as fh:
-                content = fh.read()
+        try:
+            with storage.local_copy(doc.source_path) as path:
+                with open(path, "rb") as fh:
+                    content = fh.read()
+        except Exception:
+            # A transient storage failure (S3 blip between exists() and the
+            # download) must not 500 the whole send — same skip semantics as a
+            # deleted document, recorded in the audit detail below.
+            skipped_attachments.append(att.get("name") or att.get("documentId", ""))
+            continue
         # A dot in the display name isn't necessarily an extension ("Rev 2.1
         # Plans") — only a short alphanumeric suffix counts. Names without one
         # borrow the stored file's suffix so mail clients can type the file.
@@ -891,6 +900,14 @@ def send_generated_rfq(
             rfq_sender.EmailAttachment(filename=filename, content=content)
         )
         sent_attachments.append(att)
+    # Save-time validation sized the files then; re-check the actual hydrated
+    # bytes so content that grew since save can't push the payload past Gmail.
+    if sum(len(a.content) for a in email_attachments) > _MAX_ATTACHMENT_TOTAL_BYTES:
+        limit_mb = _MAX_ATTACHMENT_TOTAL_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Attachments exceed the {limit_mb} MB email limit — remove some files",
+        )
     if skipped_attachments:
         rfqs_repo.set_attachments(db, org_id, rfq_id, sent_attachments)
 

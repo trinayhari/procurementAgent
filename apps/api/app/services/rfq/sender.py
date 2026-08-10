@@ -118,6 +118,16 @@ def resolve_cc(cc: Optional[str], to: str, from_addr: str) -> Optional[str]:
     return (cc or "").strip()
 
 
+def _clean_header(value: str) -> str:
+    """Strip control characters (CR/LF above all) from a header value.
+
+    Subject, To, and Cc all carry user-influenced text (trade names, edited
+    subjects, recipient emails) and compat32 does not validate header values —
+    an embedded CRLF would inject arbitrary headers into the raw Gmail send.
+    """
+    return "".join(c for c in (value or "") if c.isprintable() or c == " ").strip()
+
+
 def _build_mime(
     to: str,
     subject: str,
@@ -135,9 +145,7 @@ def _build_mime(
             # Filenames derive from user-controlled upload names; strip control
             # characters so a crafted name can't inject mail headers through
             # Content-Disposition.
-            filename = "".join(
-                c for c in att.filename if c.isprintable()
-            ).strip() or "attachment"
+            filename = _clean_header(att.filename) or "attachment"
             mime_type = att.mime_type or mimetypes.guess_type(filename)[0]
             maintype, _, subtype = (mime_type or "application/octet-stream").partition("/")
             part = MIMEBase(maintype, subtype or "octet-stream")
@@ -150,12 +158,12 @@ def _build_mime(
     else:
         # No attachments → keep the historical plain-text shape byte-for-byte.
         msg = MIMEText(body)
-    msg["To"] = to
+    msg["To"] = _clean_header(to)
     msg["From"] = from_addr
     cc = resolve_cc(cc, to, from_addr)
     if cc:
-        msg["Cc"] = cc
-    msg["Subject"] = subject
+        msg["Cc"] = _clean_header(cc)
+    msg["Subject"] = _clean_header(subject)
     if in_reply_to:
         # Both headers so replying clients (and Gmail) thread it under the RFQ.
         msg["In-Reply-To"] = in_reply_to

@@ -118,4 +118,6 @@ class RfqUpdate(BaseModel):
     recipients: List[RfqRecipient]
     # Document ids to attach to the outgoing email. None = leave unchanged
     # (an older client that doesn't send the field won't clear attachments).
-    attachment_ids: Optional[List[str]] = None
+    # Count-capped: the byte budget alone doesn't bound N tiny files, each of
+    # which costs storage round-trips at save and a MIME part per recipient.
+    attachment_ids: Optional[List[str]] = Field(default=None, max_length=20)

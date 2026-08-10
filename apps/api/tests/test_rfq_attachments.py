@@ -363,3 +363,19 @@ def test_build_mime_strips_control_chars_from_filename():
     _, att_part = msg.get_payload()
     assert "\r" not in (att_part.get_filename() or "")
     assert "\n" not in (att_part.get_filename() or "")
+
+
+def test_build_mime_strips_crlf_from_subject_and_recipients():
+    """Subject/To/Cc carry user-influenced text (trade names, edited subjects,
+    recipient emails) — CRLF must never become a header boundary."""
+    raw = rfq_sender._build_mime(
+        "a@b.com\r\nBcc: y@evil.com",
+        "Bid Request: Drywall\r\nBcc: x@evil.com",
+        "Body",
+        "us@ours.com",
+    )
+    msg = _decode_raw(raw)
+    # The CRLF collapses into the same header value — never a new header.
+    assert msg["Bcc"] is None
+    assert "Bcc" not in list(msg.keys())
+    assert "\r" not in (msg["Subject"] or "") and "\n" not in (msg["Subject"] or "")
