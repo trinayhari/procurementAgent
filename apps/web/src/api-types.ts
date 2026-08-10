@@ -631,6 +631,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Trade Scopes
+         * @description The project's subcontractor trade scopes — the selectable trade packages
+         *     in the supplier search. Each scope's document id doubles as its package key.
+         */
+        get: operations["list_trade_scopes_api_projects__project_id__trades_get"];
+        put?: never;
+        /**
+         * Create Trade Scope
+         * @description Create a subcontractor trade scope — a free-text trade the user wants
+         *     bids for (e.g. "Concrete flatwork"), with a scope-of-work description.
+         *
+         *     Like a custom BOM there is no file and no extraction: the document id
+         *     becomes a package key, so the trade flows through the same search → select
+         *     → RFQ pipeline. The RFQ it generates is a bid request built from the scope
+         *     text rather than BOM line items.
+         */
+        post: operations["create_trade_scope_api_projects__project_id__trades_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/trades/{trade_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Trade Scope
+         * @description Update a trade scope's scope-of-work description.
+         */
+        put: operations["update_trade_scope_api_projects__project_id__trades__trade_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
         parameters: {
             query?: never;
@@ -1984,6 +2035,16 @@ export interface components {
              * @default []
              */
             recipients: components["schemas"]["RfqRecipient"][];
+            /**
+             * Kind
+             * @default materials
+             */
+            kind: string;
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: components["schemas"]["RfqAttachment"][];
         };
         /**
          * PlanType
@@ -2185,6 +2246,16 @@ export interface components {
             logoBg: string;
         };
         /**
+         * RfqAttachment
+         * @description A project document the user chose to attach to the outgoing email.
+         */
+        RfqAttachment: {
+            /** Documentid */
+            documentId: string;
+            /** Name */
+            name: string;
+        };
+        /**
          * RfqConversation
          * @description The full email thread for an RFQ, plus its (possibly updated) status.
          */
@@ -2237,6 +2308,8 @@ export interface components {
         RfqGenerateRequest: {
             /** Supplier Ids */
             supplier_ids: string[];
+            /** Scope */
+            scope?: string | null;
         };
         /** RfqLineItem */
         RfqLineItem: {
@@ -2278,6 +2351,8 @@ export interface components {
             body: string;
             /** Recipients */
             recipients: components["schemas"]["RfqRecipient"][];
+            /** Attachment Ids */
+            attachment_ids?: string[] | null;
         };
         /**
          * Risk
@@ -2541,6 +2616,38 @@ export interface components {
          * @enum {string}
          */
         Tone: "blue" | "violet" | "gray" | "success" | "warn" | "danger" | "ai";
+        /** TradeScopeCreate */
+        TradeScopeCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Scope
+             * @default
+             */
+            scope: string;
+        };
+        /**
+         * TradeScopeSummary
+         * @description A subcontractor trade scope, surfaced as a selectable package in the
+         *     supplier search. Searching on it finds trade contractors (installers) and
+         *     generating from it produces a scope-of-work bid request.
+         */
+        TradeScopeSummary: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Scope
+             * @default
+             */
+            scope: string;
+        };
+        /** TradeScopeUpdate */
+        TradeScopeUpdate: {
+            /** Scope */
+            scope: string;
+        };
         /**
          * UpdateMeRequest
          * @description Editable account settings. `ccEmail` is the address copied on outgoing
@@ -3662,6 +3769,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomBomSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_trade_scopes_api_projects__project_id__trades_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeScopeSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trade_scope_api_projects__project_id__trades_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeScopeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeScopeSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_trade_scope_api_projects__project_id__trades__trade_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                trade_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeScopeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeScopeSummary"];
                 };
             };
             /** @description Validation Error */

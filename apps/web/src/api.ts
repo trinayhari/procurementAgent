@@ -36,9 +36,11 @@ export type SupplierTier = Schemas['SupplierTier']
 export type SupplierSearchResult = Schemas['SupplierSearchResult']
 export type PackageBom = Schemas['PackageBom']
 export type CustomBomSummary = Schemas['CustomBomSummary']
+export type TradeScopeSummary = Schemas['TradeScopeSummary']
 export type PersistedRfq = Schemas['PersistedRfq']
 export type RfqRecipient = Schemas['RfqRecipient']
 export type RfqLineItem = Schemas['RfqLineItem']
+export type RfqAttachment = Schemas['RfqAttachment']
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -398,13 +400,17 @@ export function deleteSupplier(supplierId: string): Promise<void> {
 
 // ------------------------------------------------------------- generated RFQs
 // Generate a draft RFQ for a package from the chosen found-supplier ids.
+// `scope` is the scope-of-work text for a subcontractor trade package — it
+// drives the bid-request body (materials packages ignore it).
 export function generateRfq(
   projectId: string,
   pkg: string,
   supplierIds: string[],
+  scope?: string,
 ): Promise<PersistedRfq> {
   return post<PersistedRfq>(`/api/projects/${projectId}/packages/${pkg}/rfqs/generate`, {
     supplier_ids: supplierIds,
+    ...(scope !== undefined ? { scope } : {}),
   })
 }
 
@@ -428,17 +434,68 @@ export function listProjectBoms(projectId: string): Promise<CustomBomSummary[]> 
   return get<CustomBomSummary[]>(`/api/projects/${projectId}/boms`)
 }
 
+// ------------------------------------------------------------- trade scopes
+// A trade scope is a subcontractor trade the user wants bids for (e.g.
+// "Concrete flatwork"), created in the Documents panel with a scope-of-work
+// description. Like a custom BOM, its document id doubles as a package key so
+// the same search → select → generate flow finds trade contractors and sends
+// them a bid request instead of a materials quote.
+
+export function listTradeScopes(projectId: string): Promise<TradeScopeSummary[]> {
+  return get<TradeScopeSummary[]>(`/api/projects/${projectId}/trades`)
+}
+
+export function createTradeScope(
+  projectId: string,
+  name: string,
+  scope = '',
+): Promise<TradeScopeSummary> {
+  return post<TradeScopeSummary>(`/api/projects/${projectId}/trades`, { name, scope })
+}
+
+export function updateTradeScope(
+  projectId: string,
+  tradeId: string,
+  scope: string,
+): Promise<TradeScopeSummary> {
+  return fetch(`${BASE}/api/projects/${projectId}/trades/${tradeId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ scope }),
+  }).then((r) => {
+    if (!r.ok) throw new Error(`update trade scope -> ${r.status}`)
+    return r.json() as Promise<TradeScopeSummary>
+  })
+}
+
 export function saveRfq(
   projectId: string,
   rfqId: string,
-  patch: { subject: string; body: string; recipients: RfqRecipient[] },
+  patch: {
+    subject: string
+    body: string
+    recipients: RfqRecipient[]
+    // Document ids to attach to the outgoing email; omit to leave unchanged.
+    attachmentIds?: string[]
+  },
 ): Promise<PersistedRfq> {
+  const { attachmentIds, ...rest } = patch
+  const body = {
+    ...rest,
+    ...(attachmentIds !== undefined ? { attachment_ids: attachmentIds } : {}),
+  }
   return fetch(`${BASE}/api/projects/${projectId}/rfqs/${rfqId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(patch),
-  }).then((r) => {
-    if (!r.ok) throw new Error(`save rfq -> ${r.status}`)
+    body: JSON.stringify(body),
+  }).then(async (r) => {
+    if (!r.ok) {
+      // Surface the backend's reason (e.g. "Attachments exceed the 15 MB email
+      // limit") instead of a bare status code.
+      const data = await r.json().catch(() => null)
+      const detail = data && typeof data.detail === 'string' ? data.detail : null
+      throw new Error(detail || `save rfq -> ${r.status}`)
+    }
     return r.json() as Promise<PersistedRfq>
   })
 }
@@ -462,8 +519,8 @@ export function deleteRfq(projectId: string, rfqId: string): Promise<void> {
 }
 
 // User-approved send: delivers the RFQ to every recipient via Gmail (or the
-// logging mock when Gmail is unconfigured). Attaches a line-item PDF and flips
-// the RFQ to 'Awaiting' (awaiting supplier quotes).
+// logging mock when Gmail is unconfigured). Attaches the documents chosen on
+// the RFQ and flips it to 'Awaiting' (awaiting supplier quotes).
 export function sendRfq(projectId: string, rfqId: string): Promise<PersistedRfq> {
   return post<PersistedRfq>(`/api/projects/${projectId}/rfqs/${rfqId}/send`)
 }
