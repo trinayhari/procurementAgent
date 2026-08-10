@@ -146,6 +146,75 @@ def test_save_rejects_oversized_attachments(project, monkeypatch):
     assert "15 MB" in r.json()["detail"]
 
 
+def test_save_without_attachment_ids_field_leaves_attachments_unchanged(
+    project, monkeypatch
+):
+    """attachment_ids is Optional: an older client that PUTs only
+    subject/body/recipients must not clear previously chosen attachments."""
+    client, headers, pid = project
+    monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
+    doc_id = _upload_doc(client, headers, pid)
+    rfq = _draft_rfq(client, headers, pid)
+    assert _save(client, headers, pid, rfq, [doc_id]).status_code == 200
+
+    r = client.put(
+        f"/api/projects/{pid}/rfqs/{rfq['id']}",
+        headers=headers,
+        json={
+            "subject": "Edited subject",
+            "body": rfq["body"],
+            "recipients": rfq["recipients"],
+        },
+    )
+    assert r.status_code == 200, r.text
+    saved = r.json()
+    assert saved["subject"] == "Edited subject"
+    assert [a["documentId"] for a in saved["attachments"]] == [doc_id]
+
+    # An explicit empty list DOES clear them.
+    r = _save(client, headers, pid, rfq, [])
+    assert r.status_code == 200
+    assert r.json()["attachments"] == []
+
+
+def test_duplicate_attachment_ids_are_deduped(project, monkeypatch):
+    client, headers, pid = project
+    monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
+    doc_id = _upload_doc(client, headers, pid)
+    rfq = _draft_rfq(client, headers, pid)
+
+    r = _save(client, headers, pid, rfq, [doc_id, doc_id])
+    assert r.status_code == 200, r.text
+    assert [a["documentId"] for a in r.json()["attachments"]] == [doc_id]
+
+    # The email carries the file once, not twice.
+    recorder = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    assert r.status_code == 200, r.text
+    assert all(len(m["attachments"]) == 1 for m in recorder.sent)
+
+
+def test_save_rejects_unknown_document_id(project):
+    client, headers, pid = project
+    rfq = _draft_rfq(client, headers, pid)
+    r = _save(client, headers, pid, rfq, ["no-such-document"])
+    assert r.status_code == 400
+    assert "not found on this project" in r.json()["detail"]
+
+
+def test_storage_size_edges(tmp_path):
+    """size() feeds the attachment budget — unknowns are None, never a crash."""
+    from app.services import storage
+
+    assert storage.size(None) is None
+    assert storage.size("") is None
+    assert storage.size(str(tmp_path / "missing.pdf")) is None
+    p = tmp_path / "plan.pdf"
+    p.write_bytes(_MINI_PDF)
+    assert storage.size(str(p)) == len(_MINI_PDF)
+
+
 def test_deleted_attachment_is_skipped_at_send(project, monkeypatch):
     client, headers, pid = project
     monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
@@ -189,3 +258,15 @@ def test_build_mime_with_attachments_is_multipart():
     assert att_part.get_payload(decode=True) == _MINI_PDF
     # The no-Reply-To invariant holds for multipart messages too.
     assert msg["Reply-To"] is None
+
+
+def test_build_mime_unknown_extension_falls_back_to_octet_stream():
+    att = rfq_sender.EmailAttachment(filename="takeoff.zz9", content=b"\x00\x01\x02")
+    raw = rfq_sender._build_mime(
+        "a@b.com", "Subj", "Body", "us@ours.com", attachments=[att]
+    )
+    msg = _decode_raw(raw)
+    _, att_part = msg.get_payload()
+    assert att_part.get_content_type() == "application/octet-stream"
+    assert att_part.get_filename() == "takeoff.zz9"
+    assert att_part.get_payload(decode=True) == b"\x00\x01\x02"

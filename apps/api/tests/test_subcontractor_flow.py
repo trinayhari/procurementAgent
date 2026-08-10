@@ -5,7 +5,7 @@ flows through the same search → select → generate → send pipeline as custo
 BOMs — but generates a scope-of-work bid request (kind="subcontractor") with no
 BOM line items and no approval gate.
 """
-from tests.conftest import run_supplier_search
+from tests.conftest import make_confirmed_bom, run_supplier_search
 
 
 def make_trade(client, headers, project_id, name="Concrete flatwork", scope=""):
@@ -53,6 +53,25 @@ def test_trade_scope_is_a_deletable_document_not_an_additional_doc(project):
     assert r.status_code == 204
     r = client.get(f"/api/projects/{pid}/trades", headers=headers)
     assert r.json() == []
+
+
+def test_blank_trade_name_defaults_to_trade(project):
+    client, headers, pid = project
+    trade = make_trade(client, headers, pid, name="   ")
+    assert trade["name"] == "Trade"
+
+
+def test_update_scope_on_non_trade_document_is_404(project):
+    """The /trades update route only writes scopes onto trade-scope documents —
+    a custom BOM (also file-less) is not silently editable through it."""
+    client, headers, pid = project
+    bom_id = make_confirmed_bom(client, headers, pid)
+    r = client.put(
+        f"/api/projects/{pid}/trades/{bom_id}",
+        headers=headers,
+        json={"scope": "should not land"},
+    )
+    assert r.status_code == 404
 
 
 # ------------------------------------------------------------------ search
@@ -150,6 +169,53 @@ def test_send_bid_request_via_mock_sender(project):
     assert sent["status"] == "Awaiting"
     assert sent["kind"] == "subcontractor"
     assert all(rec["sendStatus"] == "sent" for rec in sent["recipients"])
+
+
+# ------------------------------------------------------------ unit: drafting
+def test_trade_keywords_target_installers_not_suppliers():
+    from app.services.sourcing import packages
+
+    assert packages.trade_keywords("Concrete flatwork") == [
+        "Concrete flatwork contractor",
+        "Concrete flatwork subcontractor",
+        "Concrete flatwork company",
+    ]
+    # A trade the user already wrote as "contractor"/"subcontractor" isn't
+    # double-suffixed ("Drywall Contractor contractor").
+    assert packages.trade_keywords("Drywall Contractor") == [
+        "Drywall Contractor",
+        "Drywall Contractor company",
+    ]
+    assert packages.trade_keywords("Framing  Subcontractor") == [
+        "Framing Subcontractor",
+        "Framing Subcontractor company",
+    ]
+    assert packages.trade_keywords("   ") == []
+    assert "not a" in packages.trade_verify_hint("Concrete flatwork")
+
+
+def test_sub_draft_survives_missing_project_details():
+    """Like the materials draft, the bid request drops clauses it has no data
+    for — no buyer, project name, or location still reads grammatically."""
+    from app.services.rfq import generator
+
+    draft = generator.generate_sub_rfq_draft(
+        {},  # no project name, no loc
+        "Concrete Flatwork",
+        "  Pour 12,400 SF of sidewalk.  ",
+        [
+            {"id": "s1", "name": "A Corp", "email": "a@x.com"},
+            {"id": "s2", "name": "No Email Inc"},  # dropped: no email
+        ],
+        buyer=None,
+    )
+    assert draft.subject == "Bid Request: Concrete Flatwork — Project"
+    assert draft.body.startswith(
+        "We are seeking bids from qualified concrete flatwork subcontractors."
+    )
+    assert "Scope of work:\nPour 12,400 SF of sidewalk." in draft.body
+    assert draft.line_items == []
+    assert [r["email"] for r in draft.recipients] == ["a@x.com"]
 
 
 # ---------------------------------------------------------- org isolation

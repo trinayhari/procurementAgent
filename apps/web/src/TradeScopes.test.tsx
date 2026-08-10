@@ -20,6 +20,24 @@ const TRADE_DOC = {
   hasFile: false, planType: 'trade_scope', summary: 'Pour 12,400 SF of sidewalk.',
 }
 
+// A real uploaded plan (hasFile) — the only attachable document; the file-less
+// trade scope must never be offered as an email attachment.
+const PLAN_DOC = {
+  id: 'doc-plan', name: 'Site Plan.pdf', type: 'Plan Set', date: 'Aug 09, 2026',
+  status: 'Analyzed', statusTone: 'success', items: '12', pages: 4, processing: false,
+  hasFile: true, planType: 'other', summary: '',
+}
+
+// A generated subcontractor bid request, still a draft.
+const SUB_RFQ = {
+  id: 'rfq-1', package: TRADE_DOC.id, pkg: 'Concrete flatwork',
+  status: 'Draft', statusTone: 'gray',
+  subject: 'Bid Request: Concrete flatwork — Riverside Yard',
+  body: 'We are seeking bids from qualified concrete flatwork subcontractors.',
+  lineItems: [], kind: 'subcontractor', attachments: [],
+  recipients: [{ supplierId: 's1', name: 'Sub One', email: 'sub@example.com' }],
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
@@ -33,8 +51,9 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
   if (path === '/api/projects') return json([PROJECT])
   if (path === '/api/suppliers') return json([])
   if (path === '/api/documents/plan-types') return json([])
-  if (path.endsWith('/documents')) return json([TRADE_DOC])
+  if (path.endsWith('/documents')) return json([TRADE_DOC, PLAN_DOC])
   if (path.endsWith('/trades')) return json([{ id: TRADE_DOC.id, name: TRADE_DOC.name, scope: TRADE_DOC.summary }])
+  if (path.endsWith('/rfqs/generated')) return json([SUB_RFQ])
   if (path.endsWith('/boms')) return json([])
   if (path.includes('/suppliers/found')) return json({ status: 'idle', mocked: false, radiusMi: 0, package: '', error: null, tiers: [] })
   if (path.includes('/timeline')) return json({ milestones: [], gantt: [], ganttCols: [] })
@@ -95,5 +114,26 @@ describe('subcontractor trade scopes', () => {
     await screen.findByText(/Scope of work · Concrete flatwork/)
     expect(screen.getByDisplayValue('Pour 12,400 SF of sidewalk.')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Search subcontractors/ })).toBeTruthy()
+  })
+
+  it('badges sub bids in the RFQs tab and only offers real files as attachments', async () => {
+    await openProject()
+    fireEvent.click(screen.getByRole('button', { name: /^RFQs$/ }))
+
+    // The list row carries the violet "Sub bid" badge next to its status.
+    fireEvent.click(await screen.findByText(SUB_RFQ.subject))
+
+    // The draft modal: bid-request framing, a second Sub bid badge, and the
+    // send button labeled for a bid request with the recipient count.
+    await screen.findByText(/Review bid request/)
+    expect(screen.getAllByText('Sub bid')).toHaveLength(2)
+    expect(screen.getByText('Send bid request (1)')).toBeTruthy()
+
+    // Attachment picker: only the uploaded plan is attachable — the file-less
+    // trade-scope document is filtered out (hasFile).
+    await screen.findByText('Attachments (0)')
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /Site Plan\.pdf/ }))
+    expect(screen.getByText('Attachments (1)')).toBeTruthy()
   })
 })
