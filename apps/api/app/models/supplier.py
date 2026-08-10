@@ -12,6 +12,11 @@ class Supplier(Base):
 
     __tablename__ = "suppliers"
 
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
+
     seq: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
@@ -56,7 +61,9 @@ class SupplierComm(Base):
 
     Scoped to one supplier via `supplier_id`; the drawer's timeline lists a
     supplier's own entries ordered by `seq` (a supplier with none shows the
-    empty state).
+    empty state). Tenant-scoped transitively through that supplier, which
+    carries the `organization_id` boundary — the rows themselves only ever come
+    from the seed.py literals (there is no create/update path).
     """
 
     __tablename__ = "supplier_comms"

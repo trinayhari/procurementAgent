@@ -22,6 +22,9 @@ class User(BaseModel):
     email: EmailStr
     name: str
     company: str
+    # The tenant this user belongs to; everything the account can see is scoped
+    # to it.
+    organizationId: str
     ccEmail: Optional[EmailStr] = None
     createdAt: Optional[str] = None
 

@@ -51,25 +51,27 @@ def _compose(project: dict, milestone_name: str, milestones: list) -> tuple:
 
 
 def send_milestone_update(
-    project_id: str, milestone_name: str, actor_user_id: Optional[str] = None
+    org_id: str, project_id: str, milestone_name: str, actor_user_id: Optional[str] = None
 ) -> None:
     """Email every lender on the project that `milestone_name` was completed.
 
-    `actor_user_id` is the user who checked the milestone off: their name/company
-    become the From display name and their Cc address gets a copy. The From
-    mailbox itself is always the workspace account (see services/rfq/sender.py).
+    Carries the requesting user's `org_id` so the background session reads the
+    same tenant the request was authorized against. `actor_user_id` is who
+    checked the milestone off: their name/company become the From display name
+    and their Cc address gets a copy. The From mailbox itself is always the
+    workspace account (see services/rfq/sender.py).
 
     Background-task entrypoint: opens its own session, swallows all errors."""
     try:
         with SessionLocal() as db:
-            lenders = lenders_repo.list_for_project(db, project_id)
+            lenders = lenders_repo.list_for_project(db, org_id, project_id)
             if not lenders:
                 return
-            project = projects_repo.get_project(db, project_id)
+            project = projects_repo.get_project(db, org_id, project_id)
             if project is None:
                 return
             built = schedule_service.build_schedule(
-                timeline_repo.list_for_project(db, project_id)
+                timeline_repo.list_for_project(db, org_id, project_id)
             )
             milestones = built["milestones"] if built else []
             subject, body = _compose(project, milestone_name, milestones)
@@ -90,6 +92,7 @@ def send_milestone_update(
             if delivered:
                 events_repo.log(
                     db,
+                    org_id,
                     project_id,
                     title=f"Progress update emailed to {delivered} lender{'s' if delivered != 1 else ''}",
                     icon="rfq",

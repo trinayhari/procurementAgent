@@ -84,9 +84,11 @@ def test_s3_upload_serve_delete_roundtrip(project, monkeypatch, s3):
     # local_copy materialises the object for extraction, then cleans up.
     from app.db import SessionLocal
     from app.repositories import documents as documents_repo
+    from app.repositories import users as users_repo
 
     with SessionLocal() as db:
-        locator = documents_repo.get(db, doc_id).source_path
+        org_id = users_repo.get_by_email(db, "pm@example.com").organization_id
+        locator = documents_repo.get(db, org_id, doc_id).source_path
     assert locator == f"s3://test-bucket/{key}"
     with storage.local_copy(locator) as path:
         with open(path, "rb") as fh:

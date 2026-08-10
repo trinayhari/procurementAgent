@@ -1,7 +1,7 @@
 """scope supplier_comms to a supplier (add supplier_comms.supplier_id)
 
-Revision ID: 0017_supplier_comm_supplier_id
-Revises: 0016_user_cc_email
+Revision ID: 0019_supplier_comm_supplier_id
+Revises: 0018_organization_invites
 Create Date: 2026-08-09
 
 The communication-history timeline used to be a single global list shown
@@ -18,8 +18,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0017_supplier_comm_supplier_id"
-down_revision: Union[str, None] = "0016_user_cc_email"
+revision: str = "0019_supplier_comm_supplier_id"
+down_revision: Union[str, None] = "0018_organization_invites"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

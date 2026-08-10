@@ -4,7 +4,7 @@ A lender is the financing contact for a project (bank / lending institution).
 Lenders are stored per-project so progress emails — driven by the project's
 timeline and where it stands — can go to the right people (PRO-16).
 """
-from sqlalchemy import Integer, String
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -12,6 +12,11 @@ from app.db import Base
 
 class Lender(Base):
     __tablename__ = "lenders"
+
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[str] = mapped_column(String, nullable=False, index=True)

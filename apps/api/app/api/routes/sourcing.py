@@ -56,32 +56,36 @@ def _search_ref(project_id: str, package: str) -> str:
     return f"{project_id}:{package}"
 
 
-def _require_project(project_id: str, db: Session) -> dict:
-    project = projects_repo.get_project(db, project_id)
+def _require_project(org_id: str, project_id: str, db: Session) -> dict:
+    """The project, or 404 — including when it exists in another organization
+    (a 403 there would confirm the id is real)."""
+    project = projects_repo.get_project(db, org_id, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
 
-def _require_package(package: str, project_id: str, db: Session) -> None:
+def _require_package(org_id: str, package: str, project_id: str, db: Session) -> None:
     """A `package` is either a preset buy-package key (water, rebar, …) or the
     document id of a hand-built custom BOM on this project. Custom BOMs are
     searched and quoted exactly like packages, using their doc id as the key."""
-    if packages.is_valid(package) or documents_repo.is_custom_bom(db, project_id, package):
+    if packages.is_valid(package) or documents_repo.is_custom_bom(
+        db, org_id, project_id, package
+    ):
         return
     raise HTTPException(status_code=400, detail=f"Unknown package '{package}'")
 
 
-def _custom_bom(db: Session, project_id: str, package: str):
+def _custom_bom(db: Session, org_id: str, project_id: str, package: str):
     """The custom BOM document when `package` names one on this project, else None."""
-    if documents_repo.is_custom_bom(db, project_id, package):
-        return documents_repo.get(db, package)
+    if documents_repo.is_custom_bom(db, org_id, project_id, package):
+        return documents_repo.get(db, org_id, package)
     return None
 
 
-def _package_label(db: Session, project_id: str, package: str) -> str:
+def _package_label(db: Session, org_id: str, project_id: str, package: str) -> str:
     """Display label for a package or custom BOM (the BOM's own name)."""
-    bom = _custom_bom(db, project_id, package)
+    bom = _custom_bom(db, org_id, project_id, package)
     return bom.name if bom is not None else packages.label_for(package)
 
 
@@ -99,10 +103,11 @@ def search_suppliers(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = _require_project(project_id, db)
-    _require_package(package, project_id, db)
+    org_id = current_user.organization_id
+    project = _require_project(org_id, project_id, db)
+    _require_package(org_id, package, project_id, db)
     audit_repo.log(
-        db, current_user, "supplier_search.started", "package", package,
+        db, org_id, current_user, "supplier_search.started", "package", package,
         project_id=project_id, detail={"radiusMi": payload.radius_mi},
     )
 
@@ -111,13 +116,14 @@ def search_suppliers(
     # so the service uses their built-in query presets.
     keywords: Optional[List[str]] = None
     label: Optional[str] = None
-    bom = _custom_bom(db, project_id, package)
+    bom = _custom_bom(db, org_id, project_id, package)
     if bom is not None:
         keywords = packages.adhoc_keywords(bom.name)
         label = bom.name
 
     job = jobs_repo.start(
         db,
+        org_id,
         SEARCH_JOB,
         _search_ref(project_id, package),
         {
@@ -130,7 +136,7 @@ def search_suppliers(
         },
     )
     background.add_task(
-        run_search_job, job["id"], project_id, project["loc"], package,
+        run_search_job, job["id"], org_id, project_id, project["loc"], package,
         payload.radius_mi, keywords, label,
     )
     return {"status": "searching", "package": package}
@@ -138,6 +144,7 @@ def search_suppliers(
 
 def run_search_job(
     job_id: str,
+    org_id: str,
     project_id: str,
     loc: str,
     package: str,
@@ -150,28 +157,30 @@ def run_search_job(
     ``keywords``/``label`` are set for ad-hoc searches (free-text query);
     otherwise the package presets are used. Progress is written to the
     background_jobs row so the poller (and the exception queue) see it.
+    ``org_id`` comes from the request that scheduled the job, so the worker's
+    own session writes into the same tenant that was authorized.
     """
     db = SessionLocal()
     try:
-        cached = sourcing_repo.get_cached_latlng(db, project_id, loc)
+        cached = sourcing_repo.get_cached_latlng(db, org_id, project_id, loc)
         results, latlng, mocked = sourcing_service.search_suppliers(
             loc, package, radius_mi, cached_latlng=cached, keywords=keywords, label=label
         )
         if latlng is not None and cached is None:
-            sourcing_repo.cache_latlng(db, project_id, loc, latlng[0], latlng[1])
+            sourcing_repo.cache_latlng(db, org_id, project_id, loc, latlng[0], latlng[1])
         sourcing_repo.replace_found_suppliers(
-            db, project_id, package, [r.to_dict() for r in results]
+            db, org_id, project_id, package, [r.to_dict() for r in results]
         )
         if results:
             events_repo.log(
-                db, project_id,
+                db, org_id, project_id,
                 title=f"{len(results)} suppliers found",
                 icon="supplier", tone="blue",
                 meta=f"{label or packages.label_for(package)} · within {radius_mi} mi",
             )
-        jobs_repo.finish(db, job_id, {"mocked": mocked, "found": len(results)})
+        jobs_repo.finish(db, org_id, job_id, {"mocked": mocked, "found": len(results)})
     except Exception as exc:  # surface the failure to the poller + exception queue
-        jobs_repo.fail(db, job_id, str(exc))
+        jobs_repo.fail(db, org_id, job_id, str(exc))
     finally:
         db.close()
 
@@ -179,13 +188,15 @@ def run_search_job(
 _SEARCH_STATUS_MAP = {"running": "searching", "done": "done", "error": "error"}
 
 
-def _found_suppliers_payload(db: Session, project_id: str, package: str) -> dict:
+def _found_suppliers_payload(
+    db: Session, org_id: str, project_id: str, package: str
+) -> dict:
     """Bucket a project's found suppliers (for one package) into tiers + status."""
-    job = jobs_repo.latest(db, SEARCH_JOB, _search_ref(project_id, package)) or {}
+    job = jobs_repo.latest(db, org_id, SEARCH_JOB, _search_ref(project_id, package)) or {}
     status_info = dict(job.get("detail") or {})
     if job.get("error"):
         status_info["error"] = job["error"]
-    rows = sourcing_repo.list_found_suppliers(db, project_id, package)
+    rows = sourcing_repo.list_found_suppliers(db, org_id, project_id, package)
 
     # Status: prefer the live search status; fall back to done/idle from storage.
     status = _SEARCH_STATUS_MAP.get(job.get("status", ""))
@@ -219,10 +230,12 @@ def get_found_suppliers(
     project_id: str,
     package: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    _require_project(project_id, db)
-    _require_package(package, project_id, db)
-    return _found_suppliers_payload(db, project_id, package)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    _require_package(org_id, package, project_id, db)
+    return _found_suppliers_payload(db, org_id, project_id, package)
 
 
 # --------------------------------------------------------------- quote ingest
@@ -242,27 +255,33 @@ def ingest_quotes(
     The frontend then polls GET .../quotes/ingest-status until it leaves
     'ingesting', then refreshes the quotes table + comparison.
     """
-    _require_project(project_id, db)
-    audit_repo.log(db, current_user, "quotes.ingest_started", "project", project_id, project_id=project_id)
-    job = jobs_repo.start(db, INGEST_JOB, project_id, {"projectId": project_id})
-    background.add_task(run_ingest_job, job["id"], project_id)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    audit_repo.log(
+        db, org_id, current_user, "quotes.ingest_started", "project", project_id,
+        project_id=project_id,
+    )
+    job = jobs_repo.start(db, org_id, INGEST_JOB, project_id, {"projectId": project_id})
+    background.add_task(run_ingest_job, job["id"], org_id, project_id)
     return {"status": "ingesting", "ingested": 0, "total": 0}
 
 
-def run_ingest_job(job_id: str, project_id: str) -> None:
+def run_ingest_job(job_id: str, org_id: str, project_id: str) -> None:
     db = SessionLocal()
     try:
-        ingested, total, mocked = quotes_ingest.ingest_quotes(db, project_id)
+        ingested, total, mocked = quotes_ingest.ingest_quotes(db, org_id, project_id)
         if ingested:
             events_repo.log(
-                db, project_id,
+                db, org_id, project_id,
                 title=f"{ingested} quote{'s' if ingested != 1 else ''} received",
                 icon="quote", tone="violet",
                 meta="Parsed from supplier replies",
             )
-        jobs_repo.finish(db, job_id, {"mocked": mocked, "ingested": ingested, "total": total})
+        jobs_repo.finish(
+            db, org_id, job_id, {"mocked": mocked, "ingested": ingested, "total": total}
+        )
     except Exception as exc:  # surface to the poller + exception queue
-        jobs_repo.fail(db, job_id, str(exc))
+        jobs_repo.fail(db, org_id, job_id, str(exc))
     finally:
         db.close()
 
@@ -274,9 +293,14 @@ _INGEST_STATUS_MAP = {"running": "ingesting", "done": "done", "error": "error"}
     "/{project_id}/quotes/ingest-status",
     response_model=QuoteIngestResult,
 )
-def get_ingest_status(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
-    job = jobs_repo.latest(db, INGEST_JOB, project_id)
+def get_ingest_status(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    job = jobs_repo.latest(db, org_id, INGEST_JOB, project_id)
     if job is None:
         return {"status": "idle", "ingested": 0, "total": 0}
     detail = job.get("detail") or {}
@@ -291,7 +315,7 @@ def get_ingest_status(project_id: str, db: Session = Depends(get_db)):
 
 # --------------------------------------------------------------- RFQ generation
 def _line_items_for_package(
-    db: Session, project_id: str, package: str, approved_only: bool = True
+    db: Session, org_id: str, project_id: str, package: str, approved_only: bool = True
 ) -> Tuple[List[dict], bool, int]:
     """Pull the BOM line items for a package from the project's extracted documents.
 
@@ -328,17 +352,19 @@ def _line_items_for_package(
 
     # A custom BOM is its own bill of materials: take its items directly (across
     # all its groups), rather than mapping discipline group labels to a package.
-    if documents_repo.is_custom_bom(db, project_id, package):
-        bom = documents_repo.get(db, package)
+    if documents_repo.is_custom_bom(db, org_id, project_id, package):
+        bom = documents_repo.get(db, org_id, package)
         if approved_only and bom is not None and not bom.reviewed:
             return [], False, 1
-        for group in documents_repo.get_line_items(db, package) or []:
+        for group in documents_repo.get_line_items(db, org_id, package) or []:
             _add(group.get("items", []))
         return items, False, 0
 
     pending_review = 0
-    for doc in documents_repo.list_for_project(db, project_id):
-        doc_items = _matching_items(documents_repo.get_line_items(db, doc.get("id", "")) or [])
+    for doc in documents_repo.list_for_project(db, org_id, project_id):
+        doc_items = _matching_items(
+            documents_repo.get_line_items(db, org_id, doc.get("id", "")) or []
+        )
         if not doc_items:
             continue
         if approved_only and not doc.get("reviewed"):
@@ -362,6 +388,7 @@ def get_package_bom(
     project_id: str,
     package: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """The BOM line items this buy-package will ask suppliers to quote.
 
@@ -370,11 +397,12 @@ def get_package_bom(
     extracted plans for that discipline. For a custom BOM the items come straight
     from that hand-built document.
     """
-    _require_project(project_id, db)
-    _require_package(package, project_id, db)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    _require_package(org_id, package, project_id, db)
 
-    bom = _custom_bom(db, project_id, package)
-    items, seeded, pending = _line_items_for_package(db, project_id, package)
+    bom = _custom_bom(db, org_id, project_id, package)
+    items, seeded, pending = _line_items_for_package(db, org_id, project_id, package)
     return {
         "package": package,
         "label": bom.name if bom is not None else packages.label_for(package),
@@ -391,13 +419,18 @@ def get_package_bom(
 
 
 @router.get("/{project_id}/boms", response_model=List[CustomBomSummary])
-def list_project_boms(project_id: str, db: Session = Depends(get_db)):
+def list_project_boms(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """The project's hand-built custom BOMs — the selectable custom packages in
     the supplier search. Each BOM's document id doubles as its package key."""
-    _require_project(project_id, db)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
     out: List[dict] = []
-    for doc in documents_repo.list_custom_boms(db, project_id):
-        groups = documents_repo.get_line_items(db, doc.id) or []
+    for doc in documents_repo.list_custom_boms(db, org_id, project_id):
+        groups = documents_repo.get_line_items(db, org_id, doc.id) or []
         count = sum(len(g.get("items", [])) for g in groups)
         out.append(
             {"id": doc.id, "name": doc.name, "count": count, "reviewed": doc.reviewed}
@@ -417,19 +450,20 @@ def generate_rfq(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = _require_project(project_id, db)
-    _require_package(package, project_id, db)
-    label = _package_label(db, project_id, package)
+    org_id = current_user.organization_id
+    project = _require_project(org_id, project_id, db)
+    _require_package(org_id, package, project_id, db)
+    label = _package_label(db, org_id, project_id, package)
 
     # Recipients can be freshly-discovered suppliers or ones already saved to the
     # customer's network. Resolve found suppliers first, then fill any remaining
     # ids from the supplier directory so a saved supplier can be RFQ'd directly.
-    suppliers = sourcing_repo.get_found_suppliers_by_ids(db, payload.supplier_ids)
+    suppliers = sourcing_repo.get_found_suppliers_by_ids(db, org_id, payload.supplier_ids)
     resolved = {s.get("id") for s in suppliers}
     for sid in payload.supplier_ids:
         if sid in resolved:
             continue
-        saved = suppliers_repo.get_supplier(db, sid)
+        saved = suppliers_repo.get_supplier(db, org_id, sid)
         if saved:
             suppliers.append(saved)
             resolved.add(sid)
@@ -438,7 +472,7 @@ def generate_rfq(
 
     # Approval gate: an RFQ only ever quotes human-confirmed BOM items.
     line_items, _seeded, pending = _line_items_for_package(
-        db, project_id, package, approved_only=True
+        db, org_id, project_id, package, approved_only=True
     )
     if not line_items:
         detail = (
@@ -458,6 +492,7 @@ def generate_rfq(
         )
     rfq = rfqs_repo.create_rfq_draft(
         db,
+        org_id,
         project_id=project_id,
         package=package,
         package_label=label,
@@ -467,7 +502,7 @@ def generate_rfq(
         recipients=draft.recipients,
     )
     audit_repo.log(
-        db, current_user, "rfq.drafted", "rfq", rfq["id"], project_id=project_id,
+        db, org_id, current_user, "rfq.drafted", "rfq", rfq["id"], project_id=project_id,
         detail={
             "package": package,
             "recipients": [r.get("email") for r in draft.recipients],
@@ -475,7 +510,7 @@ def generate_rfq(
         },
     )
     events_repo.log(
-        db, project_id,
+        db, org_id, project_id,
         title=f"RFQ drafted — {label}",
         icon="rfq", tone="ai",
         meta=f"{len(draft.recipients)} supplier{'s' if len(draft.recipients) != 1 else ''}",
@@ -484,32 +519,49 @@ def generate_rfq(
 
 
 @router.get("/{project_id}/rfqs/generated", response_model=List[PersistedRfq])
-def list_generated_rfqs(project_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
-    return rfqs_repo.list_rfqs(db, project_id)
+def list_generated_rfqs(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    return rfqs_repo.list_rfqs(db, org_id, project_id)
 
 
 @router.get("/{project_id}/rfqs/{rfq_id}", response_model=PersistedRfq)
-def get_generated_rfq(project_id: str, rfq_id: str, db: Session = Depends(get_db)):
-    _require_project(project_id, db)
-    rfq = rfqs_repo.get_rfq(db, rfq_id)
+def get_generated_rfq(
+    project_id: str,
+    rfq_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
     if rfq is None or rfq["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")
     return rfq
 
 
 @router.get("/{project_id}/rfqs/{rfq_id}/conversation", response_model=RfqConversation)
-def get_rfq_conversation(project_id: str, rfq_id: str, db: Session = Depends(get_db)):
+def get_rfq_conversation(
+    project_id: str,
+    rfq_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Full email thread for an RFQ, read live from Gmail when configured.
 
     Read-only: we surface the original Gmail thread (our outbound plus any
     threaded supplier replies) without changing the RFQ's status.
     """
-    _require_project(project_id, db)
-    rfq = rfqs_repo.get_rfq(db, rfq_id)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
     if rfq is None or rfq["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    conv = rfq_conversation.build_conversation(db, rfq)
+    conv = rfq_conversation.build_conversation(db, org_id, rfq)
     return {"rfqId": rfq_id, **conv}
 
 
@@ -520,13 +572,14 @@ def delete_generated_rfq(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _require_project(project_id, db)
-    existing = rfqs_repo.get_rfq(db, rfq_id)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    existing = rfqs_repo.get_rfq(db, org_id, rfq_id)
     if existing is None or existing["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    rfqs_repo.delete_rfq(db, rfq_id)
+    rfqs_repo.delete_rfq(db, org_id, rfq_id)
     audit_repo.log(
-        db, current_user, "rfq.deleted", "rfq", rfq_id, project_id=project_id,
+        db, org_id, current_user, "rfq.deleted", "rfq", rfq_id, project_id=project_id,
         detail={"status": existing["status"], "package": existing.get("package", "")},
     )
     return Response(status_code=204)
@@ -540,8 +593,9 @@ def update_generated_rfq(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _require_project(project_id, db)
-    existing = rfqs_repo.get_rfq(db, rfq_id)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    existing = rfqs_repo.get_rfq(db, org_id, rfq_id)
     if existing is None or existing["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")
     if existing["status"] not in rfq_state.EDITABLE:
@@ -551,13 +605,14 @@ def update_generated_rfq(
         )
     updated = rfqs_repo.update_rfq(
         db,
+        org_id,
         rfq_id,
         subject=payload.subject,
         body=payload.body,
         recipients=[r.model_dump() for r in payload.recipients],
     )
     audit_repo.log(
-        db, current_user, "rfq.edited", "rfq", rfq_id, project_id=project_id,
+        db, org_id, current_user, "rfq.edited", "rfq", rfq_id, project_id=project_id,
         detail={"recipients": [r.email for r in payload.recipients]},
     )
     return updated
@@ -577,8 +632,9 @@ def send_generated_rfq(
     - Recipients who already received the RFQ successfully are always skipped;
       a retry only attempts the failed/unsent ones.
     """
-    _require_project(project_id, db)
-    rfq = rfqs_repo.get_rfq(db, rfq_id)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
     if rfq is None or rfq["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")
     if rfq["status"] not in rfq_state.SENDABLE:
@@ -594,7 +650,7 @@ def send_generated_rfq(
     if not to_send:
         # Every recipient already has a successful send on record (e.g. the
         # status flip itself failed last time) — just reconcile the status.
-        return rfqs_repo.mark_rfq_sent(db, rfq_id, recipients, status="Awaiting")
+        return rfqs_repo.mark_rfq_sent(db, org_id, rfq_id, recipients, status="Awaiting")
 
     sender = rfq_sender.get_sender()
     # Always the workspace mailbox (with the sender's name/company as the display
@@ -617,10 +673,10 @@ def send_generated_rfq(
 
     failed = [r for r in recipients if not rfq_state.recipient_sent(r)]
     status = "Send failed" if failed else "Awaiting"
-    sent_rfq = rfqs_repo.mark_rfq_sent(db, rfq_id, recipients, status=status)
+    sent_rfq = rfqs_repo.mark_rfq_sent(db, org_id, rfq_id, recipients, status=status)
     delivered = len(recipients) - len(failed)
     audit_repo.log(
-        db, current_user, "rfq.sent", "rfq", rfq_id, project_id=project_id,
+        db, org_id, current_user, "rfq.sent", "rfq", rfq_id, project_id=project_id,
         detail={
             "attempted": [r["email"] for r in to_send],
             "delivered": delivered,
@@ -631,7 +687,7 @@ def send_generated_rfq(
         },
     )
     events_repo.log(
-        db, project_id,
+        db, org_id, project_id,
         title=(
             f"RFQ sent to {delivered} supplier{'s' if delivered != 1 else ''}"
             + (f" — {len(failed)} failed" if failed else "")

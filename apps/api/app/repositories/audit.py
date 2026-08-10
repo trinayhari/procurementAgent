@@ -1,6 +1,8 @@
 """Append-only accessors for the audit trail.
 
 There is intentionally no update or delete here — audit events are immutable.
+The trail records the acting user, so it is tenant data: reads filter on
+`org_id` and every write stamps it.
 """
 import json
 from typing import List, Optional
@@ -14,6 +16,7 @@ from app.models.user import User
 
 def log(
     db: Session,
+    org_id: str,
     actor: Optional[User],
     action: str,
     entity_type: str = "",
@@ -26,6 +29,7 @@ def log(
     (e.g. so an award and its audit record commit atomically)."""
     db.add(
         AuditEvent(
+            organization_id=org_id,
             actor_id=actor.id if actor else "system",
             actor_email=actor.email if actor else "system",
             action=action,
@@ -41,11 +45,12 @@ def log(
 
 def list_events(
     db: Session,
+    org_id: str,
     project_id: Optional[str] = None,
     action: Optional[str] = None,
     limit: int = 200,
 ) -> List[dict]:
-    stmt = select(AuditEvent)
+    stmt = select(AuditEvent).where(AuditEvent.organization_id == org_id)
     if project_id:
         stmt = stmt.where(AuditEvent.project_id == project_id)
     if action:

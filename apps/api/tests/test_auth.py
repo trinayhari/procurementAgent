@@ -50,6 +50,10 @@ def test_every_route_requires_auth(client):
         # Signed-URL file serving authenticates via a scoped query token; it
         # must still reject requests without one (asserted separately below).
         ("/api/documents/{document_id}/file", "GET"),
+        # Team-invite acceptance: the invitee has no account yet, so these gate
+        # on the secret invite token, not a bearer session.
+        ("/api/invite/{token}", "GET"),
+        ("/api/invite/{token}/accept", "POST"),
     }
     checked = 0
     for route in app.routes:

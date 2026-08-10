@@ -20,6 +20,12 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5174",
     ]
 
+    # Public base URL of the web app, used to build links in outgoing emails
+    # (e.g. a team invite's accept link). Empty → fall back to the first CORS
+    # origin, then to a relative path. Set PROCUREAI_APP_BASE_URL in production
+    # (e.g. https://app.proq.com).
+    app_base_url: str = ""
+
     # ------------------------------------------------------------- persistence
     # SQLAlchemy connection URL. Defaults to a SQLite file in the backend dir;
     # override with PROCUREAI_DATABASE_URL (e.g. a Postgres DSN) in production.

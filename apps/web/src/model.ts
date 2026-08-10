@@ -50,7 +50,7 @@ export interface ModelProps {
   user?: AuthUser | null
   onLogout?: () => void
   onUserUpdated?: (u: AuthUser) => void
-  reload?: (pid?: string) => Promise<void> | void
+  reload?: (pid?: string) => Promise<unknown> | void
   planTypes?: PlanType[] | null
   planType?: string
   uploading?: boolean

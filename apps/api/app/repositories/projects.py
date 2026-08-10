@@ -1,8 +1,10 @@
 """Database-backed accessors for projects.
 
-Projects are the one entity persisted to SQLite (via SQLAlchemy). The rest of the
-workspace data (documents, suppliers, quotes, …) still comes from `seed.py` while
-the prototype is fleshed out — those routes just validate the project exists here.
+Every read and write is filtered on `org_id` explicitly. A project id is a slug
+derived from its name, so ids are guessable across tenants — the filter (not the
+id) is what keeps one organization's projects out of another's reach. Lookups
+that miss the filter return None so routes 404 rather than 403 (a 403 would
+confirm the row exists).
 """
 import os
 import re
@@ -36,6 +38,8 @@ def _slugify(name: str) -> str:
 
 
 def _unique_id(db: Session, base: str) -> str:
+    # Deliberately unfiltered: `id` is the primary key, so it must be unique
+    # across every organization, not just the caller's.
     pid, n = base, 2
     while db.get(Project, pid) is not None:
         pid = f"{base}-{n}"
@@ -47,18 +51,29 @@ def _next_seq(db: Session) -> int:
     return (db.scalar(select(func.max(Project.seq))) or 0) + 1
 
 
-def list_projects(db: Session) -> List[dict]:
-    rows = db.scalars(select(Project).order_by(Project.seq.desc())).all()
+def get_row(db: Session, org_id: str, project_id: str) -> Optional[Project]:
+    """The ORM row, or None when it doesn't exist *or* belongs to another org."""
+    row = db.get(Project, project_id)
+    return row if row is not None and row.organization_id == org_id else None
+
+
+def list_projects(db: Session, org_id: str) -> List[dict]:
+    rows = db.scalars(
+        select(Project)
+        .where(Project.organization_id == org_id)
+        .order_by(Project.seq.desc())
+    ).all()
     return [p.to_dict() for p in rows]
 
 
-def get_project(db: Session, project_id: str) -> Optional[dict]:
-    row = db.get(Project, project_id)
+def get_project(db: Session, org_id: str, project_id: str) -> Optional[dict]:
+    row = get_row(db, org_id, project_id)
     return row.to_dict() if row else None
 
 
 def create_project(
     db: Session,
+    org_id: str,
     name: str,
     loc: str = "",
     value: str = "",
@@ -67,6 +82,7 @@ def create_project(
     """Insert a new project (id derived from its name) and return its payload."""
     pid = _unique_id(db, _slugify(name))
     project = Project(
+        organization_id=org_id,
         seq=_next_seq(db),
         id=pid,
         name=name.strip(),
@@ -88,26 +104,33 @@ def create_project(
     return project.to_dict()
 
 
-def delete_project(db: Session, project_id: str) -> bool:
+def delete_project(db: Session, org_id: str, project_id: str) -> bool:
     """Delete a project and every row scoped to it.
 
     Removes the project's documents, quotes, RFQs and found-supplier records, and
-    best-effort unlinks any uploaded files on disk. Returns False if no project
-    with that id exists (so the route can 404).
+    best-effort unlinks any uploaded files on disk. Returns False when the
+    caller's organization has no project with that id (so the route can 404).
     """
-    project = db.get(Project, project_id)
+    project = get_row(db, org_id, project_id)
     if project is None:
         return False
     # Grab uploaded file paths before the document rows are deleted.
     paths = [
         p
         for p in db.scalars(
-            select(Document.source_path).where(Document.project_id == project_id)
+            select(Document.source_path).where(
+                Document.organization_id == org_id,
+                Document.project_id == project_id,
+            )
         ).all()
         if p
     ]
     for model in (Document, Quote, Rfq, FoundSupplier, ProjectEvent, TimelineEvent, Lender):
-        db.execute(sa_delete(model).where(model.project_id == project_id))
+        db.execute(
+            sa_delete(model).where(
+                model.organization_id == org_id, model.project_id == project_id
+            )
+        )
     db.delete(project)
     db.commit()
     for path in paths:
@@ -119,8 +142,8 @@ def delete_project(db: Session, project_id: str) -> bool:
     return True
 
 
-def seed_starter_projects(db: Session) -> None:
-    """Populate the prototype's 5 demo projects once, on an empty table."""
+def seed_starter_projects(db: Session, org_id: str) -> None:
+    """Populate the prototype's 5 demo projects once, into the demo org."""
     if db.scalar(select(func.count()).select_from(Project)):
         return
     # Insert reversed so the first seed project (Riverside) gets the highest seq
@@ -128,6 +151,7 @@ def seed_starter_projects(db: Session) -> None:
     for i, p in enumerate(reversed(seed.PROJECTS), start=1):
         db.add(
             Project(
+                organization_id=org_id,
                 seq=i,
                 id=p["id"],
                 name=p["name"],
