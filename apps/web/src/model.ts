@@ -105,7 +105,9 @@ export function normaliseProjectValue(raw: string): string {
   if (!/^\d+(\.\d+)?$/.test(digits)) return text
   const n = Number(digits)
   if (!Number.isFinite(n)) return text
-  if (n >= 1_000_000) {
+  // 999_500 rather than 1_000_000: anything above it would round to "$1000K",
+  // which reads worse than the "$1M" it actually means.
+  if (n >= 999_500) {
     const m = n / 1_000_000
     return `$${m >= 10 ? Math.round(m) : Number(m.toFixed(1))}M`
   }
