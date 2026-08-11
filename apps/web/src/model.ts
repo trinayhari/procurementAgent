@@ -167,11 +167,22 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   }))
 
   // ===== PROJECT WORKSPACE DATA =====
-  // The open project is whichever card/row was clicked (tracked by id); fall back
-  // to the first project so the workspace still renders on a fresh load.
-  const activeProject = projects.find((p) => p.id === s.projectId) || projects[0] || ({
+  // The open project is whichever card/row was clicked (tracked by id). Only an
+  // *unset* id falls back to the first project (so a fresh load still renders a
+  // workspace). An id that was asked for but isn't in the list — deleted, another
+  // org's, or a stale link — must NOT fall back: doing so renders a different
+  // project's documents, quotes and awards under the requested URL, which is how
+  // someone awards the wrong package. Flag it and let the workspace say so.
+  const emptyProject = {
     id: '', name: '', loc: '', stage: '', value: '', stageBadge: badge('gray'),
-  } as (typeof projects)[number])
+  } as (typeof projects)[number]
+  // `D.projects` is only an array once the workspace bundle has loaded; before
+  // that a missing id is just "still loading", not "not found".
+  const projectsLoaded = Array.isArray(D.projects)
+  const requestedProject = s.projectId ? projects.find((p) => p.id === s.projectId) : undefined
+  const projectMissing = Boolean(s.projectId) && projectsLoaded && !requestedProject
+  const activeProject =
+    requestedProject || (s.projectId ? emptyProject : projects[0] || emptyProject)
 
   const tabStyleFor = (k: string): CSSProperties => {
     const active = s.tab === k
@@ -333,7 +344,11 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   if (s.nav === 'projects') crumbMain = 'Projects'
   else if (s.nav === 'suppliers') crumbMain = 'Suppliers'
   else if (s.nav === 'settings') crumbMain = 'Settings'
-  else if (isProject) { crumbMain = 'Projects'; crumbSub = activeProject.name; hasSub = true }
+  else if (isProject) {
+    crumbMain = 'Projects'
+    crumbSub = projectMissing ? 'Not found' : activeProject.name
+    hasSub = true
+  }
 
   return {
     accent: (props && props.accent) || 'blue',
@@ -406,7 +421,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     openProject: (p?: { id?: string }) => set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }),
     toggleMnav: () => set({ mnav: !s.mnav }),
     mnavOpen: s.mnav, closeMnav: () => set({ mnav: false }),
-    activeProject, tabStyle,
+    activeProject, projectMissing, tabStyle,
     tabOverview: s.tab === 'overview', tabDocuments: s.tab === 'documents', tabSuppliers: s.tab === 'suppliers',
     tabRfqs: s.tab === 'rfqs', tabQuotesTable: s.tab === 'quotes' && !s.compare, tabCompare: s.tab === 'quotes' && s.compare, tabTimeline: s.tab === 'timeline',
     overviewCards, packages,

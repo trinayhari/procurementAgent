@@ -581,9 +581,12 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
   ])
 
   // Pick a real project/supplier to hydrate; null when the account is empty.
-  const pid =
-    (projectId && projects.some((p) => p.id === projectId) ? projectId : null) ||
-    (projects[0] ? projects[0].id : null)
+  // When a specific project was asked for we hydrate that one or nothing at all:
+  // falling back to projects[0] would load a different project's documents,
+  // quotes and comparisons into the workspace the caller requested.
+  const pid = projectId
+    ? (projects.some((p) => p.id === projectId) ? projectId : null)
+    : (projects[0] ? projects[0].id : null)
   const supId = suppliers[0] ? suppliers[0].id : null
 
   // Per-project fetch that short-circuits to its fallback when there's no project.

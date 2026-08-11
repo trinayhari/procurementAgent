@@ -1071,6 +1071,22 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
 
 /* -------------------------------------------------- Project workspace shell */
 function ProjectWorkspace({ m }: MProps) {
+  // The requested project isn't in this account's list — deleted, another org's,
+  // or a stale link. Say so instead of rendering the workspace, which would put
+  // some other project's tabs and actions under this URL.
+  if (m.projectMissing) {
+    return (
+      <div style={css('animation:pcUp .25s ease both;max-width:520px;margin:48px auto;text-align:center')}>
+        <h1 style={css('margin:0 0 8px;font-size:20px;font-weight:700;letter-spacing:-.02em')}>Project not found</h1>
+        <p style={css('margin:0 0 20px;font-size:13.5px;color:var(--text-2);line-height:1.55')}>
+          This project doesn’t exist or isn’t part of your workspace. It may have been deleted.
+        </p>
+        <Box as="button" onClick={m.goProjects}
+          style={css('display:inline-flex;align-items:center;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')}
+          hover="background:var(--primary-2)">Back to projects</Box>
+      </div>
+    )
+  }
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px')}>
