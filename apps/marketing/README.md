@@ -37,7 +37,9 @@ or the "Always running" split.
 
 ## Deployment
 
-Not wired up. The repo's `vercel.json` builds `@proq/web` only; shipping this
-page means a second Vercel project pointed at the same repo with
-`buildCommand: npm run build --workspace @proq/marketing` and
-`outputDirectory: apps/marketing/dist`.
+Live at <https://tryproq.dev> (`www` 308-redirects to the apex) as the Vercel
+project `proq-marketing`. That's a second project on this repo: the root
+`vercel.json` belongs to the `procureai` project, which builds `@proq/web` and
+serves <https://app.tryproq.dev>. This directory is linked to `proq-marketing`
+(`.vercel/`), so run `vercel` commands for the marketing site from
+`apps/marketing`. DNS is managed at GoDaddy; both hosts CNAME/A to Vercel.
