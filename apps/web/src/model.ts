@@ -93,6 +93,26 @@ interface GanttInput { name: string; start: number; len: number; tone: string; l
 // CSSProperties (so string values like 'flex' narrow to the proper unions).
 const sx = (o: CSSProperties): CSSProperties => o
 
+// The New project modal's "Est. value" is free text so people can write what
+// they mean ("$4.2M", "TBD"). Typing a bare number is the common case though,
+// and storing it verbatim renders "1200000" next to every other project's
+// "$4.2M". Normalise digits-only input to the same compact currency; anything
+// already carrying a unit or words is left exactly as typed.
+export function normaliseProjectValue(raw: string): string {
+  const text = raw.trim()
+  if (!text) return '$0'
+  const digits = text.replace(/[$,\s]/g, '')
+  if (!/^\d+(\.\d+)?$/.test(digits)) return text
+  const n = Number(digits)
+  if (!Number.isFinite(n)) return text
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000
+    return `$${m >= 10 ? Math.round(m) : Number(m.toFixed(1))}M`
+  }
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`
+  return `$${n}`
+}
+
 export type Model = ReturnType<typeof buildModel>
 
 // Mirrors the design prototype's renderVals() — builds every computed value the
@@ -373,11 +393,12 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
         'Quotes In': 'violet', Complete: 'success',
       }
       const stage = form.stage || 'Plans Review'
+      const value = normaliseProjectValue(form.value)
       // Optimistic project so the workspace opens instantly; reconciled with the
       // persisted record (real id) once the backend responds.
       const temp = {
         id: 'proj-' + Date.now(), name: form.name.trim(), loc: form.loc.trim() || '—',
-        stage, stageTone: stageToneMap[stage] || 'gray', value: form.value.trim() || '$0',
+        stage, stageTone: stageToneMap[stage] || 'gray', value,
         progress: 0, suppliers: 0, rfqs: 0, quotes: 0, risk: 'Low', riskTone: 'success',
         barColor: 'var(--primary)',
       }
@@ -386,7 +407,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
         nav: 'project', projectId: temp.id, tab: 'overview', compare: false, supplierId: null, mnav: false,
       })
       try {
-        const saved = await post<{ id: string }>('/api/projects', { name: temp.name, loc: form.loc.trim(), value: form.value.trim(), stage })
+        const saved = await post<{ id: string }>('/api/projects', { name: temp.name, loc: form.loc.trim(), value, stage })
         // Now persisted: refetch the project list and drop the optimistic copy,
         // keeping the workspace pinned to the saved project's real id.
         if (props && props.reload) await props.reload()
