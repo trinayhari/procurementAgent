@@ -37,9 +37,25 @@ type BoxProps = {
   children?: ReactNode
 } & Record<string, unknown>
 
+// React warns ("Removing borderColor / border") whenever a rerender drops a
+// longhand while its shorthand stays set — exactly what un-hovering a
+// `border-color:…` hover does on top of a `border:1px solid …` base. Expanding
+// the shorthand into longhands keeps the same keys present in both states.
+function splitBorderShorthand(s: CSSProperties): CSSProperties {
+  if (typeof s.border !== 'string') return s
+  const parts = s.border.trim().split(/\s+/)
+  if (parts.length !== 3) return s
+  const [borderWidth, borderStyle, borderColor] = parts
+  const { border: _shorthand, ...rest } = s
+  return { ...rest, borderWidth, borderStyle, borderColor }
+}
+
 export function Box({ as = 'div', css: base, hover, style, children, ...rest }: BoxProps) {
   const [h, setH] = useState(false)
-  const merged: CSSProperties = { ...toStyle(base), ...toStyle(style), ...(h && hover ? toStyle(hover) : {}) }
+  const hoverStyle = hover ? toStyle(hover) : {}
+  const baseMerged: CSSProperties = { ...toStyle(base), ...toStyle(style) }
+  const resolvedBase = 'borderColor' in hoverStyle ? splitBorderShorthand(baseMerged) : baseMerged
+  const merged: CSSProperties = { ...resolvedBase, ...(h ? hoverStyle : {}) }
   const Tag = as
   const hoverProps = hover
     ? { onMouseEnter: () => setH(true), onMouseLeave: () => setH(false) }
