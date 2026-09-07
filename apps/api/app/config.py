@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     # Optional OpenAI-compatible gateway (e.g. OpenRouter: https://openrouter.ai/api/v1).
     # Empty → official OpenAI endpoint.
     openai_base_url: str = ""
-    openai_vision_model: str = "gpt-4.1"
+    openai_vision_model: str = "gpt-6-astra"
     # Page rasterisation + request limits (cost/detail trade-offs — see pdf.py).
     vision_dpi: int = 150
     vision_max_pages: int = 30
