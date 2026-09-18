@@ -162,10 +162,11 @@ def list_quotes(
 ):
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
-    # Prefer real ingested quotes; fall back to the demo quotes when none exist
-    # (keeps the Riverside demo populated before any quotes are ingested).
-    rows = quotes_repo.list_quote_rows(db, org_id, project_id)
-    return rows if rows else reference_repo.list_demo_quotes(db)
+    # Only this project's own (ingested or seeded) quote rows. There is no
+    # fallback to the global demo quote list: it surfaced Riverside's quotes
+    # under every project that had none of its own, and "Compare" on those
+    # rows then 404'd because no real quote backed them.
+    return quotes_repo.list_quote_rows(db, org_id, project_id)
 
 
 @router.get("/{project_id}/rfqs", response_model=List[Rfq])
