@@ -5,6 +5,7 @@ template is used (mock-safe). Recipients are the chosen suppliers that have an
 email, capped to a sensible 5–10.
 """
 from dataclasses import dataclass, field
+import re
 from typing import List, Optional
 
 from app.config import settings
@@ -227,18 +228,34 @@ def _sub_request_sentence(trade_label: str, project_name: str, location: str) ->
     return f"{sentence}."
 
 
+_ATTACHMENT_SENTENCE = "Please review any attached project documents for additional detail. "
+
+
 def _sub_template_body(opening: str, scope: str) -> str:
     # Attachments are chosen later in the review modal and may be absent at
-    # send, so the body must not promise them — "any attached" stays truthful
-    # either way.
+    # send; `body_without_attachment_note` strips the sentence at send time
+    # when nothing is attached.
     return (
         f"{opening}\n\n"
         "Scope of work:\n"
         f"{scope}\n\n"
-        "Please review any attached project documents for additional detail. "
+        f"{_ATTACHMENT_SENTENCE}"
         "Your prompt response is appreciated. Please let us know if "
         "you need additional information to prepare your bid."
     )
+
+
+_ATTACHMENT_NOTE_RE = re.compile(
+    r"[^.\n]*\battached (?:project )?documents?\b[^.\n]*\.\s*", re.IGNORECASE
+)
+
+
+def body_without_attachment_note(body: str) -> str:
+    """Drop the "review any attached documents" sentence from a drafted body.
+
+    Called at send time when the RFQ ships with no attachments, so the email
+    never refers to documents that aren't there."""
+    return _ATTACHMENT_NOTE_RE.sub("", body or "")
 
 
 def _sub_llm_body(trade_label: str, scope: str, opening: str) -> Optional[str]:

@@ -997,9 +997,12 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
     # attachment-free path (and any EmailSender built against the pre-attachment
     # signature) behaves exactly as before.
     send_kwargs = {"attachments": email_attachments} if email_attachments else {}
+    # The draft hedges with "any attached project documents"; with nothing
+    # attached that sentence is misleading, so drop it from what we send.
+    body = rfq["body"] if email_attachments else rfq_generator.body_without_attachment_note(rfq["body"])
     for r in to_send:
         try:
-            sent = sender.send(r["email"], rfq["subject"], rfq["body"],
+            sent = sender.send(r["email"], rfq["subject"], body,
                                from_addr=from_addr, cc=cc, **send_kwargs)
             r["sentMessageId"] = sent.message_id
             r["threadId"] = sent.thread_id

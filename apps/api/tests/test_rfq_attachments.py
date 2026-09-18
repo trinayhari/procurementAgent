@@ -32,7 +32,7 @@ class _Recorder:
 
     def send(self, to, subject, body, *, from_addr, cc=None, thread_id=None,
              in_reply_to=None, attachments=None):
-        self.sent.append({"to": to, "attachments": attachments})
+        self.sent.append({"to": to, "body": body, "attachments": attachments})
         return rfq_sender.SentMessage(
             message_id=f"rec-{len(self.sent)}", thread_id="t"
         )
@@ -379,3 +379,48 @@ def test_build_mime_strips_crlf_from_subject_and_recipients():
     assert msg["Bcc"] is None
     assert "Bcc" not in list(msg.keys())
     assert "\r" not in (msg["Subject"] or "") and "\n" not in (msg["Subject"] or "")
+
+
+# ------------------------------------------------- attachment note (EBUG-20)
+
+_NOTE = "Please review any attached project documents for additional detail."
+
+
+def test_attachment_note_is_dropped_when_nothing_is_attached(project, monkeypatch):
+    client, headers, pid = project
+    rfq = _draft_rfq(client, headers, pid)
+    # Bid-request drafts carry the hedge sentence; force it onto this body so the
+    # test covers the send-time rule regardless of which template drafted it.
+    r = _save(client, headers, pid, {**rfq, "body": rfq["body"] + "\n\n" + _NOTE + " Thanks."}, [])
+    assert r.status_code == 200, r.text
+    recorder = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    assert r.status_code == 200, r.text
+    for m in recorder.sent:
+        assert "attached project documents" not in m["body"].lower()
+        assert "Thanks." in m["body"]  # only that sentence is removed
+
+
+def test_attachment_note_is_kept_when_a_document_is_attached(project, monkeypatch):
+    client, headers, pid = project
+    monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
+    doc_id = _upload_doc(client, headers, pid)
+    rfq = _draft_rfq(client, headers, pid)
+    r = _save(client, headers, pid, {**rfq, "body": rfq["body"] + "\n\n" + _NOTE}, [doc_id])
+    assert r.status_code == 200, r.text
+    recorder = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    assert r.status_code == 200, r.text
+    assert all(_NOTE in m["body"] for m in recorder.sent)
+
+
+def test_sub_template_body_note_strip_helper():
+    from app.services.rfq import generator
+
+    body = generator._sub_template_body("We are seeking bids.", "Install 40 LF of pipe.")
+    assert _NOTE in body
+    stripped = generator.body_without_attachment_note(body)
+    assert "attached" not in stripped
+    assert "Scope of work:" in stripped and "Your prompt response is appreciated." in stripped
