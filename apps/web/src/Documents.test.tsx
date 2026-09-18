@@ -3,7 +3,7 @@
 // instead of showing a broken preview; a refused upload shows the backend's
 // reason. Drives the real <App /> against a mocked fetch (see App.test.tsx).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 import App from './App'
 
 const USER = { id: 'u-pm', email: 'pm@acmebuild.com', name: 'PM', company: 'Acme Build Co.', ccEmail: null }
@@ -118,7 +118,7 @@ async function openDocuments() {
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
   fireEvent.click(await screen.findByText('Riverside Yard'))
   await waitFor(() => expect(window.location.hash).toBe('#/project/p-1/overview'))
-  fireEvent.click(screen.getByRole('button', { name: /Documents/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^Documents$/ }))
 }
 
 describe('documents tab reliability', () => {
@@ -167,16 +167,16 @@ describe('documents tab reliability', () => {
     docs = [GONE_DOC]
     await openDocuments()
     await screen.findByText('File no longer available')
-    const removeButtons = screen.getAllByRole('button', { name: 'Remove' })
-    fireEvent.click(removeButtons[0])
+    fireEvent.click(screen.getAllByTitle('Remove')[0])
     // Nothing deleted yet — an inline confirm appeared.
     expect(deleteCalls).toEqual([])
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel remove' }))
-    expect(screen.queryByRole('button', { name: 'Confirm remove' })).toBeNull()
+    const bar = await screen.findByRole('alertdialog')
+    fireEvent.click(within(bar).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(deleteCalls).toEqual([])
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0])
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm remove' }))
+    fireEvent.click(screen.getAllByTitle('Remove')[0])
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(deleteCalls).toEqual(['doc-gone']))
   })
 
@@ -188,7 +188,7 @@ describe('documents tab reliability', () => {
     const input = screen.getByLabelText('Name this bill of materials')
     expect(manualCreates).toEqual([])
     fireEvent.change(input, { target: { value: 'Hydrants' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create BOM' }))
     await waitFor(() => expect(manualCreates).toEqual(['Hydrants']))
     // The new BOM opens straight into its editor.
     await screen.findByText('Edit materials')

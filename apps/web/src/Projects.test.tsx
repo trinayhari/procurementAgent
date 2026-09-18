@@ -3,7 +3,7 @@
 // must drop it from the list without a hard reload. Drives the real <App />
 // against a mocked fetch (see App.test.tsx).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 import App from './App'
 
 const USER = { id: 'u-pm', email: 'pm@acmebuild.com', name: 'PM', company: 'Acme Build Co.', ccEmail: null }
@@ -86,8 +86,8 @@ describe('project lifecycle', () => {
     // Let happy-dom's asynchronous hashchange for that navigation land before
     // deleting, so it can't replay the project route after the delete.
     await new Promise((r) => setTimeout(r, 30))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete project' }))
+    fireEvent.click(screen.getByTitle('Delete project'))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete project' }))
     await waitFor(() => expect(deleteCalls).toEqual(['p-2']))
     await waitFor(() => expect(window.location.hash).toBe('#/projects'))
     // The refetched list no longer carries the deleted project; no notice

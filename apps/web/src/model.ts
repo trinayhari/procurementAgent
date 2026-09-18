@@ -31,6 +31,8 @@ export interface State {
   // document's draft over another document's BOM.
   bomEditDocId?: string | null
   bomBusy: boolean
+  // Inline notice for the BOM editor (e.g. "save or cancel before switching").
+  bomEditNotice?: string | null
   projectId?: string
   comparePkg?: string
   newProjOpen?: boolean
@@ -64,8 +66,8 @@ export interface ModelProps {
   onUpload?: (file: File, planType?: string) => void
   onDeleteDoc?: (id: string) => void
   onReanalyzeDoc?: (id: string) => void
-  onCreateBom?: (name: string) => void
-  onCreateTradeScope?: (name: string) => void
+  onCreateBom?: (name: string) => void | Promise<void>
+  onCreateTradeScope?: (name: string) => void | Promise<void>
   editBom?: boolean
   bomDraft?: LineItemGroup[] | null
   bomBusy?: boolean
@@ -92,7 +94,10 @@ interface DocInput {
   id?: string; name: string; type: string; date: string; status: string; statusTone: string
   items: string; pages: number; processing?: boolean; hasFile?: boolean; planType?: string | null
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
-  timelineEvents?: number; error?: string | null; fileMissing?: boolean; mocked?: boolean
+  timelineEvents?: number; fileMissing?: boolean
+  // Extraction provenance: a mocked (no AI key) run, and the failure reason
+  // when status is 'Failed'.
+  mocked?: boolean; error?: string | null
 }
 interface QuoteInput { id?: string; sup: string; pkg: string; package?: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }
@@ -212,12 +217,16 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const supComms = (s.activeSupplierComms || []).map((c) => ({ ...c, chipStyle: chip(c.tone), iconHtml: ic(c.icon) }))
 
   const docRaw: DocInput[] = D.docs || []
+  // While a BOM edit is open, switching documents is blocked: `saveBom` writes
+  // the draft onto whichever document is current at save time, so edit A →
+  // click B → Save would overwrite B's BOM with A's draft.
+  const openDoc = (i: number) => {
+    if (i === s.docIdx) return
+    if (s.editBom) { set({ bomEditNotice: 'Save or cancel your BOM edits before switching documents.' }); return }
+    set({ docIdx: i })
+  }
   const docs = docRaw.map((d, i) => ({
-    ...d,
-    // Selecting a different document closes an open BOM editor (its draft
-    // belonged to the previous document — see State.bomEditDocId).
-    onOpen: () => set(i === s.docIdx ? { docIdx: i } : { docIdx: i, editBom: false, bomDraft: null, bomEditDocId: null }),
-    active: i === s.docIdx, statusBadge: badge(d.statusTone),
+    ...d, onOpen: () => openDoc(i), active: i === s.docIdx, statusBadge: badge(d.statusTone),
     rowStyle: sx({
       display: 'grid', gridTemplateColumns: 'minmax(150px,2fr) 124px 116px 104px', gap: 10,
       padding: '12px 16px', alignItems: 'center', cursor: 'pointer', borderBottom: '1px solid var(--border)',
@@ -262,11 +271,16 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   )
   const additionalSpec = specFor('other')
 
-  // Per-document BOM groups (props.docLineItems, fetched when a doc is selected)
-  // take precedence; then the project-wide line items; then baked-in literals.
+  // The BOM panel shows ONLY the selected document's own line items
+  // (props.docLineItems, fetched when a doc is selected). There is
+  // deliberately no fallback to the project-wide `/line-items` feed: that
+  // endpoint returns the shared demo BOM for every project, and rendering it
+  // under a failed or unselected document presented placeholder items as real,
+  // with live Edit / Confirm buttons.
   const dli = props && props.docLineItems
   const perDoc = dli && doc && dli.id === doc.id ? dli.groups : null
-  const extracted = (perDoc || D.lineItems || []).map((g) => {
+  const extractedLoading = !!(doc && doc.id) && !perDoc
+  const extracted = (perDoc || []).map((g) => {
     const { fg } = tone(g.tone)
     return { ...g, dotStyle: sx({ width: 8, height: 8, borderRadius: 2, background: fg, flex: 'none' }), countBadge: badge(g.tone, { fontSize: 11, padding: '1px 8px' }) }
   })
@@ -444,7 +458,9 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     tabRfqs: s.tab === 'rfqs', tabQuotesTable: s.tab === 'quotes' && !s.compare, tabCompare: s.tab === 'quotes' && s.compare, tabTimeline: s.tab === 'timeline',
     overviewCards, packages,
     suppliers, supplierOpen, activeSupplier, supComms, supCommsLoading,
-    docs, doc, extracted,
+    docs, doc, extracted, extractedLoading,
+    bomEditNotice: s.bomEditNotice || null,
+    dismissBomEditNotice: () => set({ bomEditNotice: null }),
     // Plan slots + additional documents (see App.tsx + TabDocuments).
     docSlots, additionalDocs, customBoms, tradeScopes,
     additionalLabel: (additionalSpec && additionalSpec.label) || 'Additional Document',

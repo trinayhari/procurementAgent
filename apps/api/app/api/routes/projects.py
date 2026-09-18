@@ -30,6 +30,7 @@ from app.schemas.quote import (
     AwardResult,
     Comparison,
     LineComparison,
+    PurchaseDecision,
     Quote,
 )
 from app.schemas.rfq import Rfq, RfqFolder
@@ -167,10 +168,11 @@ def list_quotes(
 ):
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
-    # Prefer real ingested quotes; fall back to the demo quotes when none exist
-    # (keeps the Riverside demo populated before any quotes are ingested).
-    # Demo org only: on a seeded instance every other tenant used to see the
-    # same five Riverside quotes in every project.
+    # Only this project's own (ingested or seeded) quote rows. The demo org
+    # alone may fall back to the seeded Riverside quotes (keeps the demo
+    # populated before any quotes are ingested); every other tenant used to see
+    # the same five Riverside quotes under every project that had none of its
+    # own, and "Compare" on those rows 404'd because no real quote backed them.
     rows = quotes_repo.list_quote_rows(db, org_id, project_id)
     if rows or not _is_demo_org(org_id):
         return rows
@@ -456,7 +458,7 @@ def award_package(
     }
 
 
-@router.get("/{project_id}/purchase-decisions")
+@router.get("/{project_id}/purchase-decisions", response_model=List[PurchaseDecision])
 def list_purchase_decisions(
     project_id: str,
     db: Session = Depends(get_db),

@@ -142,6 +142,28 @@ export function post<T = unknown>(path: string, body?: unknown): Promise<T> {
 export type AuthUser = Schemas['User']
 type TokenResponse = Schemas['TokenResponse']
 
+// Turn a FastAPI error body into one readable sentence. A plain `detail`
+// string comes through as-is; a Pydantic validation error (422) arrives as a
+// list of `{loc, msg}` objects, which would otherwise render as
+// "[object Object]" on the auth screen.
+export function describeApiError(data: unknown, fallback: string): string {
+  const detail = data && typeof data === 'object' ? (data as { detail?: unknown }).detail : undefined
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((d) => {
+        if (!d || typeof d !== 'object') return ''
+        const { loc, msg } = d as { loc?: unknown[]; msg?: string }
+        const field = Array.isArray(loc) ? loc.filter((x) => x !== 'body').map(String).join('.') : ''
+        const text = (msg || '').replace(/^Value error, /, '').replace(/^value is not a valid email address: /, '')
+        return field ? `${field[0].toUpperCase()}${field.slice(1)}: ${text}` : text
+      })
+      .filter(Boolean)
+    if (parts.length) return parts.join(' · ')
+  }
+  return fallback
+}
+
 // Surface a friendly message for the auth screen rather than a bare status code.
 async function authRequest(path: string, body: unknown): Promise<TokenResponse> {
   const res = await fetch(`${BASE}${path}`, {
@@ -151,9 +173,7 @@ async function authRequest(path: string, body: unknown): Promise<TokenResponse> 
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    // A 422 carries a list of field errors, which stringified to
-    // "[object Object]" on the login / register / invite-accept screens.
-    throw new Error(errorDetail(data) || `Request failed (${res.status})`)
+    throw new Error(describeApiError(data, `Request failed (${res.status})`))
   }
   return data as TokenResponse
 }
@@ -615,6 +635,14 @@ export function getLineComparison(
   return get<LineComparison>(
     `/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/line-comparison`,
   )
+}
+
+// Award records for a project, newest first. The comparison screen reads these
+// so an already-awarded package is flagged before anyone re-awards it (which
+// would re-notify every supplier).
+export type PurchaseDecision = Schemas['PurchaseDecision']
+export function listPurchaseDecisions(projectId: string): Promise<PurchaseDecision[]> {
+  return get<PurchaseDecision[]>(`/api/projects/${projectId}/purchase-decisions`)
 }
 
 // Submit a (possibly split) award — selections map each line name to a supplier id.

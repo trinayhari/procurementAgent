@@ -3,7 +3,7 @@
 // package needs an explicit re-award, and sending a draft from the RFQs tab
 // updates the list in place. Drives the real <App /> against a mocked fetch.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 import App from './App'
 
 const USER = { id: 'u-pm', email: 'pm@acmebuild.com', name: 'PM', company: 'Acme Build Co.', ccEmail: null }
@@ -139,16 +139,21 @@ describe('quotes → compare → award', () => {
     expect(window.location.hash).toBe('#/project/p-1/quotes/compare/upload-16-abc123')
   })
 
-  it('locks the submit button after a successful award', async () => {
+  it('turns the submit button into a confirmed "Award again" after a successful award', async () => {
     await openProject()
     fireEvent.click(screen.getByRole('button', { name: /Quotes/ }))
     fireEvent.click(await screen.findByRole('button', { name: /Compare/ }))
     const submit = await screen.findByRole('button', { name: /Submit award/ })
     fireEvent.click(submit)
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm award' }))
     await screen.findByText(/Awarded QA Custom BOM/)
-    const after = screen.getByRole('button', { name: 'Awarded' }) as HTMLButtonElement
-    expect(after.disabled).toBe(true)
-    fireEvent.click(after)
+    expect(awardRequests).toEqual(['upload-16-abc123'])
+    // No plain submit any more: the package is flagged as awarded and a second
+    // click only opens the re-award confirm (no request without it).
+    expect(screen.queryByRole('button', { name: /Submit award/ })).toBeNull()
+    await screen.findByText(/Already awarded/)
+    fireEvent.click(screen.getByRole('button', { name: /Award again/ }))
+    await screen.findByRole('alertdialog')
     expect(awardRequests).toEqual(['upload-16-abc123'])
   })
 
@@ -157,10 +162,12 @@ describe('quotes → compare → award', () => {
     await openProject()
     fireEvent.click(screen.getByRole('button', { name: /Quotes/ }))
     fireEvent.click(await screen.findByRole('button', { name: /Compare/ }))
-    await screen.findByText('Already awarded')
+    await screen.findByText(/Already awarded/)
     expect(screen.queryByRole('button', { name: /Submit award/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Re-award this package/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Confirm re-award/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Award again/ }))
+    const bar = await screen.findByRole('alertdialog')
+    expect(bar.textContent).toContain('already awarded')
+    fireEvent.click(within(bar).getByRole('button', { name: 'Award again' }))
     await waitFor(() => expect(awardRequests).toEqual(['upload-16-abc123']))
     // The backend refuses a repeat award without this flag.
     expect(awardBodies[0].supersede).toBe(true)
@@ -171,6 +178,7 @@ describe('quotes → compare → award', () => {
     fireEvent.click(screen.getByRole('button', { name: /Quotes/ }))
     fireEvent.click(await screen.findByRole('button', { name: /Compare/ }))
     fireEvent.click(await screen.findByRole('button', { name: /Submit award/ }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm award' }))
     await waitFor(() => expect(awardBodies).toHaveLength(1))
     expect(awardBodies[0].supersede).toBe(false)
   })
@@ -186,6 +194,7 @@ describe('RFQ modal status', () => {
     fireEvent.click(screen.getByRole('button', { name: /^RFQs$/ }))
     fireEvent.click(await screen.findByText(DRAFT_RFQ.subject))
     fireEvent.click(await screen.findByRole('button', { name: /Send RFQ/ }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Send now' }))
     await waitFor(() => expect(rfqs[0]).toMatchObject({ status: 'Awaiting' }))
     await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/conversation')).length).toBeGreaterThan(0))
     await new Promise((r) => setTimeout(r, 50))
@@ -201,6 +210,7 @@ describe('RFQs tab', () => {
     fireEvent.click(screen.getByRole('button', { name: /^RFQs$/ }))
     fireEvent.click(await screen.findByText(DRAFT_RFQ.subject))
     fireEvent.click(await screen.findByRole('button', { name: /Send RFQ/ }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Send now' }))
     // The modal is still open; the list behind it already shows the new status.
     await waitFor(() => expect(screen.getAllByText('Awaiting').length).toBeGreaterThan(0))
     expect(screen.queryByText('Draft')).toBeNull()

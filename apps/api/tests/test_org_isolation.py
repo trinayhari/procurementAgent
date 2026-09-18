@@ -322,3 +322,17 @@ def _org_of(client: TestClient, headers: dict) -> str:
     email = client.get("/api/auth/me", headers=headers).json()["email"]
     with SessionLocal() as db:
         return users_repo.get_by_email(db, email).organization_id
+
+
+# --------------------------------------------------------------------------- #
+# Quotes — a project with no quotes of its own shows none (no demo fallback).
+# --------------------------------------------------------------------------- #
+def test_project_without_quotes_lists_none(two_orgs):
+    """A fresh project must not inherit the global demo quote list: those rows
+    belong to no real RFQ, so 'Compare' on them is a dead end and the counts
+    they imply are untrue."""
+    client, headers_a, _ = two_orgs
+    pid = _new_project(client, headers_a, "Empty Job")
+    r = client.get(f"/api/projects/{pid}/quotes", headers=headers_a)
+    assert r.status_code == 200
+    assert r.json() == []

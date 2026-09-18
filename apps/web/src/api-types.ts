@@ -2196,6 +2196,66 @@ export interface components {
             /** Activity */
             activity: components["schemas"]["Activity"][];
         };
+        /**
+         * PurchaseDecision
+         * @description A recorded award for a package — who bought what, from whom, decided by
+         *     whom. Surfaced on the comparison screen so a package that was already
+         *     awarded is never re-awarded (and suppliers re-notified) by accident.
+         */
+        PurchaseDecision: {
+            /** Id */
+            id: string;
+            /** Projectid */
+            projectId: string;
+            /** Package */
+            package: string;
+            /** Packagelabel */
+            packageLabel: string;
+            /** Strategy */
+            strategy?: string | null;
+            /**
+             * Selections
+             * @default {}
+             */
+            selections: {
+                [key: string]: string;
+            };
+            /**
+             * Supplierids
+             * @default []
+             */
+            supplierIds: string[];
+            /**
+             * Suppliers
+             * @default []
+             */
+            suppliers: string[];
+            /** Total */
+            total: number;
+            /**
+             * Material
+             * @default 0
+             */
+            material: number;
+            /**
+             * Freight
+             * @default 0
+             */
+            freight: number;
+            /** Leaddays */
+            leadDays?: number | null;
+            /**
+             * Pocount
+             * @default 0
+             */
+            poCount: number;
+            /** Decidedby */
+            decidedBy?: string | null;
+            /** Decidedbyemail */
+            decidedByEmail?: string | null;
+            /** Createdat */
+            createdAt?: string | null;
+        };
         /** Quote */
         Quote: {
             /** Id */
@@ -3648,7 +3708,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PurchaseDecision"][];
                 };
             };
             /** @description Validation Error */
