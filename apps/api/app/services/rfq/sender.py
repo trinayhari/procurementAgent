@@ -122,6 +122,39 @@ def describe_gmail_error(exc: Exception, *, stage: str = "send") -> str:
     return f"Gmail {stage} failed: {tail}"
 
 
+# Last real Gmail outcome, for Settings (GET /api/auth/email-config → gmail):
+# "configured" only says the four env vars are set; this says whether the
+# mailbox actually answered the last time we called it.
+_GMAIL_STATE: dict = {"error": None, "at": None, "ok_at": None}
+
+
+def record_gmail_failure(message: str) -> None:
+    from datetime import datetime, timezone
+
+    _GMAIL_STATE["error"] = message
+    _GMAIL_STATE["at"] = datetime.now(timezone.utc).isoformat()
+
+
+def record_gmail_success() -> None:
+    from datetime import datetime, timezone
+
+    _GMAIL_STATE["error"] = None
+    _GMAIL_STATE["at"] = None
+    _GMAIL_STATE["ok_at"] = datetime.now(timezone.utc).isoformat()
+
+
+def reset_gmail_state() -> None:
+    _GMAIL_STATE.update({"error": None, "at": None, "ok_at": None})
+
+
+def gmail_status() -> dict:
+    return {
+        "lastError": _GMAIL_STATE["error"],
+        "lastErrorAt": _GMAIL_STATE["at"],
+        "lastOkAt": _GMAIL_STATE["ok_at"],
+    }
+
+
 def _retryable(exc: Exception) -> bool:
     status = _http_status(exc)
     if status in _RETRYABLE_HTTP:
@@ -324,9 +357,9 @@ class GmailSender:
 
             creds.refresh(Request())
         except Exception as exc:
-            raise GmailUnavailable(
-                describe_gmail_error(exc, stage="token refresh"), retryable=_retryable(exc)
-            ) from exc
+            message = describe_gmail_error(exc, stage="token refresh")
+            record_gmail_failure(message)
+            raise GmailUnavailable(message, retryable=_retryable(exc)) from exc
         self._svc = build("gmail", "v1", credentials=creds, cache_discovery=False)
         return self._svc
 
@@ -378,12 +411,14 @@ class GmailSender:
         attempt = 0
         while True:
             try:
-                return (
+                sent = (
                     service.users()
                     .messages()
                     .send(userId="me", body=message)
                     .execute()
                 )
+                record_gmail_success()
+                return sent
             except Exception as exc:
                 if _retryable(exc) and attempt < len(_RETRY_DELAYS_S):
                     delay = _RETRY_DELAYS_S[attempt]
@@ -394,9 +429,52 @@ class GmailSender:
                     )
                     time.sleep(delay)
                     continue
-                raise GmailUnavailable(
-                    describe_gmail_error(exc), retryable=_retryable(exc)
-                ) from exc
+                message = describe_gmail_error(exc)
+                record_gmail_failure(message)
+                raise GmailUnavailable(message, retryable=_retryable(exc)) from exc
+
+
+def probe_gmail() -> dict:
+    """Actually talk to Gmail: refresh the send-scope token and read the
+    mailbox profile with the read scope. Reports which side failed and whether
+    the mailbox is the one PROCUREAI_GMAIL_SENDER_ADDRESS names. Never raises."""
+    out = {
+        "ok": False, "error": None, "emailAddress": None, "senderAddress": sender_address(),
+        "senderAddressMatches": None, "sendScope": False, "readScope": False,
+    }
+    missing = missing_config()
+    if missing:
+        out["error"] = "Not configured — missing " + ", ".join(missing)
+        return out
+    try:
+        GmailSender()._service()
+        out["sendScope"] = True
+    except GmailUnavailable as exc:
+        out["error"] = str(exc)
+        return out
+    try:
+        from app.services.quotes import gmail_reader
+
+        gmail_reader.reset_service_cache()
+        profile = gmail_reader._service().users().getProfile(userId="me").execute()
+        out["readScope"] = True
+        addr = (profile.get("emailAddress") or "").strip().lower()
+        out["emailAddress"] = addr or None
+        out["senderAddressMatches"] = bool(addr) and addr == sender_address().lower()
+        if addr and not out["senderAddressMatches"]:
+            out["error"] = (
+                f"The connected mailbox is {addr} but PROCUREAI_GMAIL_SENDER_ADDRESS is "
+                f"{sender_address()} — Gmail will rewrite From: to the connected account; set the variable to {addr}."
+            )
+    except Exception as exc:
+        out["error"] = describe_gmail_error(exc, stage="read")
+        return out
+    out["ok"] = out["error"] is None
+    if out["ok"]:
+        record_gmail_success()
+    else:
+        record_gmail_failure(out["error"])
+    return out
 
 
 # The four env vars that together make real delivery possible.
@@ -507,4 +585,6 @@ def email_config() -> dict:
         # Which PROCUREAI_GMAIL_* variables are still unset — so Settings can
         # name the actual gap instead of a generic "not configured".
         "missing": missing,
+        # Whether the mailbox actually answered the last time we used it.
+        "gmail": gmail_status(),
     }

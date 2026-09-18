@@ -148,10 +148,55 @@ def ingest_quotes(db: Session, org_id: str, project_id: str) -> IngestOutcome:
 
 
 def _has_amount(parsed: ParsedQuote) -> bool:
-    """A quote we can rank: a total, a material subtotal, or at least one priced line."""
-    if parsed.total is not None or parsed.material_cost is not None:
-        return True
-    return any(li.extended is not None or li.unit_price is not None for li in parsed.line_items)
+    """A quote we can rank (after finalize_quote): a total or a material
+    subtotal. Unit prices without quantities don't add up to anything."""
+    return parsed.total is not None or parsed.material_cost is not None
+
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _tokens(name: str) -> set:
+    return {t for t in _WORD_RE.findall((name or "").lower()) if len(t) > 1}
+
+
+def fill_quantities_from_rfq(parsed: ParsedQuote, rfq_lines: Optional[List[dict]]) -> int:
+    """Give a unit-priced line the quantity we asked for when the supplier
+    didn't repeat it ("12\" DI pipe: $18.50/LF" answers our "2,400 LF" line).
+
+    Matched by word overlap with the RFQ line names — the better of ≥60 % of
+    the shorter name's words, or one name containing the other. Returns how
+    many quantities were filled; finalize_quote() then totals them.
+    """
+    if not rfq_lines:
+        return 0
+    asked = []
+    for item in rfq_lines:
+        name = (item.get("n") or item.get("name") or "").strip()
+        qty = (item.get("q") or item.get("qty") or "").strip()
+        if name and qty and _qty_num(qty) is not None:
+            asked.append((name, qty, _tokens(name)))
+    filled = 0
+    for li in parsed.line_items:
+        if li.quantity and _qty_num(li.quantity) is not None:
+            continue
+        mine = _tokens(li.name)
+        if not mine:
+            continue
+        best, best_score = None, 0.0
+        for name, qty, theirs in asked:
+            if not theirs:
+                continue
+            overlap = len(mine & theirs) / max(1, min(len(mine), len(theirs)))
+            lo_a, lo_b = li.name.lower().strip(), name.lower().strip()
+            if lo_a and (lo_a in lo_b or lo_b in lo_a):
+                overlap = max(overlap, 1.0)
+            if overlap > best_score:
+                best, best_score = qty, overlap
+        if best is not None and best_score >= 0.6:
+            li.quantity = best
+            filled += 1
+    return filled
 
 
 def _ingest_live(
@@ -186,6 +231,9 @@ def _ingest_live(
             logger.info("Reply %s from %s is not a quote; skipped", msg.message_id, msg.from_email)
             outcome.skipped.append(msg.message_id)
             continue
+        if fill_quantities_from_rfq(parsed, meta.get("rfq_lines")):
+            note = "Quantities taken from the RFQ where the supplier priced per unit."
+            parsed.notes = f"{parsed.notes}\n{note}".strip() if parsed.notes else note
         finalize_quote(parsed)
         if _has_amount(parsed):
             status = "received"

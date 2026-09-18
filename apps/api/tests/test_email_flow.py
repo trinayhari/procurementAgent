@@ -593,6 +593,25 @@ def test_ingest_ignores_recipients_who_never_received_the_rfq(project, monkeypat
     assert asked["emails"] == [rfq["recipients"][0]["email"]]
 
 
+def test_unit_priced_reply_is_totalled_with_the_rfq_quantities(project, monkeypatch):
+    """Regex path (no model configured): 'hydrant $3,150 each, valve $1,240
+    each, freight $900' against an RFQ asking for 5 hydrants and 9 valves."""
+    client, headers, pid = project
+    bom_id, rfq = _rfq_ready(client, headers, pid, n=1)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    rcp = r.json()["recipients"][0]
+    reply = _inbound("u1", rcp["email"], "Fire hydrant $3,150.00 each, 8-inch gate valve $1,240 each, freight $900, 4 weeks",
+                     rcp["threadId"], 1)
+    monkeypatch.setattr(ingest, "gmail_configured", lambda: True)
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_replies", lambda emails, lookback_days=30: [reply])
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_thread_replies", lambda t: [])
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    st = client.get(f"/api/projects/{pid}/quotes/ingest-status", headers=headers).json()
+    assert st["ingested"] == 1, st
+    q = client.get(f"/api/projects/{pid}/quotes", headers=headers).json()[0]
+    assert (q["amount"], q["freight"], q["total"], q["lead"]) == ("$26,910", "$900", "$27,810", "28 days")
+
+
 def test_ingest_honours_the_lookback_setting(monkeypatch, project):
     client, headers, pid = project
     _, rfq = _rfq_ready(client, headers, pid, n=1)
@@ -928,3 +947,100 @@ def test_test_email_surfaces_a_readable_gmail_error(auth, monkeypatch):
     r = client.post("/api/auth/test-email", headers=headers)
     assert r.status_code == 502
     assert "invalid_grant" in r.json()["detail"] and "re-mint" in r.json()["detail"]
+
+
+# ============================================================ provider health
+def test_email_config_reports_llm_and_gmail_health(auth, monkeypatch):
+    client, headers = auth
+    from app.services import llm_health
+
+    llm_health.reset()
+    rfq_sender.reset_gmail_state()
+    cfg = client.get("/api/auth/email-config", headers=headers).json()
+    assert cfg["llm"]["configured"] is False and cfg["llm"]["lastError"] is None
+    assert cfg["gmail"] == {"lastError": None, "lastErrorAt": None, "lastOkAt": None}
+
+    # A parser failure is recorded once at WARNING and shows up in Settings.
+    monkeypatch.setattr(settings, "openai_api_key", "sk-proj-xyz")
+    monkeypatch.setattr(settings, "openai_base_url", "https://openrouter.ai/api/v1")
+    from app.services.quotes import parser
+
+    class Boom:
+        def __init__(self, **kw):
+            raise RuntimeError("Error code: 401 - {'error': {'message': 'Missing Authentication header'}}")
+
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", Boom)
+    assert parser._llm_parse("Total $5") is None
+    assert parser._llm_parse("Total $6") is None  # second failure: no second WARNING
+    cfg = client.get("/api/auth/email-config", headers=headers).json()
+    assert cfg["llm"]["configured"] is True
+    assert "401" in cfg["llm"]["lastError"] and "sk-proj" in cfg["llm"]["lastError"]
+    assert cfg["llm"]["lastErrorWhere"] == "quote parser"
+
+    # A dead Gmail token is recorded too.
+    class Dead:
+        mocked = False
+
+        def send(self, *a, **kw):
+            rfq_sender.record_gmail_failure("Gmail connection expired or was revoked (invalid_grant) — re-mint")
+            raise rfq_sender.GmailUnavailable("Gmail connection expired or was revoked (invalid_grant) — re-mint")
+
+    from app.api.routes import auth as auth_routes
+    monkeypatch.setattr(auth_routes.rfq_sender, "get_sender", lambda: Dead())
+    assert client.post("/api/auth/test-email", headers=headers).status_code == 502
+    cfg = client.get("/api/auth/email-config", headers=headers).json()
+    assert "invalid_grant" in cfg["gmail"]["lastError"]
+    # …and the failed test send is in the audit log.
+    audit = client.get("/api/audit?action=email.test_failed", headers=headers).json()
+    assert audit and "invalid_grant" in (audit[0].get("detail") or {}).get("error", "")
+    llm_health.reset()
+    rfq_sender.reset_gmail_state()
+
+
+def test_llm_failure_logs_a_warning_once(caplog, monkeypatch):
+    from app.services import llm_health
+
+    llm_health.reset()
+    with caplog.at_level("INFO", logger="procureai.llm"):
+        llm_health.record_failure(RuntimeError("401 Unauthorized"), "quote parser")
+        llm_health.record_failure(RuntimeError("401 Unauthorized"), "quote parser")
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "quote parser" in warnings[0].getMessage()
+    llm_health.record_success()
+    assert llm_health.status()["lastError"] is None
+    llm_health.reset()
+
+
+def test_providers_health_probe_reports_each_provider(auth, monkeypatch):
+    client, headers = auth
+    from app.api.routes import health as health_routes
+
+    # Unconfigured: both fail with the reason, nothing is called.
+    r = client.get("/api/health/providers", headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is False
+    assert "PROCUREAI_GMAIL_CLIENT_ID" in body["gmail"]["error"]
+    assert "PROCUREAI_OPENAI_API_KEY" in body["llm"]["error"]
+
+    # Configured and answering: the probe compares the mailbox to the sender address.
+    monkeypatch.setattr(health_routes.rfq_sender, "probe_gmail", lambda: {
+        "ok": False, "error": "The connected mailbox is other@gmail.com but PROCUREAI_GMAIL_SENDER_ADDRESS is bids@ws.com — Gmail will rewrite From: to the connected account; set the variable to other@gmail.com.",
+        "emailAddress": "other@gmail.com", "senderAddress": "bids@ws.com", "senderAddressMatches": False,
+        "sendScope": True, "readScope": True,
+    })
+    monkeypatch.setattr(health_routes.llm_health, "probe", lambda: {"ok": True, "error": None, "model": "gpt-4.1"})
+    body = client.get("/api/health/providers", headers=headers).json()
+    assert body["ok"] is False and body["llm"]["ok"] is True
+    assert body["gmail"]["senderAddressMatches"] is False and "rewrite From" in body["gmail"]["error"]
+    # Rate limited: 3/minute.
+    client.get("/api/health/providers", headers=headers)
+    assert client.get("/api/health/providers", headers=headers).status_code == 429
+    # Unauthenticated: refused.
+    assert client.get("/api/health/providers").status_code in (401, 403)
+
+
+def test_probe_gmail_unconfigured_never_touches_the_network():
+    out = rfq_sender.probe_gmail()
+    assert out["ok"] is False and "Not configured" in out["error"] and out["sendScope"] is False

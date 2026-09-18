@@ -3,6 +3,7 @@ import logging
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import health as health_routes
 from app.api.routes import (
     audit,
     auth,
@@ -102,7 +103,7 @@ app.include_router(team.public_router)
 
 # Every other route requires an authenticated user.
 _authed = [Depends(get_current_user)]
-for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline, jobs, audit, team):
+for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline, jobs, audit, team, health_routes):
     app.include_router(module.router, dependencies=_authed)
 
 # The eval bench (docs/eval-harness.md) is a local tuning tool: unauthenticated,

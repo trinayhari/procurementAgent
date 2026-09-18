@@ -1,0 +1,9 @@
+{
+  "why": "A marketing mail from a known supplier address with a dollar figure in it (EBUG-12) must not become the cheapest bid.",
+  "text": "Spring promo!\n\nSave $500 on valves this month when you order online. Offer ends Friday.\n",
+  "expect_regex": {
+    "is_quote": false,
+    "total": null,
+    "freight": null
+  }
+}

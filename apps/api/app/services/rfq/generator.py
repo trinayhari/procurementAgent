@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from app.config import settings
+from app.services import llm_health
 
 _MAX_RECIPIENTS = 10
 
@@ -152,8 +153,10 @@ def _llm_body(package_label: str, items_text: str, opening: str) -> Optional[str
             temperature=0.2,
             max_tokens=600,
         )
+        llm_health.record_success()
         return (resp.choices[0].message.content or "").strip() or None
-    except Exception:
+    except Exception as exc:
+        llm_health.record_failure(exc, "RFQ body generator")
         return None
 
 
@@ -269,8 +272,10 @@ def _sub_llm_body(trade_label: str, scope: str, opening: str) -> Optional[str]:
             temperature=0.2,
             max_tokens=600,
         )
+        llm_health.record_success()
         return (resp.choices[0].message.content or "").strip() or None
-    except Exception:
+    except Exception as exc:
+        llm_health.record_failure(exc, "bid-request body generator")
         return None
 
 

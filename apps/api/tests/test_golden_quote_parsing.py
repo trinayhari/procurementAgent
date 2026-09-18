@@ -38,7 +38,17 @@ def _check(parsed: ParsedQuote, expect: dict) -> None:
 @pytest.mark.parametrize("case", _fixtures("expect_regex"))
 def test_regex_fallback_reads_the_reply(case):
     assert not parser.is_configured(), "golden tests must run on the deterministic path"
-    _check(parser.parse_quote(case["text"]), case["expect_regex"])
+    parsed = parser.parse_quote(case["text"])
+    _check(parsed, case["expect_regex"])
+    if "expect_regex_lines" in case:
+        got = [{"name": li.name, "quantity": li.quantity, "unit_price": li.unit_price}
+               for li in parsed.line_items]
+        assert got == case["expect_regex_lines"]
+    if "expect_regex_finalized" in case:
+        ingest.fill_quantities_from_rfq(parsed, case.get("rfq_lines"))
+        ingest.finalize_quote(parsed)
+        assert parsed.material_cost == case["expect_regex_finalized"]["material_cost"]
+        assert parsed.total == case["expect_regex_finalized"]["total"]
 
 
 @pytest.mark.parametrize("case", _fixtures("expect_finalized"))

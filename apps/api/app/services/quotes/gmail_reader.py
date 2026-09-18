@@ -15,7 +15,13 @@ from typing import List, Optional
 
 from app.config import settings
 from app.services.quotes import pdf_text
-from app.services.rfq.sender import _TOKEN_URI, describe_gmail_error, is_configured
+from app.services.rfq.sender import (
+    _TOKEN_URI,
+    describe_gmail_error,
+    is_configured,
+    record_gmail_failure,
+    record_gmail_success,
+)
 
 logger = logging.getLogger("procureai.quotes.gmail")
 
@@ -106,7 +112,9 @@ def _service():
     try:
         creds.refresh(Request())
     except Exception as exc:
-        raise GmailReadUnavailable(describe_gmail_error(exc, stage="read")) from exc
+        message = describe_gmail_error(exc, stage="read")
+        record_gmail_failure(message)
+        raise GmailReadUnavailable(message) from exc
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
     _SERVICE_CACHE.clear()
     _SERVICE_CACHE[key] = service
@@ -229,7 +237,10 @@ def fetch_replies(sender_emails: List[str], lookback_days: int = 30, limit: int 
             userId="me", q=query, maxResults=limit
         ).execute()
     except Exception as exc:
-        raise GmailReadUnavailable(describe_gmail_error(exc, stage="list")) from exc
+        message = describe_gmail_error(exc, stage="list")
+        record_gmail_failure(message)
+        raise GmailReadUnavailable(message) from exc
+    record_gmail_success()
 
     out: List[InboundMessage] = []
     for ref in listing.get("messages", []) or []:

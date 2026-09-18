@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -59,6 +59,13 @@ class EmailConfig(BaseModel):
     ccEmail: Optional[EmailStr] = None  # your Cc address, if set
     # Which PROCUREAI_GMAIL_* variables are still unset (empty when configured).
     missing: List[str] = []
+    # Last real outcome of talking to Gmail: {lastError, lastErrorAt, lastOkAt}.
+    # `configured` says the variables are set; this says the mailbox answered.
+    gmail: Dict[str, Any] = {}
+    # The LLM used for quote parsing / RFQ drafting: {configured, model,
+    # baseUrl, lastError, lastErrorAt, lastErrorWhere, lastOkAt}. When
+    # `lastError` is set replies are parsed by the regex fallback.
+    llm: Dict[str, Any] = {}
 
 
 class TestEmailResult(BaseModel):
