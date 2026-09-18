@@ -997,9 +997,10 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
     # attachment-free path (and any EmailSender built against the pre-attachment
     # signature) behaves exactly as before.
     send_kwargs = {"attachments": email_attachments} if email_attachments else {}
-    # The draft hedges with "any attached project documents"; with nothing
-    # attached that sentence is misleading, so drop it from what we send.
-    body = rfq["body"] if email_attachments else rfq_generator.body_without_attachment_note(rfq["body"])
+    # Templates never mention attachments; the note is added here only when
+    # files actually ride along (and dropped from old drafts that hedged),
+    # then persisted so the stored RFQ / thread read what went out.
+    body = rfq_generator.body_for_send(rfq["body"], bool(email_attachments))
     for r in to_send:
         try:
             sent = sender.send(r["email"], rfq["subject"], body,
@@ -1008,6 +1009,7 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
             r["threadId"] = sent.thread_id
             r["sendStatus"] = "sent"
             r["sendError"] = None
+            r["mock"] = bool(getattr(sender, "mocked", False))
         except Exception as exc:  # record the failure per-recipient, keep going
             r["sendStatus"] = "failed"
             r["sendError"] = str(exc) or exc.__class__.__name__
@@ -1020,7 +1022,7 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
 
     failed = [r for r in recipients if not rfq_state.recipient_sent(r)]
     status = "Send failed" if failed else "Awaiting"
-    sent_rfq = rfqs_repo.mark_rfq_sent(db, org_id, rfq_id, recipients, status=status)
+    sent_rfq = rfqs_repo.mark_rfq_sent(db, org_id, rfq_id, recipients, status=status, body=body)
     delivered = len(recipients) - len(failed)
     audit_repo.log(
         db, org_id, current_user, "rfq.sent", "rfq", rfq_id, project_id=project_id,

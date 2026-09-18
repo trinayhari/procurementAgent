@@ -1124,3 +1124,14 @@ def test_metrics_do_not_count_a_failed_send_or_superseded_quotes(project, monkey
     assert cards()["Quotes received"]["value"] == "1"
     assert dash()["Quotes received"]["value"] == "1"
     assert cards()["RFQs sent"]["value"] == "1"
+
+
+def test_mock_sends_are_labelled_as_logged_not_delivered(project):
+    client, headers, pid = project
+    _, rfq = _rfq_ready(client, headers, pid, n=1)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    assert r.status_code == 200
+    rcp = r.json()["recipients"][0]
+    assert rcp["sendStatus"] == "sent" and rcp["mock"] is True
+    conv = client.get(f"/api/projects/{pid}/rfqs/{rfq['id']}/conversation", headers=headers).json()
+    assert conv["gmail"] is False and conv["thread"][0]["time"] == "Logged only (mock \u2014 not delivered)"

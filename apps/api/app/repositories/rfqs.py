@@ -142,16 +142,21 @@ def record_outbound_message(
 
 
 def mark_rfq_sent(
-    db: Session, org_id: str, rfq_id: str, recipients: List[dict], status: str = "Awaiting"
+    db: Session, org_id: str, rfq_id: str, recipients: List[dict], status: str = "Awaiting",
+    body: Optional[str] = None,
 ) -> Optional[dict]:
     """Persist send results (recipients now carry send state) and flip status.
 
+    `body` is the text that actually went out (send-time attachment note
+    applied) so the stored RFQ and its thread show what suppliers received.
     Raises rfq_state.IllegalTransition when the flip isn't a legal move."""
     row = _get_row(db, org_id, rfq_id)
     if row is None:
         return None
     rfq_state.assert_transition(row.status, status)
     row.recipients = json.dumps(recipients)
+    if body is not None:
+        row.body = body
     row.status = status
     row.sent_at = datetime.now(timezone.utc)
     db.commit()

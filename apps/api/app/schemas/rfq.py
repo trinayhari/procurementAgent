@@ -60,6 +60,9 @@ class RfqRecipient(BaseModel):
     # Gmail ids of later messages we sent this recipient on the RFQ thread
     # (award / decline notices); ingest skips them.
     outboundMessageIds: Optional[List[str]] = None
+    # True when the "send" went through the logging mock (no Gmail configured)
+    # — recorded as sent for workflow purposes, but nothing was delivered.
+    mock: Optional[bool] = None
 
 
 class RfqLineItem(BaseModel):

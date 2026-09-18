@@ -173,6 +173,8 @@ def _outbound_label(rfq: dict) -> str:
     delivered = [r for r in recipients if rfq_state.recipient_sent(r)]
     if recipients and not delivered:
         return "Not delivered"
+    if delivered and all(r.get("mock") for r in delivered):
+        return "Logged only (mock \u2014 not delivered)"
     if len(delivered) < len(recipients):
         return f"Sent to {len(delivered)} of {len(recipients)}"
     return "Sent"

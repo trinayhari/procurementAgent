@@ -228,18 +228,20 @@ def _sub_request_sentence(trade_label: str, project_name: str, location: str) ->
     return f"{sentence}."
 
 
-_ATTACHMENT_SENTENCE = "Please review any attached project documents for additional detail. "
+# Attachments are chosen in the review modal AFTER a draft is generated, so
+# no template or model prompt ever mentions them. At send time the route adds
+# ATTACHMENT_SENTENCE when files actually ride along (body_with_attachment_note)
+# and persists the body that went out, so the draft, the stored RFQ and the
+# thread all read exactly what the supplier received.
+ATTACHMENT_SENTENCE = "Please review the attached project documents for additional detail."
+_PROMPT_RESPONSE_RE = re.compile(r"Your prompt response is appreciated\.")
 
 
 def _sub_template_body(opening: str, scope: str) -> str:
-    # Attachments are chosen later in the review modal and may be absent at
-    # send; `body_without_attachment_note` strips the sentence at send time
-    # when nothing is attached.
     return (
         f"{opening}\n\n"
         "Scope of work:\n"
         f"{scope}\n\n"
-        f"{_ATTACHMENT_SENTENCE}"
         "Your prompt response is appreciated. Please let us know if "
         "you need additional information to prepare your bid."
     )
@@ -251,11 +253,30 @@ _ATTACHMENT_NOTE_RE = re.compile(
 
 
 def body_without_attachment_note(body: str) -> str:
-    """Drop the "review any attached documents" sentence from a drafted body.
+    """Drop any "attached project documents" sentence from a body.
 
-    Called at send time when the RFQ ships with no attachments, so the email
-    never refers to documents that aren't there."""
-    return _ATTACHMENT_NOTE_RE.sub("", body or "")
+    Backstop for drafts generated before templates stopped emitting the
+    hedge ("Please review any attached …"): with nothing attached the email
+    must never refer to documents that aren't there."""
+    return _ATTACHMENT_NOTE_RE.sub("", body or "").rstrip(" ")
+
+
+def body_with_attachment_note(body: str) -> str:
+    """The body to send when documents ARE attached: one sentence pointing the
+    supplier at them, placed just before "Your prompt response is
+    appreciated." when that closing is present, else on its own line at the
+    end. Idempotent — an old draft that already carries a note is normalised
+    to the single current sentence."""
+    base = body_without_attachment_note(body).rstrip()
+    m = _PROMPT_RESPONSE_RE.search(base)
+    if m:
+        return base[: m.start()] + ATTACHMENT_SENTENCE + " " + base[m.start():]
+    return f"{base}\n\n{ATTACHMENT_SENTENCE}" if base else ATTACHMENT_SENTENCE
+
+
+def body_for_send(body: str, has_attachments: bool) -> str:
+    """What actually goes on the wire (and is persisted onto the RFQ)."""
+    return body_with_attachment_note(body) if has_attachments else body_without_attachment_note(body)
 
 
 def _sub_llm_body(trade_label: str, scope: str, opening: str) -> Optional[str]:
@@ -274,8 +295,7 @@ def _sub_llm_body(trade_label: str, scope: str, opening: str) -> Optional[str]:
             "paragraph below verbatim — it names the buyer, the trade, and the "
             "project, so do not reword it or add details it leaves out. Then "
             "include the scope of work below verbatim under a 'Scope of work:' "
-            "heading. Mention that any attached project documents provide "
-            "additional detail (do not assert that documents are attached). "
+            "heading. Do not mention attachments or documents. "
             "Close with a brief sentence inviting follow-up if more information "
             "is needed. Do not add a greeting, project header, or signature.\n\n"
             f"{opening}\n\n"

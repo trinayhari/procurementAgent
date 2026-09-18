@@ -267,3 +267,67 @@ describe('RFQ modal attachments', () => {
     await screen.findByText(/11 MB selected/)
   })
 })
+
+describe('persisted award notification failures', () => {
+  const LC = {
+    pkg: 'Water Utilities', package: 'water', budget: null,
+    suppliers: [{ id: 's1', name: 'Core & Main', logo: 'CM', logoBg: '#111', leadDays: 10, distanceMiles: 12, freight: 500, total: 10500 }],
+    lines: [{ name: '12" DI Pipe', qty: '100 LF', pending: false, cells: [{ supplierId: 's1', unitPrice: 100, extended: 10000, leadDays: 10, available: true, best: true }] }],
+    options: [{ key: 'mix', label: 'Lowest cost (mix & match)', total: 10500, material: 10000, freight: 500, leadDays: 10, suppliersUsed: 1, deliveries: 1, savings: 0, note: '', selections: { '12" DI Pipe': 's1' } }],
+    recommendedOption: 'mix',
+    lastAward: { id: 'pd-1', total: 10500, poCount: 1, suppliers: ['Core & Main'], createdAt: '2026-09-17T10:00:00', decidedBy: 'Pat Mason' },
+  }
+  const QUOTES = [{ id: 'q1', sup: 'Core & Main', pkg: 'Water Utilities', package: 'water', amount: '$10,000', freight: '$500', total: '$10,500', lead: '10 days', date: 'Sep 1', logo: 'CM', logoBg: '#111', best: true, status: 'received' }]
+  const FAILED = { supplier: 'Core & Main', email: 'a@x.com', kind: 'award', error: 'Gmail connection expired or was revoked (invalid_grant) — re-mint the refresh token (docs/email-setup.md, Step 3) and restart the backend.' }
+  const DECISION = {
+    id: 'pd-1', projectId: PROJECT.id, package: 'water', packageLabel: 'Water Utilities', strategy: 'mix', selections: { '12" DI Pipe': 's1' },
+    supplierIds: ['s1'], suppliers: ['Core & Main'], total: 10500, material: 10000, freight: 500, leadDays: 10, poCount: 1,
+    decidedBy: 'u-pm', decidedByEmail: USER.email, createdAt: '2026-09-17T10:00:00', status: 'active', supersededBy: null,
+    notifications: { notified: [], declined: [], withdrawn: [], failed: [FAILED], mock: false, at: '2026-09-17T10:00:01' },
+  }
+
+  it('shows the failures and the re-send button on load, and clears them after a successful re-send', async () => {
+    const resends: unknown[] = []
+    vi.stubGlobal('fetch', makeFetch((path, init) => {
+      if (path.endsWith('/quotes')) return json(QUOTES)
+      if (path.includes('/line-comparison')) return json(LC)
+      if (path.endsWith('/purchase-decisions')) return json([DECISION])
+      if (path.endsWith('/award/notify') && init && init.method === 'POST') { resends.push(JSON.parse(String(init.body))); return json({ message: '1 supplier notified.', notified: 1, declined: 0, withdrawn: 0, notifyFailed: [], notifyMocked: false }) }
+      return undefined
+    }))
+    await openProject('quotes')
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare' }))
+    await screen.findByText(/1 supplier notification from the award on 2026-09-17 could not be sent/)
+    expect(screen.getByText(/Core & Main \(a@x.com\): Gmail connection expired/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Re-send 1 failed notification' }))
+    await screen.findByText('1 supplier notified.')
+    expect(resends).toEqual([{ all: false }])
+    expect(screen.queryByRole('button', { name: /Re-send/ })).toBeNull()
+  })
+})
+
+describe('mock-mode labels and package quote counts', () => {
+  it('labels a mock send as logged, not delivered', async () => {
+    const SENT = { ...RFQ_BASE, status: 'Awaiting', statusTone: 'warn', recipients: [{ supplierId: 's1', name: 'Core & Main', email: 'a@x.com', sendStatus: 'sent', sentMessageId: 'mock-1', threadId: 'mock-1', mock: true }] }
+    vi.stubGlobal('fetch', makeFetch((path) => {
+      if (path.endsWith('/rfqs/generated')) return json([SENT])
+      if (path.endsWith('/conversation')) return json({ rfqId: 'rfq-1', status: 'Awaiting', statusTone: 'warn', gmail: false, configured: false, readError: null, thread: [{ dir: 'out', who: 'You · Proq', initials: 'YOU', time: 'Logged only (mock — not delivered)', subject: SENT.subject, body: SENT.body, attach: null, logoBg: null }] })
+      return undefined
+    }))
+    await openProject('rfqs')
+    fireEvent.click(await screen.findByText(SENT.subject))
+    await screen.findByText('Logged (mock)')
+    await screen.findByText('Logged only (mock — not delivered)')
+  })
+
+  it('does not count a needs-review reply in the package header', async () => {
+    const QUOTES = [
+      { id: 'q1', sup: 'Core & Main', pkg: 'Water Utilities', package: 'water', amount: '$10,000', freight: '$500', total: '$10,500', lead: '10 days', date: 'Sep 1', logo: 'CM', logoBg: '#111', best: true, status: 'received' },
+      { id: 'q2', sup: 'Ferguson', pkg: 'Water Utilities', package: 'water', amount: '$11,000', freight: '$500', total: '$11,500', lead: '10 days', date: 'Sep 1', logo: 'FW', logoBg: '#222', best: false, status: 'received' },
+      { id: 'q3', sup: 'Ghost Co', pkg: 'Water Utilities', package: 'water', amount: '—', freight: '—', total: '—', lead: '—', date: 'Sep 2', logo: 'GC', logoBg: '#333', best: false, status: 'needs_review' },
+    ]
+    vi.stubGlobal('fetch', makeFetch((path) => (path.endsWith('/quotes') ? json(QUOTES) : undefined)))
+    await openProject('quotes')
+    await screen.findByText('2 quotes · 1 to review')
+  })
+})

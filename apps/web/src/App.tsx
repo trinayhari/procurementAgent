@@ -3008,7 +3008,9 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
                 <div key={r.email} style={css(`display:flex;flex-direction:column;gap:4px;padding:7px 11px;border:1px solid ${st === 'failed' ? 'var(--danger)' : 'var(--border)'};border-radius:9px;background:var(--panel-2)`)}>
                   <div style={css('display:flex;align-items:center;gap:9px')}>
                     <div style={css('flex:1;min-width:0')}><div style={css('font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.name}</div><div style={css('font-size:11.5px;color:var(--text-3)')}>{r.email}</div></div>
-                    {st === 'sent' && <span style={css('font-size:11px;font-weight:600;color:var(--success)')}>Sent</span>}
+                    {st === 'sent' && (r.mock
+                      ? <span title="No Gmail account is connected: the send was only logged, nothing was delivered." style={css('font-size:11px;font-weight:600;color:var(--warn)')}>Logged (mock)</span>
+                      : <span style={css('font-size:11px;font-weight:600;color:var(--success)')}>Sent</span>)}
                     {st === 'failed' && <span style={css('font-size:11px;font-weight:600;color:var(--danger)')}>Failed</span>}
                     {st === 'unsent' && !draft && <span style={css('font-size:11px;font-weight:600;color:var(--text-3)')}>Not sent</span>}
                     {st === 'unsent' && draft && <Box as="button" onClick={() => dropRecipient(r.email)} title="Remove recipient" style={css('width:24px;height:24px;border-radius:6px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>}
@@ -3344,7 +3346,7 @@ function TabQuotes({ m }: MProps) {
             <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:13px 16px;border-bottom:1px solid var(--border);background:var(--panel-2)')}>
               <div style={css('display:flex;align-items:center;gap:9px;min-width:0;flex-wrap:wrap')}>
                 <span style={css('font-size:13.5px;font-weight:700;letter-spacing:-.01em')}>{g.pkg}</span>
-                <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-3);padding:2px 8px;border-radius:999px')}>{g.rows.length} {g.rows.length === 1 ? 'quote' : 'quotes'}</span>
+                <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-3);padding:2px 8px;border-radius:999px')}>{(() => { const n = g.rows.filter((q) => q.status !== 'needs_review').length; const nr = g.rows.length - n; return `${n} ${n === 1 ? 'quote' : 'quotes'}${nr ? ` · ${nr} to review` : ''}` })()}</span>
                 {award && (
                   <span title={`Awarded for ${money(award.total)} to ${award.suppliers.join(', ')}`} style={css('display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 8px;border-radius:999px;white-space:nowrap')}>
                     <Svg size={11} sw={3} d='m5 12 5 5L20 7' />Awarded · {money(award.total)}
@@ -3454,7 +3456,7 @@ function TabCompare({ m }: MProps) {
 
   useEffect(() => {
     let alive = true
-    setLoading(true); setErr(null); setMsg(null); setSubmitErr(null); setConfirming(false); setPrior([])
+    setLoading(true); setErr(null); setMsg(null); setSubmitErr(null); setConfirming(false); setPrior([]); setNotifyFailed([])
     setEditingBudget(false); setBudgetDraft(''); setBudgetErr(null)
     getLineComparison(m.projectId, m.comparePkg)
       .then((data) => {
@@ -3464,7 +3466,18 @@ function TabCompare({ m }: MProps) {
         setSel(rec ? { ...rec.selections } : {})
         setStrategy(rec ? rec.key : 'custom')
         listPurchaseDecisions(m.projectId)
-          .then((ds) => { if (alive) setPrior(ds.filter((d) => d.package === data.package || d.packageLabel === data.pkg)) })
+          .then((ds) => {
+            if (!alive) return
+            const mine = ds.filter((d) => d.package === data.package || d.packageLabel === data.pkg)
+            setPrior(mine)
+            // Notifications that failed on the live award are persisted on
+            // the decision — keep showing them (and the re-send) until they
+            // succeed, not only in the session that awarded.
+            const live = mine.find((d) => (d.status || 'active') === 'active') || mine[0]
+            const failed = (live && live.notifications && live.notifications.failed) || []
+            setNotifyFailed(failed.map((f) => ({ supplier: f.supplier, email: f.email, error: f.error })))
+            if (failed.length && live) setMsg(`${failed.length} supplier notification${failed.length === 1 ? '' : 's'} from the award on ${(live.createdAt || '').slice(0, 10)} could not be sent — the award stands; re-send once the mailbox works.`)
+          })
           .catch(() => {})
       })
       .catch((e) => {

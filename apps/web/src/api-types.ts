@@ -3284,6 +3284,8 @@ export interface components {
             sendError?: string | null;
             /** Outboundmessageids */
             outboundMessageIds?: string[] | null;
+            /** Mock */
+            mock?: boolean | null;
         };
         /**
          * RfqStatus

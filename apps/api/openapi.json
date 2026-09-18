@@ -8226,6 +8226,17 @@
               }
             ],
             "title": "Outboundmessageids"
+          },
+          "mock": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mock"
           }
         },
         "type": "object",
