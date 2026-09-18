@@ -1008,6 +1008,9 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
         except Exception as exc:  # record the failure per-recipient, keep going
             r["sendStatus"] = "failed"
             r["sendError"] = str(exc) or exc.__class__.__name__
+            logging.getLogger("procureai.rfq.send").warning(
+                "RFQ %s send to %s failed: %s", rfq_id, r.get("email"), exc
+            )
         # Persist after every recipient so a crash mid-loop can't lose the
         # record of who was already emailed (a retry would re-send to them).
         rfqs_repo.save_recipients(db, org_id, rfq_id, recipients)

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,6 +28,8 @@ from app.schemas.document import Document, LineItemGroup
 from app.schemas.lender import Lender, LenderCreate
 from app.schemas.project import Project, ProjectCreate, ProjectDetail
 from app.schemas.quote import (
+    AwardNotifyRequest,
+    AwardNotifyResult,
     AwardRequest,
     AwardResult,
     Comparison,
@@ -412,6 +415,9 @@ def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payloa
         },
         commit=False,
     )
+    if previous is not None:
+        # Only one live PO set per package: the earlier decision is superseded.
+        purchase_decisions_repo.mark_superseded(db, org_id, previous["id"], decision.id)
     quotes_repo.award_package(db, org_id, project_id, key or pkg, summary["supplierIds"])
 
     # Notify suppliers of the outcome, threaded into each RFQ conversation. Runs
@@ -425,8 +431,13 @@ def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payloa
         summary=summary,
         buyer=current_user,
         sender=rfq_sender.get_sender(),
+        superseded=previous,
     )
     n_awarded, n_declined = len(notify["notified"]), len(notify["declined"])
+    n_withdrawn = len(notify.get("withdrawn") or [])
+    purchase_decisions_repo.set_notifications(
+        db, org_id, decision.id, _notification_record(notify)
+    )
     if n_awarded or n_declined or notify["failed"]:
         audit_repo.log(
             db, org_id, current_user, "package.award_notified", "purchase_decision",
@@ -435,6 +446,7 @@ def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payloa
             detail={
                 "awarded": [w["email"] for w in notify["notified"]],
                 "declined": [d["email"] for d in notify["declined"]],
+                "withdrawn": [d["email"] for d in notify.get("withdrawn") or []],
                 "failed": notify["failed"],
                 "mock": notify["mock"],
             },
@@ -448,6 +460,8 @@ def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payloa
     if n_awarded:
         notice = f" {n_awarded} supplier{'s' if n_awarded != 1 else ''} notified"
         notice += f", {n_declined} not selected." if n_declined else "."
+    if n_withdrawn:
+        notice += f" {n_withdrawn} previous winner{'s' if n_withdrawn != 1 else ''} told their PO is withdrawn."
     if notify["failed"]:
         who = "; ".join(
             f"{f.get('supplier') or f.get('email') or 'supplier'} ({f.get('error')})"
@@ -482,6 +496,107 @@ def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payloa
         "poCount": n,
         "notified": n_awarded,
         "declined": n_declined,
+        "withdrawn": n_withdrawn,
+        "notifyFailed": notify["failed"],
+        "notifyMocked": notify["mock"],
+    }
+
+
+def _notification_record(notify: dict) -> dict:
+    return {
+        "notified": notify["notified"],
+        "declined": notify["declined"],
+        "withdrawn": notify.get("withdrawn") or [],
+        "failed": notify["failed"],
+        "mock": notify["mock"],
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/{project_id}/packages/{pkg}/award/notify", response_model=AwardNotifyResult)
+def resend_award_notifications(
+    project_id: str,
+    pkg: str,
+    payload: AwardNotifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Re-send the PO / decline emails for the package's latest award.
+
+    By default only the suppliers whose notification failed last time are
+    emailed again (the award itself is untouched); `all: true` re-notifies
+    every supplier. 409 when nothing failed and `all` isn't set, 404 when the
+    package has no award.
+    """
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    key, pkg_label = _resolve_package(db, org_id, project_id, pkg)
+    decision = purchase_decisions_repo.latest_for_package(db, org_id, project_id, key or pkg)
+    if decision is None:
+        raise HTTPException(status_code=404, detail="This package has not been awarded")
+    previous = decision.get("notifications") or {}
+    failed_emails = {f.get("email") for f in previous.get("failed", []) if f.get("email")}
+    if not payload.all and not failed_emails:
+        raise HTTPException(
+            status_code=409,
+            detail="Every supplier was already notified for this award — nothing to re-send",
+        )
+    summary = {
+        "selections": decision.get("selections") or {},
+        "supplierIds": set(decision.get("supplierIds") or []),
+    }
+    notify = award_notify.notify_award(
+        db,
+        org_id=org_id,
+        project_id=project_id,
+        package=key or pkg,
+        package_label=decision.get("packageLabel") or pkg_label,
+        summary=summary,
+        buyer=current_user,
+        sender=rfq_sender.get_sender(),
+        only_emails=None if payload.all else failed_emails,
+        superseded=purchase_decisions_repo.superseded_by_decision(db, org_id, decision["id"]),
+    )
+    # Merge: suppliers notified now leave the failed list; new failures replace
+    # their earlier entries.
+    now_ok = {e["email"] for e in notify["notified"] + notify["declined"] + (notify.get("withdrawn") or [])}
+    still_failed = [f for f in previous.get("failed", []) if f.get("email") not in now_ok
+                    and f.get("email") not in {x.get("email") for x in notify["failed"]}]
+    merged = {
+        "notified": previous.get("notified", []) + [e for e in notify["notified"]
+                                                   if e["email"] not in {x["email"] for x in previous.get("notified", [])}],
+        "declined": previous.get("declined", []) + [e for e in notify["declined"]
+                                                   if e["email"] not in {x["email"] for x in previous.get("declined", [])}],
+        "withdrawn": previous.get("withdrawn", []) + [e for e in notify.get("withdrawn") or []
+                                                     if e["email"] not in {x["email"] for x in previous.get("withdrawn", [])}],
+        "failed": still_failed + notify["failed"],
+        "mock": notify["mock"],
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    purchase_decisions_repo.set_notifications(db, org_id, decision["id"], merged)
+    audit_repo.log(
+        db, org_id, current_user, "package.award_notified", "purchase_decision", decision["id"],
+        project_id=project_id,
+        detail={
+            "resend": True,
+            "awarded": [w["email"] for w in notify["notified"]],
+            "declined": [d["email"] for d in notify["declined"]],
+            "failed": notify["failed"],
+            "mock": notify["mock"],
+        },
+    )
+    n_ok = len(notify["notified"]) + len(notify["declined"]) + len(notify.get("withdrawn") or [])
+    n_bad = len(notify["failed"])
+    message = f"{n_ok} supplier{'s' if n_ok != 1 else ''} notified"
+    if n_bad:
+        message += f", {n_bad} still failing: " + "; ".join(
+            f"{f.get('supplier') or f.get('email')} ({f.get('error')})" for f in notify["failed"]
+        )
+    return {
+        "message": message + ".",
+        "notified": len(notify["notified"]),
+        "declined": len(notify["declined"]),
+        "withdrawn": len(notify.get("withdrawn") or []),
         "notifyFailed": notify["failed"],
         "notifyMocked": notify["mock"],
     }

@@ -29,6 +29,21 @@ class GmailReadUnavailable(Exception):
     """Raised when the Gmail read API cannot be called."""
 
 
+# One authorised client per credential set: the conversation view used to
+# refresh the OAuth token once per recipient on every open, and ingest once
+# per thread. google-auth refreshes the access token itself when it expires,
+# so the built service stays valid across calls.
+_SERVICE_CACHE: dict = {}
+
+
+def _cache_key() -> tuple:
+    return (settings.gmail_client_id, settings.gmail_client_secret, settings.gmail_refresh_token)
+
+
+def reset_service_cache() -> None:
+    _SERVICE_CACHE.clear()
+
+
 @dataclass
 class InboundMessage:
     message_id: str
@@ -69,6 +84,10 @@ class ThreadEmail:
 def _service():
     if not is_configured():
         raise GmailReadUnavailable("Gmail credentials are not configured")
+    key = _cache_key()
+    cached = _SERVICE_CACHE.get(key)
+    if cached is not None:
+        return cached
     try:
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
@@ -88,7 +107,10 @@ def _service():
         creds.refresh(Request())
     except Exception as exc:
         raise GmailReadUnavailable(describe_gmail_error(exc, stage="read")) from exc
-    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+    _SERVICE_CACHE.clear()
+    _SERVICE_CACHE[key] = service
+    return service
 
 
 def _header(payload: dict, name: str) -> str:
@@ -219,39 +241,65 @@ def fetch_replies(sender_emails: List[str], lookback_days: int = 30, limit: int 
         except Exception as exc:
             logger.warning("Gmail message %s could not be read: %s", mid, exc)
             continue
-        payload = full.get("payload", {}) or {}
-        from_email = _parse_addr(_header(payload, "From"))
-        if from_email not in wanted:
+        msg = _inbound_from_full(service, full)
+        if msg.from_email not in wanted:
             continue  # loose `from:` match — not one of this project's suppliers
-        text_parts: List[str] = []
-        html_parts: List[str] = []
-        attach_parts: List[str] = []
-        _walk(service, mid, payload, text_parts, attach_parts, html_parts)
-        # Parse only what the supplier wrote in THIS message. A reply carries the
-        # quoted chain beneath it (our RFQ, or their earlier quote); left in, the
-        # parser reads the old figures — the regex fallback takes the largest
-        # dollar amount anywhere in the text, so a revised $47.5k quote on top of
-        # a quoted $52k one came back as $52k.
-        plain = "\n".join(p for p in text_parts if p.strip())
-        if not plain.strip() and html_parts:
-            plain = html_to_text("\n".join(html_parts))
-        body = _strip_quoted(plain) or (full.get("snippet", "") or "")
-        try:
-            date_ms = int(full.get("internalDate", "0") or 0)
-        except (TypeError, ValueError):
-            date_ms = 0
-        out.append(
-            InboundMessage(
-                message_id=mid,
-                from_email=from_email,
-                subject=_header(payload, "Subject"),
-                text=body,
-                attachments_text=attach_parts,
-                thread_id=full.get("threadId", "") or "",
-                date_ms=date_ms,
-                label_ids=list(full.get("labelIds") or []),
-            )
-        )
+        out.append(msg)
+    out.sort(key=lambda m: m.date_ms)
+    return out
+
+
+def _inbound_from_full(service, full: dict) -> InboundMessage:
+    """An InboundMessage (body + PDF attachment text) from a full Gmail message."""
+    mid = full.get("id", "")
+    payload = full.get("payload", {}) or {}
+    text_parts: List[str] = []
+    html_parts: List[str] = []
+    attach_parts: List[str] = []
+    _walk(service, mid, payload, text_parts, attach_parts, html_parts)
+    # Parse only what the supplier wrote in THIS message. A reply carries the
+    # quoted chain beneath it (our RFQ, or their earlier quote); left in, the
+    # parser reads the old figures — the regex fallback takes the largest
+    # dollar amount anywhere in the text, so a revised $47.5k quote on top of
+    # a quoted $52k one came back as $52k.
+    plain = "\n".join(p for p in text_parts if p.strip())
+    if not plain.strip() and html_parts:
+        plain = html_to_text("\n".join(html_parts))
+    body = _strip_quoted(plain) or (full.get("snippet", "") or "")
+    try:
+        date_ms = int(full.get("internalDate", "0") or 0)
+    except (TypeError, ValueError):
+        date_ms = 0
+    return InboundMessage(
+        message_id=mid,
+        from_email=_parse_addr(_header(payload, "From")),
+        subject=_decode_rfc2047(_header(payload, "Subject")),
+        text=body,
+        attachments_text=attach_parts,
+        thread_id=full.get("threadId", "") or "",
+        date_ms=date_ms,
+        label_ids=list(full.get("labelIds") or []),
+    )
+
+
+def fetch_thread_replies(thread_id: str) -> List[InboundMessage]:
+    """Every message in the Gmail thread an RFQ send created, oldest first,
+    shaped for parsing (body + PDF attachment text).
+
+    This is the primary way replies are found: a supplier who answers from a
+    different address than the one we emailed (RFQ to sales@, quote from the
+    estimator) is still in *our* thread. The caller drops our own messages.
+    """
+    if not thread_id:
+        return []
+    service = _service()
+    try:
+        data = service.users().threads().get(
+            userId="me", id=thread_id, format="full"
+        ).execute()
+    except Exception as exc:
+        raise GmailReadUnavailable(describe_gmail_error(exc, stage="thread fetch")) from exc
+    out = [_inbound_from_full(service, m) for m in data.get("messages", []) or []]
     out.sort(key=lambda m: m.date_ms)
     return out
 

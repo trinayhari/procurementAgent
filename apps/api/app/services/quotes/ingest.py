@@ -18,6 +18,7 @@ from app.repositories import quotes as quotes_repo
 from app.repositories import rfqs as rfqs_repo
 from app.services.quotes import gmail_reader, parser
 from app.services.quotes.models import ParsedQuote
+from app.services.rfq import state as rfq_state
 from app.services.rfq.sender import is_configured as gmail_configured
 
 logger = logging.getLogger("procureai.quotes.ingest")
@@ -76,6 +77,10 @@ def _recipient_index(db: Session, org_id: str, project_id: str) -> Dict[str, Lis
             email = (r.get("email") or "").strip().lower()
             if not email:
                 continue
+            if not rfq_state.recipient_sent(r):
+                # Never received the RFQ (send failed / not attempted): any mail
+                # from them is about something else.
+                continue
             metas = index.setdefault(email, [])
             if any(m["rfq_id"] == rfq["id"] for m in metas):
                 continue
@@ -99,8 +104,11 @@ def _match_rfq(metas: List[dict], msg) -> Optional[dict]:
 
     In order: the Gmail thread the send created (a reply lands in it), then
     the RFQ subject quoted in the reply's subject ("Re: RFQ: Water …"), then
-    — only when the supplier is on a single RFQ — that one. A reply we can't
-    attribute among several packages is skipped rather than guessed.
+    — only when the supplier is on a single RFQ AND we have no thread to
+    compare against (a send made before thread ids were stored, or a mock
+    send) — that one. When both sides have a thread id and they differ, the
+    mail is about something else (another project's RFQ, a promo with a
+    price in it) and is skipped rather than guessed.
     """
     if not metas:
         return None
@@ -114,7 +122,7 @@ def _match_rfq(metas: List[dict], msg) -> Optional[dict]:
         hits = [m for m in metas if m["subject"] and m["subject"].strip().lower() in subject]
         if len(hits) == 1:
             return hits[0]
-    if len(metas) == 1:
+    if len(metas) == 1 and not (thread_id and metas[0].get("thread_id")):
         return metas[0]
     logger.warning(
         "Reply %s from %s could not be attributed to one of %d RFQs; skipped",
@@ -153,10 +161,9 @@ def _ingest_live(
     # skipped, as is every message we sent ourselves.
     seen = quotes_repo.message_ids_for_project(db, org_id, project_id)
     ours = _outbound_message_ids(db, org_id, project_id)
+    our_addrs = _our_addresses(db, org_id)
     try:
-        messages = gmail_reader.fetch_replies(
-            list(index.keys()), lookback_days=settings.quote_ingest_lookback_days
-        )
+        candidates = _collect_replies(index, our_addrs)
     except gmail_reader.GmailReadUnavailable as exc:
         logger.warning("Gmail read unavailable: %s", exc)
         raise
@@ -165,11 +172,12 @@ def _ingest_live(
     quoted_rfqs: set = set()
     # Oldest first so a later revision from the same supplier supersedes the
     # earlier one, never the other way round.
-    for msg in sorted(messages, key=lambda m: getattr(m, "date_ms", 0) or 0):
+    for msg, meta in sorted(candidates, key=lambda pair: getattr(pair[0], "date_ms", 0) or 0):
         if msg.message_id in seen or msg.message_id in ours:
             outcome.skipped.append(msg.message_id)
             continue
-        meta = _match_rfq(index.get(msg.from_email) or [], msg)
+        if meta is None:
+            meta = _match_rfq(index.get(msg.from_email) or [], msg)
         if meta is None:
             outcome.skipped.append(msg.message_id)
             continue
@@ -195,7 +203,7 @@ def _ingest_live(
         )
         outcome.superseded += quotes_repo.supersede_previous(
             db, org_id, project_id, meta["package"], msg.from_email,
-            rfq_id=meta["rfq_id"], keep_id=created.get("id"),
+            rfq_id=meta["rfq_id"], supplier_id=meta.get("supplier_id"), keep_id=created.get("id"),
         )
         seen.add(msg.message_id)
         if status == "received":
@@ -208,6 +216,54 @@ def _ingest_live(
     for rfq_id in quoted_rfqs:
         rfqs_repo.mark_rfq_quoted(db, org_id, rfq_id)
     return outcome
+
+
+def _our_addresses(db: Session, org_id: str) -> set:
+    """The workspace mailbox plus this org's members' login and Cc addresses —
+    messages from any of them in an RFQ thread are ours, not a supplier's."""
+    from app.services.rfq.conversation import _known_sender_addrs
+
+    try:
+        return _known_sender_addrs(db, org_id)
+    except Exception:  # pragma: no cover - defensive; never block ingest on this
+        from app.services.rfq.sender import sender_address
+
+        return {sender_address().lower()}
+
+
+def _collect_replies(index: Dict[str, List[dict]], our_addrs: set) -> List[tuple]:
+    """(message, meta-or-None) pairs worth parsing, deduped by Gmail id.
+
+    Two sources, in priority order:
+      1. The Gmail thread each send created — every message in it that isn't
+         ours is a reply to THAT RFQ, whatever address it came from (RFQ to
+         sales@, quote from the estimator's own mailbox). Meta is known.
+      2. A `from:` search for the recipient addresses — catches a supplier who
+         composed a fresh email instead of replying; attributed later by
+         subject (or the single-RFQ rule when no thread is on record).
+    """
+    pairs: List[tuple] = []
+    seen_ids: set = set()
+    threads_done: set = set()
+    for metas in index.values():
+        for meta in metas:
+            thread_id = meta.get("thread_id") or ""
+            if not thread_id or thread_id.startswith("mock") or thread_id in threads_done:
+                continue
+            threads_done.add(thread_id)
+            for msg in gmail_reader.fetch_thread_replies(thread_id):
+                if msg.message_id in seen_ids or (msg.from_email or "").lower() in our_addrs:
+                    continue
+                seen_ids.add(msg.message_id)
+                pairs.append((msg, meta))
+    for msg in gmail_reader.fetch_replies(
+        list(index.keys()), lookback_days=settings.quote_ingest_lookback_days
+    ):
+        if msg.message_id in seen_ids:
+            continue
+        seen_ids.add(msg.message_id)
+        pairs.append((msg, None))
+    return pairs
 
 
 def _ingest_mock(db: Session, org_id: str, project_id: str, index: Dict[str, List[dict]]) -> int:

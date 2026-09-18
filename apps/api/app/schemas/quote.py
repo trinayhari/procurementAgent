@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -145,6 +145,22 @@ class AwardResult(BaseModel):
     # a failed notice is reported here (and in `message`) rather than swallowed.
     notified: int = 0
     declined: int = 0
+    # Previous winners displaced by a re-award who were told their PO is withdrawn.
+    withdrawn: int = 0
+    notifyFailed: List[AwardNotifyFailure] = []
+    notifyMocked: bool = False
+
+
+class AwardNotifyRequest(BaseModel):
+    # False (default): re-send only the notifications that failed last time.
+    all: bool = False
+
+
+class AwardNotifyResult(BaseModel):
+    message: str
+    notified: int = 0
+    declined: int = 0
+    withdrawn: int = 0
     notifyFailed: List[AwardNotifyFailure] = []
     notifyMocked: bool = False
 
@@ -176,6 +192,11 @@ class PurchaseDecision(BaseModel):
     decidedBy: Optional[str] = None
     decidedByEmail: Optional[str] = None
     createdAt: Optional[str] = None
+    # {"notified": [...], "declined": [...], "failed": [...], "mock": bool, "at": iso}
+    notifications: Dict[str, Any] = {}
+    # "active" (the live PO set for the package) or "superseded" by a re-award.
+    status: str = "active"
+    supersededBy: Optional[str] = None
 
 
 class QuoteIngestResult(BaseModel):

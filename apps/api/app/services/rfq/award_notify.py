@@ -80,6 +80,23 @@ def _winner_body(supplier: str, package_label: str, lines: List[dict],
     )
 
 
+def _withdrawn_body(supplier: str, package_label: str, previous: dict, buyer) -> str:
+    """For a supplier whose earlier PO is cancelled by a re-award."""
+    when = (previous.get("createdAt") or "")[:10]
+    total = previous.get("total")
+    ref = f" issued on {when}" if when else ""
+    amount = f" ({_money(total)})" if isinstance(total, (int, float)) and previous.get("poCount") == 1 else ""
+    return (
+        f"Hi {supplier},\n\n"
+        f"Please disregard the purchase order for {package_label}{ref}{amount}: after "
+        f"revisiting the bids we have re-awarded this package and that order is "
+        f"withdrawn. Do not ship or invoice against it.\n\n"
+        f"We're sorry for the change of plan and appreciate your quote — we'll keep "
+        f"you in mind for upcoming work.\n\n"
+        f"Thanks,\n{_signature(buyer)}"
+    )
+
+
 def _decline_body(supplier: str, package_label: str, buyer) -> str:
     return (
         f"Hi {supplier},\n\n"
@@ -103,10 +120,17 @@ def _thread_ref(db: Session, org_id: str, quote: dict, sender: EmailSender):
     if not rfq:
         return None, None, None
     email = (quote.get("supplierEmail") or "").strip().lower()
+    sid = quote.get("supplierId")
+    recipients = rfq.get("recipients", [])
     recipient = next(
-        (r for r in rfq.get("recipients", []) if (r.get("email") or "").strip().lower() == email),
+        (r for r in recipients if (r.get("email") or "").strip().lower() == email),
         None,
     )
+    if recipient is None and sid:
+        # The quote came back from a different address than the one we
+        # emailed (RFQ to sales@, reply from the estimator) — still the same
+        # supplier record, so reply in that thread.
+        recipient = next((r for r in recipients if r.get("supplierId") == sid), None)
     if recipient is None:
         # We can't thread without the recipient's stored ids; use a plain subject.
         return None, None, None
@@ -131,12 +155,21 @@ def notify_award(
     buyer,
     sender: EmailSender,
     notify_declined: bool = True,
+    only_emails: Optional[set] = None,
+    superseded: Optional[dict] = None,
 ) -> dict:
     """Email awarded (and optionally not-selected) suppliers for a package.
 
     Returns {notified, declined, failed, mock} — lists of per-supplier outcomes.
     Never raises: a per-supplier send failure is recorded and the rest proceed, so
     a flaky email never fails an award that is already committed.
+
+    `only_emails` restricts the run to those supplier addresses — used to
+    re-send just the notifications that failed the first time.
+
+    `superseded` is the earlier purchase decision a re-award replaces: its
+    winners who are no longer winning get a PO-withdrawn notice (naming the
+    earlier order) instead of the generic "not selected" note.
     """
     quotes = quotes_repo.list_quotes(db, org_id, project_id, package)
     by_sid: Dict[str, dict] = {}
@@ -150,11 +183,17 @@ def notify_award(
     from_addr = from_header(buyer)
     cc = getattr(buyer, "cc_email", None)
 
-    result = {"notified": [], "declined": [], "failed": [], "mock": bool(getattr(sender, "mocked", False))}
+    result = {"notified": [], "declined": [], "withdrawn": [], "failed": [],
+              "mock": bool(getattr(sender, "mocked", False))}
+    previous_winners = set((superseded or {}).get("supplierIds") or [])
+
+    wanted = {e.strip().lower() for e in (only_emails or set()) if e}
 
     def _send(quote, subject, body, kind):
         supplier = quote.get("supplierName") or quote.get("supplierEmail") or "Supplier"
         email = (quote.get("supplierEmail") or "").strip()
+        if wanted and email.lower() not in wanted:
+            return
         if not email:
             result["failed"].append({"supplier": supplier, "email": None, "kind": kind,
                                       "error": "no email on file"})
@@ -180,7 +219,7 @@ def notify_award(
             except Exception:  # pragma: no cover - bookkeeping must not fail the award
                 logger.exception("Could not record outbound message id for %s", email)
         entry = {"supplier": supplier, "email": email, "threaded": bool(thread_id)}
-        result["notified" if kind == "award" else "declined"].append(entry)
+        result[{"award": "notified", "decline": "declined", "withdrawn": "withdrawn"}[kind]].append(entry)
 
     # Winners — one email each, listing only the lines they won.
     for sid in winners:
@@ -206,6 +245,11 @@ def notify_award(
             if sid in winners:
                 continue
             supplier = quote.get("supplierName") or quote.get("supplierEmail") or "Supplier"
+            if sid in previous_winners:
+                # Their PO from the earlier award is being cancelled — say so.
+                body = _withdrawn_body(supplier, package_label, superseded or {}, buyer)
+                _send(quote, f"{package_label} — purchase order withdrawn", body, "withdrawn")
+                continue
             body = _decline_body(supplier, package_label, buyer)
             _send(quote, f"{package_label} — sourcing update", body, "decline")
 

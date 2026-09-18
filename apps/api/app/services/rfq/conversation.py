@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.repositories import quotes as quotes_repo
 from app.services.quotes import gmail_reader
+from app.services.rfq import state as rfq_state
 from app.services.rfq.sender import is_configured as gmail_configured
 from app.services.rfq.sender import sender_address
 
@@ -163,13 +164,27 @@ def _emails_to_thread(emails: List[gmail_reader.ThreadEmail], our_addrs: set) ->
     return thread
 
 
+def _outbound_label(rfq: dict) -> str:
+    """What happened to our message, from the per-recipient send record —
+    never "Sent" for an RFQ nobody received."""
+    if rfq.get("status") == "Draft":
+        return "Draft"
+    recipients = rfq.get("recipients") or []
+    delivered = [r for r in recipients if rfq_state.recipient_sent(r)]
+    if recipients and not delivered:
+        return "Not delivered"
+    if len(delivered) < len(recipients):
+        return f"Sent to {len(delivered)} of {len(recipients)}"
+    return "Sent"
+
+
 def _fallback_thread(db: Session, org_id: str, rfq: dict) -> List[dict]:
     """Offline thread: the sent RFQ, plus any ingested quotes as inbound replies."""
     thread: List[dict] = [{
         "dir": "out",
         "who": "You · Proq",
         "initials": "YOU",
-        "time": "Sent" if rfq["status"] != "Draft" else "Draft",
+        "time": _outbound_label(rfq),
         "subject": rfq.get("subject"),
         "body": rfq.get("body", ""),
         "attach": None,

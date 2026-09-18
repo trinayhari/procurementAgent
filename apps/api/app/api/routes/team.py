@@ -60,10 +60,8 @@ def get_team(
     """The org's roster: current members plus still-open invitations."""
     org_id = current_user.organization_id
     members = [u.to_dict() for u in users_repo.list_for_org(db, org_id)]
-    # `emailed` on a listed invite reflects whether delivery is possible at
-    # all (a configured provider), not the original send's outcome.
-    emailed = rfq_sender.is_configured()
-    invites = [_invite_payload(i, emailed) for i in invites_repo.list_pending(db, org_id)]
+    # Each invite carries its own delivery record (emailed_at / email_error).
+    invites = [_invite_payload(i) for i in invites_repo.list_pending(db, org_id)]
     return {"members": members, "invites": invites}
 
 
@@ -92,11 +90,12 @@ def create_invite(
 
     invite = invites_repo.create_invite(db, org_id, email, invited_by_user_id=current_user.id)
     emailed, email_error = _email_invite(db, invite, current_user)
+    invite = invites_repo.record_email_outcome(db, invite, emailed, email_error)
     audit_repo.log(
         db, org_id, current_user, "team.invited", "organization_invite", invite.id,
         detail={"email": email, "emailed": emailed, "emailError": email_error},
     )
-    return _invite_payload(invite, emailed, email_error)
+    return _invite_payload(invite)
 
 
 def _email_invite(db: Session, invite, current_user: User):
@@ -130,15 +129,13 @@ def _email_invite(db: Session, invite, current_user: User):
         return False, (str(exc) or exc.__class__.__name__)
 
 
-def _invite_payload(invite, emailed: bool, email_error: Optional[str] = None) -> dict:
-    """The invite for the team UI. The accept link is exposed ONLY when no
-    email provider is configured — the inviter has to pass it on by hand,
-    and the UI would otherwise claim "sent" for a message nobody received.
-    With real email configured the token stays private, as before."""
+def _invite_payload(invite) -> dict:
+    """The invite for the team UI. The accept link is exposed ONLY when the
+    invitation was not emailed — no provider configured, or the configured
+    provider failed — so the inviter can pass it on by hand instead of hitting
+    a dead end. Once a send has succeeded the token stays private."""
     payload = invite.to_dict()
-    payload["emailed"] = emailed
-    payload["emailError"] = email_error
-    if not rfq_sender.is_configured():
+    if not payload["emailed"]:
         payload["acceptUrl"] = _accept_url(invite.token)
     return payload
 
@@ -156,11 +153,12 @@ def resend_invite(
     if invite is None or invite.status != "pending":
         raise HTTPException(status_code=404, detail="Invite not found")
     emailed, email_error = _email_invite(db, invite, current_user)
+    invite = invites_repo.record_email_outcome(db, invite, emailed, email_error)
     audit_repo.log(
         db, org_id, current_user, "team.invite_resent", "organization_invite", invite.id,
         detail={"email": invite.email, "emailed": emailed, "emailError": email_error},
     )
-    return _invite_payload(invite, emailed, email_error)
+    return _invite_payload(invite)
 
 
 @router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)

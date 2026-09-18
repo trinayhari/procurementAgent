@@ -7,7 +7,7 @@ import json
 import uuid
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.quote import Quote
@@ -171,6 +171,7 @@ def supersede_previous(
     email: str,
     *,
     rfq_id: Optional[str] = None,
+    supplier_id: Optional[str] = None,
     keep_id: Optional[str] = None,
 ) -> int:
     """Mark this supplier's earlier quotes on the package as superseded.
@@ -182,15 +183,23 @@ def supersede_previous(
     explicitly. Returns how many rows were superseded.
     """
     email = (email or "").strip().lower()
-    if not email:
+    if not email and not supplier_id:
         return 0
     stmt = select(Quote).where(
         Quote.organization_id == org_id,
         Quote.project_id == project_id,
         Quote.package == package,
-        Quote.supplier_email == email,
         Quote.status.in_(("received", "needs_review")),
     )
+    # The same supplier may answer from a second address (sales@ then the
+    # estimator) — key on the supplier record when the RFQ recipient carried
+    # one, else on the address.
+    if supplier_id:
+        stmt = stmt.where(
+            (Quote.supplier_id == supplier_id) | (func.lower(Quote.supplier_email) == email)
+        )
+    else:
+        stmt = stmt.where(func.lower(Quote.supplier_email) == email)
     if rfq_id:
         stmt = stmt.where(Quote.rfq_id == rfq_id)
     n = 0

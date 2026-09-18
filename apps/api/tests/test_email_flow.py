@@ -412,12 +412,17 @@ def test_pdf_text_survives_garbage_and_reads_a_real_pdf():
 
 
 # ================================================================== ingest
-def _live_gmail(monkeypatch, replies, parsed_by_text):
-    """Route ingest down the live path with canned replies and a canned parser."""
+def _live_gmail(monkeypatch, replies, parsed_by_text, threads=None):
+    """Route ingest down the live path with canned replies and a canned parser.
+
+    `replies` answer the from: search; `threads` ({thread_id: [messages]})
+    answer the per-RFQ thread reads."""
     monkeypatch.setattr(ingest, "gmail_configured", lambda: True)
     monkeypatch.setattr(ingest.gmail_reader, "fetch_replies", lambda emails, lookback_days=30: [
         m for m in replies if m.from_email in {e.lower() for e in emails}
     ])
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_thread_replies",
+                        lambda thread_id: list((threads or {}).get(thread_id, [])))
     monkeypatch.setattr(ingest.parser, "parse_quote", lambda text: parsed_by_text(text))
 
 
@@ -501,6 +506,91 @@ def test_unpriced_reply_alone_is_needs_review_not_quoted(project, monkeypatch):
     # Still awaiting a real quote; nothing comparable exists yet.
     assert client.get(f"/api/projects/{pid}/rfqs/{rfq['id']}", headers=headers).json()["status"] == "Awaiting"
     assert client.get(f"/api/projects/{pid}/packages/{bom_id}/line-comparison", headers=headers).status_code == 404
+
+
+def test_reply_from_another_address_in_our_thread_is_ingested_and_award_threads_on_it(project, monkeypatch):
+    """RFQ went to sales@; the estimator answered from her own mailbox inside
+    the same Gmail thread. The from: search never saw her; the thread does."""
+    client, headers, pid = project
+    bom_id, rfq = _rfq_ready(client, headers, pid, n=1)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    rcp = r.json()["recipients"][0]
+    thread = "thr-live-1"
+    # Pretend the send went through Gmail (mock ids start with "mock", which
+    # the thread reader skips).
+    from app.db import SessionLocal
+    from app.repositories import rfqs as rfqs_repo
+    me = client.get("/api/auth/me", headers=headers).json()
+    db = SessionLocal()
+    try:
+        rcp["threadId"] = thread
+        rcp["sentMessageId"] = "gm-out-1"
+        rfqs_repo.save_recipients(db, me["organizationId"], rfq["id"], [rcp])
+    finally:
+        db.close()
+    monkeypatch.setattr(settings, "gmail_sender_address", "bids@ws.com")
+    threads = {thread: [
+        _inbound("gm-out-1", "bids@ws.com", "please quote", thread, 1),
+        _inbound("est-1", "jane.estimator@supplier.example", "Quote $61,000 total", thread, 2),
+    ]}
+    _live_gmail(monkeypatch, [], lambda text: _priced(61000.0, name="Supplier Inc"), threads=threads)
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    st = client.get(f"/api/projects/{pid}/quotes/ingest-status", headers=headers).json()
+    assert st["status"] == "done" and st["ingested"] == 1, st
+    rows = client.get(f"/api/projects/{pid}/quotes", headers=headers).json()
+    assert rows[0]["total"] == "$61,000"
+    assert client.get(f"/api/projects/{pid}/rfqs/{rfq['id']}", headers=headers).json()["status"] == "Quoted"
+
+    rec = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: rec)
+    r = client.post(f"/api/projects/{pid}/packages/{bom_id}/award", headers=headers, json={"selections": {}})
+    assert r.status_code == 200, r.text
+    # The PO goes to the address that quoted, threaded on the RFQ we sent to sales@.
+    assert rec.sent == [{"to": "jane.estimator@supplier.example", "subject": f"Re: {rfq['subject']}",
+                         "thread_id": thread, "cc": None}]
+
+
+def test_reply_in_a_different_known_thread_is_not_attributed():
+    """A supplier on ONE RFQ here replied to another project's RFQ (thread
+    known, different) — the single-RFQ fallback must not claim it."""
+    meta = {"rfq_id": "rB", "thread_id": "threadB", "subject": "RFQ: Water — Project B"}
+    msg = SimpleNamespace(thread_id="threadA", subject="Re: RFQ: Sewer — Project A", message_id="m", from_email="s@x.com")
+    assert ingest._match_rfq([meta], msg) is None
+    promo = SimpleNamespace(thread_id="threadZ", subject="Spring promo", message_id="m2", from_email="s@x.com")
+    assert ingest._match_rfq([meta], promo) is None
+    # Legacy send with no thread on record: the single-RFQ rule still applies.
+    legacy = {"rfq_id": "rB", "thread_id": "", "subject": "RFQ: Water — Project B"}
+    assert ingest._match_rfq([legacy], promo) is legacy
+
+
+def test_ingest_ignores_recipients_who_never_received_the_rfq(project, monkeypatch):
+    client, headers, pid = project
+    _, rfq = _rfq_ready(client, headers, pid, n=2)
+    fail_email = rfq["recipients"][1]["email"]
+    mock = rfq_sender.MockSender()
+
+    class Flaky:
+        mocked = True
+
+        def send(self, to, subject, body, **kw):
+            if to == fail_email:
+                raise RuntimeError("boom")
+            return mock.send(to, subject, body, **kw)
+
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: Flaky())
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    assert r.json()["status"] == "Send failed"
+    asked = {}
+
+    def fetch(emails, lookback_days=30):
+        asked["emails"] = sorted(emails)
+        return []
+
+    monkeypatch.setattr(ingest, "gmail_configured", lambda: True)
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_replies", fetch)
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_thread_replies", lambda t: [])
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    assert asked["emails"] == [rfq["recipients"][0]["email"]]
 
 
 def test_ingest_honours_the_lookback_setting(monkeypatch, project):
@@ -684,6 +774,77 @@ def test_award_route_reports_notification_failures(project, monkeypatch):
     assert ids == ["out-1"]
 
 
+def test_failed_award_notifications_are_recorded_and_can_be_resent(project, monkeypatch):
+    client, headers, pid = project
+    bom_id, rfq = _rfq_ready(client, headers, pid, n=2)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    emails = [x["email"] for x in r.json()["recipients"]]
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    dead = _Recorder(fail_for=set(emails))
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: dead)
+    r = client.post(f"/api/projects/{pid}/packages/{bom_id}/award", headers=headers, json={"selections": {}})
+    assert r.status_code == 200 and len(r.json()["notifyFailed"]) == 2
+    assert "2 notifications could not be sent" in r.json()["message"]
+    dec = client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers).json()[0]
+    assert sorted(f["email"] for f in dec["notifications"]["failed"]) == sorted(emails)
+    assert dec["notifications"]["notified"] == [] and dec["notifications"]["declined"] == []
+
+    # Token fixed → re-send just the failed ones; the award is untouched.
+    ok = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: ok)
+    r = client.post(f"/api/projects/{pid}/packages/{bom_id}/award/notify", headers=headers, json={})
+    assert r.status_code == 200, r.text
+    assert r.json()["notified"] + r.json()["declined"] == 2 and r.json()["notifyFailed"] == []
+    assert sorted(m["to"] for m in ok.sent) == sorted(emails)
+    dec = client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers).json()
+    assert len(dec) == 1 and dec[0]["notifications"]["failed"] == []
+    assert len(dec[0]["notifications"]["notified"]) + len(dec[0]["notifications"]["declined"]) == 2
+    # Nothing left to re-send.
+    assert client.post(f"/api/projects/{pid}/packages/{bom_id}/award/notify", headers=headers, json={}).status_code == 409
+    # …unless everyone is re-notified explicitly.
+    r = client.post(f"/api/projects/{pid}/packages/{bom_id}/award/notify", headers=headers, json={"all": True})
+    assert r.status_code == 200 and len(ok.sent) == 4
+
+
+def test_re_award_withdraws_the_previous_po_and_supersedes_the_decision(project, monkeypatch):
+    client, headers, pid = project
+    bom_id, rfq = _rfq_ready(client, headers, pid, n=2)
+    client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    quotes = client.get(f"/api/projects/{pid}/quotes", headers=headers).json()
+    cmp = client.get(f"/api/projects/{pid}/packages/{bom_id}/line-comparison", headers=headers).json()
+    sup_a, sup_b = [s["id"] for s in cmp["suppliers"]][:2]
+    lines = [r["name"] for r in cmp["lines"]]
+    rec = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: rec)
+    url = f"/api/projects/{pid}/packages/{bom_id}/award"
+    r = client.post(url, headers=headers, json={"selections": {ln: sup_a for ln in lines}})
+    assert r.status_code == 200, r.text
+    assert r.json()["withdrawn"] == 0 and len(rec.sent) == 2
+    rec.sent.clear()
+
+    r = client.post(url, headers=headers, json={"selections": {ln: sup_b for ln in lines}, "supersede": True})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["withdrawn"] == 1 and out["notified"] == 1
+    assert "PO is withdrawn" in out["message"]
+    decisions = client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers).json()
+    by_status = {d["status"]: d for d in decisions}
+    assert sorted(by_status) == ["active", "superseded"]
+    assert by_status["superseded"]["supersededBy"] == by_status["active"]["id"]
+    assert len(by_status["active"]["notifications"]["withdrawn"]) == 1
+    assert decisions[0]["status"] == "active"  # newest first
+
+
+def test_withdrawn_notice_names_the_earlier_order():
+    body = award_notify._withdrawn_body(
+        "Alpha Supply", "Water", {"createdAt": "2026-09-10T10:00:00", "total": 47500.0, "poCount": 1},
+        SimpleNamespace(name="PM", company="Co"),
+    )
+    assert "Please disregard the purchase order for Water issued on 2026-09-10 ($47,500.00)" in body
+    assert "Do not ship or invoice" in body
+
+
 def test_award_ignores_superseded_and_needs_review_quotes(project, monkeypatch):
     from app.db import SessionLocal
     from app.repositories import quotes as quotes_repo
@@ -738,11 +899,18 @@ def test_invite_send_failure_is_reported_with_the_reason(auth, monkeypatch):
     assert r.status_code == 201, r.text
     inv = r.json()
     assert inv["emailed"] is False and "HTTP 429" in inv["emailError"]
-    assert inv.get("acceptUrl") is None  # real email configured → link stays private
-    # A successful resend clears it.
+    # Delivery failed → the inviter gets the link to pass on by hand.
+    assert inv["acceptUrl"] and "/#/invite/" in inv["acceptUrl"]
+    # The team list reports the real outcome, not "a provider exists".
+    listed = client.get("/api/team", headers=headers).json()["invites"][0]
+    assert listed["emailed"] is False and "HTTP 429" in listed["emailError"] and listed["acceptUrl"]
+    # A successful resend clears the error and hides the link again.
     monkeypatch.setattr(team_routes.rfq_sender, "get_sender", lambda: Live())
     r = client.post(f"/api/team/invites/{inv['id']}/resend", headers=headers)
-    assert r.status_code == 200 and r.json()["emailed"] is True and r.json()["emailError"] is None
+    out = r.json()
+    assert r.status_code == 200 and out["emailed"] is True and out["emailError"] is None
+    assert out["acceptUrl"] is None and out["emailedAt"]
+    assert client.get("/api/team", headers=headers).json()["invites"][0]["emailed"] is True
 
 
 def test_test_email_surfaces_a_readable_gmail_error(auth, monkeypatch):
