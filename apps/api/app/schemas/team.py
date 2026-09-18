@@ -20,6 +20,12 @@ class Invite(BaseModel):
     createdAt: Optional[str] = None
     expiresAt: Optional[str] = None
     acceptedAt: Optional[str] = None
+    # Whether the invitation email was actually delivered (a configured
+    # provider accepted it). With no email provider configured the "send"
+    # is a logging mock — so the accept link is returned instead, for the
+    # inviter to pass on by hand. Never set when real email is configured.
+    emailed: bool = True
+    acceptUrl: Optional[str] = None
 
 
 class InvitePreview(BaseModel):
