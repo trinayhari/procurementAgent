@@ -38,6 +38,7 @@ let lineItems: Record<string, object[]> = {}
 const analyzeCalls: string[] = []
 const deleteCalls: string[] = []
 const savedTo: string[] = []
+const manualCreates: string[] = []
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -54,6 +55,14 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
   if (path === '/api/suppliers') return json([])
   if (path === '/api/documents/plan-types') return json(PLAN_TYPES)
   if (path === '/api/documents' && method === 'POST') return uploadResponse || json({ detail: 'unexpected' }, 500)
+  if (path === '/api/documents/manual' && method === 'POST') {
+    const body = JSON.parse(String(init && init.body))
+    manualCreates.push(body.name)
+    const doc = { ...GONE_DOC, id: `bom-${manualCreates.length}`, name: body.name, hasFile: false, fileMissing: false, planType: 'custom_bom', status: 'Draft', statusTone: 'gray', items: '0' }
+    docs = [doc, ...docs]
+    lineItems[doc.id] = [{ group: body.name, count: 0, tone: 'blue', items: [] }]
+    return json(doc, 201)
+  }
   const analyze = path.match(/^\/api\/documents\/([^/]+)\/analyze$/)
   if (analyze && method === 'POST') {
     analyzeCalls.push(analyze[1])
@@ -91,6 +100,7 @@ beforeEach(() => {
   analyzeCalls.length = 0
   deleteCalls.length = 0
   savedTo.length = 0
+  manualCreates.length = 0
   fetchMock.mockClear()
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -168,6 +178,20 @@ describe('documents tab reliability', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0])
     fireEvent.click(screen.getByRole('button', { name: 'Confirm remove' }))
     await waitFor(() => expect(deleteCalls).toEqual(['doc-gone']))
+  })
+
+  it('creates a custom BOM from an inline name field (no native prompt)', async () => {
+    docs = []
+    await openDocuments()
+    // The button expands into a form; nothing is created until it's submitted.
+    fireEvent.click(await screen.findByRole('button', { name: 'New BOM' }))
+    const input = screen.getByLabelText('Name this bill of materials')
+    expect(manualCreates).toEqual([])
+    fireEvent.change(input, { target: { value: 'Hydrants' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(manualCreates).toEqual(['Hydrants']))
+    // The new BOM opens straight into its editor.
+    await screen.findByText('Edit materials')
   })
 
   it('saves BOM edits to the document the editor was opened for, even after the list reorders', async () => {

@@ -401,11 +401,9 @@ export default function App() {
   // then select it and drop straight into the BOM editor so the user can start
   // adding line items. It sorts newest-first, so it lands at docIdx 0.
   const activePid = () => s.projectId || (s.data && s.data.projects[0] && s.data.projects[0].id) || ''
-  const createBom = async () => {
+  const createBom = async (name: string) => {
     const pid = activePid()
     if (!pid) { set({ uploadError: 'Open a project before creating a BOM.' }); return }
-    const name = window.prompt('Name this bill of materials', 'Custom BOM')
-    if (name === null) return
     const uid = user && user.id
     try {
       const doc = await createManualBom(pid, name.trim() || 'Custom BOM')
@@ -428,11 +426,9 @@ export default function App() {
   // Create a subcontractor trade scope (no file). We name the trade, create the
   // document, then select it so the user can write the scope of work in its
   // editor. It sorts newest-first, so it lands at docIdx 0.
-  const createTrade = async () => {
+  const createTrade = async (name: string) => {
     const pid = activePid()
     if (!pid) { set({ uploadError: 'Open a project before creating a trade scope.' }); return }
-    const name = window.prompt('Which trade do you need bids for?', 'Concrete flatwork')
-    if (name === null) return
     try {
       await createTradeScope(pid, name.trim() || 'Trade')
       await reload()
@@ -799,17 +795,7 @@ function Projects({ m }: MProps) {
                 <div style={css('font-size:15.5px;font-weight:600;letter-spacing:-.01em;line-height:1.25')}>{p.name}</div>
                 <div style={css('display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-3);margin-top:3px')}><Svg size={13} d={PIN} />{p.loc}</div>
               </div>
-              <Box
-                onClick={(e: MouseEvent) => {
-                  e.stopPropagation()
-                  if (window.confirm(`Delete “${p.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(p.id)
-                }}
-                title="Delete project"
-                style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none')}
-                hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger)"
-              >
-                <Svg size={15} sw={1.9} d={TRASH} />
-              </Box>
+              <ConfirmDeleteButton onConfirm={() => m.deleteProject(p.id)} question="Delete project and everything in it?" title="Delete project" icon={TRASH} size={30} />
             </div>
             <div>
               <div style={css('display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-bottom:6px')}><span style={css('color:var(--text-2);font-weight:500')}>Procurement progress</span><span style={css("font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.progress}%</span></div>
@@ -1224,7 +1210,7 @@ function ProjectWorkspace({ m }: MProps) {
         <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
           <Box as="button" onClick={m.setDocuments} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)"><Svg size={15} d='M12 16V4M7 9l5-5 5 5" /><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2' />Upload</Box>
           <Box as="button" onClick={m.setRfqs} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />Generate RFQs</Box>
-          <Box as="button" onClick={() => { if (window.confirm(`Delete “${m.activeProject.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(m.projectId) }} title="Delete project" style={css('display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3)')} hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)"><Svg size={15} sw={1.9} d={TRASH} /></Box>
+          <ConfirmDeleteButton onConfirm={() => m.deleteProject(m.projectId)} question="Delete project and everything in it?" title="Delete project" icon={TRASH} size={36} bordered />
         </div>
       </div>
 
@@ -1324,34 +1310,65 @@ type Slot = Model['docSlots'][number]
 // One plan slot — holds a single site / building / electrical plan. A filled slot
 // shows the document with View / Replace / Remove; an empty slot is an uploader.
 // "Replace" re-uploads the same plan type, which the backend swaps in place.
-// Two-click document removal. Deleting drops the file, its extracted BOM and
-// any RFQ attachment references with no undo, so the X first turns into an
-// inline "Remove? Yes / No" (a native window.confirm is auto-dismissed in
-// embedded webviews, which made the flow look broken there). The prompt
-// reverts on its own after a few seconds.
-function RemoveDocButton({ id, onRemove, size = 28, bordered = false }: {
-  id?: string; onRemove: (id: string) => void; size?: number; bordered?: boolean
+// Two-click destructive action. Deleting a document/project/draft has no undo,
+// so the icon first turns into an inline "<question> Yes / No" (a native
+// window.confirm is auto-dismissed in embedded webviews, which made the flow
+// look broken there). The prompt reverts on its own after a few seconds.
+function ConfirmDeleteButton({ onConfirm, question = 'Remove?', title = 'Remove', icon = 'M18 6 6 18M6 6l12 12', size = 28, bordered = false, disabled = false }: {
+  onConfirm: () => void; question?: string; title?: string; icon?: string; size?: number; bordered?: boolean; disabled?: boolean
 }) {
   const [arm, setArm] = useState(false)
   useEffect(() => {
     if (!arm) return
-    const t = setTimeout(() => setArm(false), 5000)
+    const t = setTimeout(() => setArm(false), 6000)
     return () => clearTimeout(t)
   }, [arm])
   const stop = (e: MouseEvent) => e.stopPropagation()
   if (arm) {
     return (
       <span onClick={stop} style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;white-space:nowrap')}>
-        <span style={css('color:var(--danger)')}>Remove?</span>
-        <Box as="button" onClick={(e: MouseEvent) => { stop(e); if (id) onRemove(id) }} aria-label="Confirm remove" style={css('padding:3px 8px;border-radius:6px;background:var(--danger);color:#fff')}>Yes</Box>
-        <Box as="button" onClick={(e: MouseEvent) => { stop(e); setArm(false) }} aria-label="Cancel remove" style={css('padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--text-2)')} hover="background:var(--panel-2)">No</Box>
+        <span style={css('color:var(--danger)')}>{question}</span>
+        <Box as="button" onClick={(e: MouseEvent) => { stop(e); setArm(false); onConfirm() }} aria-label={`Confirm ${title.toLowerCase()}`} style={css('padding:3px 8px;border-radius:6px;background:var(--danger);color:#fff')}>Yes</Box>
+        <Box as="button" onClick={(e: MouseEvent) => { stop(e); setArm(false) }} aria-label={`Cancel ${title.toLowerCase()}`} style={css('padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--text-2)')} hover="background:var(--panel-2)">No</Box>
       </span>
     )
   }
   return (
-    <Box as="button" onClick={(e: MouseEvent) => { stop(e); if (id) setArm(true) }} title="Remove" aria-label="Remove"
-      style={css(`width:${size}px;height:${size}px;flex:none;border-radius:7px;${bordered ? 'border:1px solid var(--border);' : ''}color:var(--text-3);display:flex;align-items:center;justify-content:center`)}
-      hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+    <Box as="button" onClick={(e: MouseEvent) => { stop(e); if (!disabled) setArm(true) }} title={title} aria-label={title} disabled={disabled}
+      style={css(`width:${size}px;height:${size}px;flex:none;border-radius:7px;${bordered ? 'border:1px solid var(--border);background:var(--panel);' : ''}color:var(--text-3);display:flex;align-items:center;justify-content:center;${disabled ? 'opacity:.5' : ''}`)}
+      hover="background:var(--danger-soft);color:var(--danger)"><Svg size={size > 28 ? 15 : 14} sw={2} d={icon} /></Box>
+  )
+}
+
+function RemoveDocButton({ id, onRemove, size = 28, bordered = false }: {
+  id?: string; onRemove: (id: string) => void; size?: number; bordered?: boolean
+}) {
+  return <ConfirmDeleteButton onConfirm={() => { if (id) onRemove(id) }} size={size} bordered={bordered} disabled={!id} />
+}
+
+// "New …" button that expands into an inline name field (replacing a native
+// window.prompt, which is auto-dismissed in embedded webviews so the flow did
+// nothing there). Enter or Create submits; Escape or Cancel closes.
+function InlineCreate({ label, placeholder, initial, onCreate }: {
+  label: string; placeholder: string; initial: string; onCreate: (name: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(initial)
+  const btn = css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')
+  if (!open) {
+    return (
+      <Box as="button" onClick={() => { setName(initial); setOpen(true) }} style={btn} hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />{label}</Box>
+    )
+  }
+  const submit = () => { const n = name.trim(); if (!n) return; setOpen(false); onCreate(n) }
+  return (
+    <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit() }} style={css('display:inline-flex;align-items:center;gap:6px')}>
+      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder} aria-label={placeholder}
+        onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
+        style={css('height:32px;width:min(220px,40vw);padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px')} />
+      <Box as="button" type="submit" style={css(`height:32px;padding:0 12px;border-radius:8px;background:var(--primary);color:var(--on-primary);font-size:12.5px;font-weight:600;opacity:${name.trim() ? '1' : '.5'}`)} hover="background:var(--primary-2)">Create</Box>
+      <Box as="button" type="button" onClick={() => setOpen(false)} style={btn} hover="background:var(--panel-2)">Cancel</Box>
+    </form>
   )
 }
 
@@ -1452,9 +1469,7 @@ function CustomBomsCard({ m }: MProps) {
           <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Custom bills of materials</h2>
           <span style={css('font-size:12px;color:var(--text-3)')}>{m.customBoms.length}</span>
         </div>
-        <Box as="button" onClick={m.createBom}
-          style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
-          hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New BOM</Box>
+        <InlineCreate label="New BOM" placeholder="Name this bill of materials" initial="Custom BOM" onCreate={m.createBom} />
       </div>
       {m.customBoms.length === 0 ? (
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No custom BOMs yet — build one by hand for items not on a plan, then quote it from the Suppliers tab.</div>
@@ -1487,9 +1502,7 @@ function TradeScopesCard({ m }: MProps) {
           <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Subcontractor trades</h2>
           <span style={css('font-size:12px;color:var(--text-3)')}>{m.tradeScopes.length}</span>
         </div>
-        <Box as="button" onClick={m.createTradeScope}
-          style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
-          hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New trade</Box>
+        <InlineCreate label="New trade" placeholder="Which trade do you need bids for?" initial="Concrete flatwork" onCreate={m.createTradeScope} />
       </div>
       {m.tradeScopes.length === 0 ? (
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No trades yet — name a trade you need bids for (e.g. concrete flatwork), write its scope of work, then find subcontractors from the Suppliers tab.</div>
@@ -2516,9 +2529,7 @@ function TabRfqs({ m }: MProps) {
   const count = (key: string) => (key === 'All' ? all.length : all.filter((r) => r.status === key).length)
   const shown = filter === 'All' ? all : all.filter((r) => r.status === filter)
 
-  const remove = async (rq: PersistedRfq, e: { stopPropagation: () => void }) => {
-    e.stopPropagation()
-    if (!window.confirm(`Delete draft “${rq.subject}”?`)) return
+  const remove = async (rq: PersistedRfq) => {
     setBusyId(rq.id)
     try { await deleteRfq(projectId, rq.id); await load() }
     catch { /* leave the row in place if the delete failed */ }
@@ -2562,11 +2573,7 @@ function TabRfqs({ m }: MProps) {
                   {rq.kind === 'subcontractor' && <span style={DcBadge('violet')}>Sub bid</span>}
                   <span style={DcBadge(rq.statusTone)}>{rq.status}</span>
                   {rq.status === 'Draft' && (
-                    <Box as="button" onClick={(e: { stopPropagation: () => void }) => remove(rq, e)} disabled={busyId === rq.id}
-                      style={css(`width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none;${busyId === rq.id ? 'opacity:.5' : ''}`)}
-                      hover="background:var(--danger-soft);color:var(--danger)" title="Delete draft">
-                      <Svg size={15} sw={1.9} d='M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m1 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6' />
-                    </Box>
+                    <ConfirmDeleteButton onConfirm={() => remove(rq)} disabled={busyId === rq.id} question="Delete draft?" title="Delete draft" icon={TRASH} />
                   )}
                 </Box>
               ))}

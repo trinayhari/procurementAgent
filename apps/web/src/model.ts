@@ -64,8 +64,8 @@ export interface ModelProps {
   onUpload?: (file: File, planType?: string) => void
   onDeleteDoc?: (id: string) => void
   onReanalyzeDoc?: (id: string) => void
-  onCreateBom?: () => void
-  onCreateTradeScope?: () => void
+  onCreateBom?: (name: string) => void
+  onCreateTradeScope?: (name: string) => void
   editBom?: boolean
   bomDraft?: LineItemGroup[] | null
   bomBusy?: boolean
@@ -444,8 +444,8 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     additionalKey: 'other',
     customBomType: CUSTOM_BOM_TYPE,
     tradeScopeType: TRADE_SCOPE_TYPE,
-    createBom: (props && props.onCreateBom) || (() => {}),
-    createTradeScope: (props && props.onCreateTradeScope) || (() => {}),
+    createBom: props?.onCreateBom ?? ((_name: string) => {}),
+    createTradeScope: props?.onCreateTradeScope ?? ((_name: string) => {}),
     // Upload / extraction wiring (see App.tsx + TabDocuments).
     planTypes: (props && props.planTypes) || null,
     planType: (props && props.planType) || 'site_plan',
