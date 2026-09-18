@@ -47,7 +47,6 @@ export interface ProjectForm {
   name: string
   loc: string
   value: string
-  stage?: string
 }
 
 // Props passed from App.tsx (API data + human-in-the-loop callbacks).
@@ -86,7 +85,7 @@ export interface ModelProps {
 interface ProjectInput {
   id: string; name: string; loc: string; stage: string; stageTone: string
   value: string; progress: number; suppliers: number; rfqs: number; quotes: number
-  risk: string; riskTone: string; barColor: string
+  barColor: string
   // An optimistic copy from the New project modal whose server id doesn't
   // exist yet. Nothing per-project may be fetched for it (every such request
   // would 404) — see App.tsx NextStepsCard and the projectId effect.
@@ -188,7 +187,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   ]
   const projectCount = projRaw.length
   const projects = projRaw.map((p) => ({
-    ...p, stageBadge: badge(p.stageTone), riskBadge: badge(p.riskTone),
+    ...p, stageBadge: badge(p.stageTone),
     barStyle: bar(p.progress, p.barColor), barTrackStyle: {},
   }))
 
@@ -409,17 +408,13 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     openNewProject: () => set({ newProjOpen: true, projError: null }),
     closeNewProject: () => set({ newProjOpen: false }),
     createProject: async (form: ProjectForm) => {
-      const stageToneMap: Record<string, string> = {
-        'Plans Review': 'gray', Sourcing: 'blue', 'RFQs Out': 'blue',
-        'Quotes In': 'violet', Complete: 'success',
-      }
-      const stage = form.stage || 'Plans Review'
       // Optimistic project so the workspace opens instantly; reconciled with the
-      // persisted record (real id) once the backend responds.
+      // persisted record (real id) once the backend responds. Stage/progress
+      // are computed server-side; a brand-new project is at Plans Review.
       const temp: ProjectInput = {
         id: 'proj-' + Date.now(), name: form.name.trim(), loc: form.loc.trim() || '—',
-        stage, stageTone: stageToneMap[stage] || 'gray', value: form.value.trim() || '$0',
-        progress: 0, suppliers: 0, rfqs: 0, quotes: 0, risk: 'Low', riskTone: 'success',
+        stage: 'Plans Review', stageTone: 'gray', value: form.value.trim() || '$0',
+        progress: 0, suppliers: 0, rfqs: 0, quotes: 0,
         barColor: 'var(--primary)', pending: true,
       }
       set({
@@ -427,7 +422,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
         nav: 'project', projectId: temp.id, tab: 'overview', compare: false, supplierId: null, mnav: false,
       })
       try {
-        const saved = await post<{ id: string }>('/api/projects', { name: temp.name, loc: form.loc.trim(), value: form.value.trim(), stage })
+        const saved = await post<{ id: string }>('/api/projects', { name: temp.name, loc: form.loc.trim(), value: form.value.trim() })
         // Now persisted: swap the optimistic copy for one carrying the real id
         // (in the same render as the route change, so the workspace never
         // points at an id the server doesn't know). The route change refetches

@@ -10,7 +10,7 @@ const USER = { id: 'u-pm', email: 'pm@acmebuild.com', name: 'PM', company: 'Acme
 
 const project = (id: string, name: string) => ({
   id, name, loc: 'Austin, TX', stage: 'Plans Review', stageTone: 'gray', value: '$1.0M',
-  progress: 0, suppliers: 0, rfqs: 0, quotes: 0, risk: 'Low', riskTone: 'success', barColor: 'var(--primary)',
+  progress: 0, suppliers: 0, rfqs: 0, quotes: 0, barColor: 'var(--primary)',
 })
 
 let projects = [project('p-1', 'Riverside Yard'), project('p-2', 'Hilltop Depot')]

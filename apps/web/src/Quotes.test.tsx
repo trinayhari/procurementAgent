@@ -11,7 +11,7 @@ const USER = { id: 'u-pm', email: 'pm@acmebuild.com', name: 'PM', company: 'Acme
 const PROJECT = {
   id: 'p-1', name: 'Riverside Yard', loc: 'Austin, TX', stage: 'Plans Review',
   stageTone: 'gray', value: '$1.0M', progress: 0, suppliers: 0, rfqs: 0, quotes: 0,
-  risk: 'Low', riskTone: 'success', barColor: 'var(--primary)',
+  barColor: 'var(--primary)',
 }
 
 // Two quotes for a custom BOM whose package key is its document id.

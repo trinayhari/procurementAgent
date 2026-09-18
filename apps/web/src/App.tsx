@@ -796,11 +796,11 @@ function Dashboard({ m }: MProps) {
           </div>
           <div style={css('overflow-x:auto')}>
             <div style={css('min-width:640px')}>
-              <div style={css('display:grid;grid-template-columns:minmax(180px,1.7fr) minmax(120px,1.3fr) 70px 78px 96px;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase')}>
-                <span>Project</span><span>Procurement</span><span style={css('text-align:center')}>RFQs</span><span style={css('text-align:center')}>Quotes</span><span style={css('text-align:right')}>Risk</span>
+              <div style={css('display:grid;grid-template-columns:minmax(180px,1.7fr) minmax(120px,1.3fr) 80px 78px 104px;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase')}>
+                <span>Project</span><span>Procurement</span><span style={css('text-align:center')}>RFQs sent</span><span style={css('text-align:center')}>Quotes</span><span style={css('text-align:right')}>Stage</span>
               </div>
               {m.projects.map((p, i) => (
-                <Box as="button" key={i} onClick={() => m.openProject(p)} style={css('display:grid;grid-template-columns:minmax(180px,1.7fr) minmax(120px,1.3fr) 70px 78px 96px;gap:10px;width:100%;padding:13px 18px;border-bottom:1px solid var(--border);align-items:center;text-align:left')} hover="background:var(--panel-2)">
+                <Box as="button" key={i} onClick={() => m.openProject(p)} style={css('display:grid;grid-template-columns:minmax(180px,1.7fr) minmax(120px,1.3fr) 80px 78px 104px;gap:10px;width:100%;padding:13px 18px;border-bottom:1px solid var(--border);align-items:center;text-align:left')} hover="background:var(--panel-2)">
                   <div style={css('min-width:0')}>
                     <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{p.name}</div>
                     <div style={css('font-size:11.5px;color:var(--text-3)')}>{p.loc}</div>
@@ -811,7 +811,7 @@ function Dashboard({ m }: MProps) {
                   </div>
                   <span style={css("text-align:center;font-size:13px;font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.rfqs}</span>
                   <span style={css("text-align:center;font-size:13px;font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.quotes}</span>
-                  <span style={css('display:flex;justify-content:flex-end')}><span style={p.riskBadge}>{p.risk}</span></span>
+                  <span style={css('display:flex;justify-content:flex-end')}><span style={p.stageBadge}>{p.stage}</span></span>
                 </Box>
               ))}
               {m.projects.length === 0 && (
@@ -908,7 +908,7 @@ function Projects({ m }: MProps) {
             <div style={css('display:flex;gap:8px;padding-top:13px;border-top:1px solid var(--border)')}>
               <div style={{ flex: 1 }}><div style={css('font-size:11px;color:var(--text-3)')}>Value</div><div style={css("font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.value}</div></div>
               <div style={{ flex: 1 }}><div style={css('font-size:11px;color:var(--text-3)')}>Suppliers</div><div style={css("font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.suppliers}</div></div>
-              <div style={{ flex: 1 }}><div style={css('font-size:11px;color:var(--text-3)')}>Open RFQs</div><div style={css("font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.rfqs}</div></div>
+              <div style={{ flex: 1 }}><div style={css('font-size:11px;color:var(--text-3)')}>RFQs sent</div><div style={css("font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.rfqs}</div></div>
             </div>
           </Box>
         ))}
@@ -2370,6 +2370,9 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs, onRevie
       if (isTrade) await saveScope() // the modal shows what's actually stored
       const rfq = await generateRfq(projectId, pkg, selectedIds, isTrade ? scope : undefined)
       setDraft(rfq)
+      // The overview's cards / package bars and the project row count RFQ
+      // drafts too — refresh the bundle so they never lag the checklist.
+      onAdded()
     } catch (e) {
       // Surface backend reasons (e.g. the BOM approval gate: "confirm the
       // extracted BOM first") over the generic fallback.
@@ -2612,6 +2615,10 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs, onRevie
       {draft && (
         <RfqReviewModal projectId={projectId} rfq={draft} docs={docs} onClose={() => setDraft(null)}
           onChanged={(out) => {
+            // A send (even a partial one) changes what the overview cards,
+            // package bars and project row report — refetch the bundle
+            // (BUG-48: cards said "1 sent" while the checklist said 2).
+            onAdded()
             // Only a delivered send clears the selection; a partial failure
             // keeps the modal (and its Retry) in front of the user.
             if (out.status === 'Send failed') return
@@ -3063,6 +3070,7 @@ function TabRfqs({ m }: MProps) {
       // show (and Send would only 404) once the row is gone.
       setOpen((cur) => (cur && cur.id === rq.id ? null : cur))
       await load()
+      m.reload() // overview cards / project row count drafts
     }
     catch { setErr(`Couldn’t delete “${rq.subject}” — is the backend running?`) }
     finally { setBusyId(null) }

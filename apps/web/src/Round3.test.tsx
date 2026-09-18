@@ -258,3 +258,96 @@ describe('quotes tab', () => {
     expect(screen.getByText('Best')).toBeTruthy()
   })
 })
+
+// ------------------------------------------------------------ BUG-47
+describe('project rows', () => {
+  it('shows the computed stage (no Risk column) and RFQs-sent counts on the dashboard table and project cards', async () => {
+    const ROWS = [
+      { ...PROJECT, stage: 'Complete', stageTone: 'success', progress: 100, suppliers: 4, rfqs: 2, quotes: 3, barColor: 'var(--success)' },
+      { ...PROJECT, id: 'p-2', name: 'Hilltop Depot', stage: 'RFQs Out', stageTone: 'blue', progress: 50, suppliers: 3, rfqs: 1, quotes: 0 },
+    ]
+    vi.stubGlobal('fetch', makeFetch((path, init) => {
+      if (path === '/api/projects' && (!init || !init.method || init.method === 'GET')) return json(ROWS)
+      return undefined
+    }))
+    render(<App />)
+    await screen.findByPlaceholderText('you@company.com')
+    fireEvent.change(screen.getByPlaceholderText('you@company.com'), { target: { value: USER.email } })
+    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'password123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByText('Project overview')
+    expect(screen.getByText('Stage')).toBeTruthy()
+    expect(screen.queryByText('Risk')).toBeNull()
+    expect(screen.getByText('Complete')).toBeTruthy()
+    expect(screen.getByText('RFQs Out')).toBeTruthy()
+    expect(screen.getByText('100%')).toBeTruthy()
+    expect(screen.getByText('50%')).toBeTruthy()
+    // Project cards label the count honestly.
+    window.location.hash = '#/projects'
+    await screen.findByText('Hilltop Depot')
+    expect(screen.getAllByText('RFQs sent').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Open RFQs')).toBeNull()
+  })
+
+  it('creates a project without sending a stage', async () => {
+    const posts: unknown[] = []
+    vi.stubGlobal('fetch', makeFetch((path, init) => {
+      if (path === '/api/projects' && init && init.method === 'POST') {
+        posts.push(JSON.parse(String(init.body)))
+        return json({ ...PROJECT, id: 'north-yard', name: 'North Yard' }, 201)
+      }
+      return undefined
+    }))
+    await openProject()
+    window.location.hash = '#/projects'
+    fireEvent.click(await screen.findByRole('button', { name: /New project/ }))
+    fireEvent.change(screen.getByPlaceholderText('e.g. Riverside Water Treatment Plant'), { target: { value: 'North Yard' } })
+    fireEvent.click(screen.getByRole('button', { name: /Create project/ }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toEqual({ name: 'North Yard', loc: '', value: '' })
+  })
+})
+
+// ------------------------------------------------------------ BUG-48
+describe('overview cards refresh after RFQ changes', () => {
+  it('refetches the project bundle after a send from Supplier Search, so the cards match the checklist', async () => {
+    const RFQ = {
+      id: 'rfq-9', projectId: PROJECT.id, package: 'water', pkg: 'Water Utilities', sup: '', folder: '', preview: '', time: '',
+      logo: 'WU', logoBg: '#334155', kind: 'materials', attachments: [], lineItems: [{ n: '12" DI Pipe', q: '100 LF' }],
+      subject: 'RFQ: Water Utilities — Riverside Yard', body: 'Please quote.', status: 'Draft', statusTone: 'gray',
+      recipients: [{ supplierId: 'f1', name: 'Core & Main', email: 'a@x.com' }],
+    }
+    const TIERS = [{ tier: 1, label: 'Local · 0–25 mi', suppliers: [{ id: 'f1', name: 'Core & Main', address: '1 Main St', distanceMiles: 5, tier: 1, email: 'a@x.com', phone: '', website: '', materialCategories: [], emailSource: 'mock', relevanceScore: 1, verifyReason: '' }] }]
+    let sent = 0
+    let detailFetches = 0
+    vi.stubGlobal('fetch', makeFetch((path, init) => {
+      if (/^\/api\/projects\/[^/]+$/.test(path)) {
+        detailFetches++
+        return json({ overviewCards: [{ label: 'RFQs sent', value: String(sent), sub: sent ? `${sent} quoted` : 'none sent yet', icon: 'rfq', tone: 'blue' }], packages: [], activity: [] })
+      }
+      if (path.includes('/packages/water/bom')) return json({ package: 'water', label: 'Water Utilities', tone: 'blue', count: 1, items: [{ n: '12" DI Pipe', q: '100 LF' }], seeded: false, custom: false, pendingReview: 0 })
+      if (path.includes('/suppliers/found')) return json({ status: 'done', mocked: true, radiusMi: 75, package: 'water', error: null, tiers: TIERS })
+      if (path.endsWith('/rfqs/generate') && init && init.method === 'POST') return json(RFQ, 201)
+      if (path.endsWith('/rfqs/rfq-9') && init && init.method === 'PUT') return json(RFQ)
+      if (path.endsWith('/rfqs/rfq-9/send') && init && init.method === 'POST') {
+        sent++
+        return json({ ...RFQ, status: 'Awaiting', statusTone: 'warn', recipients: [{ ...RFQ.recipients[0], sendStatus: 'sent', sentMessageId: 'm1' }] })
+      }
+      if (path.includes('/conversation')) return json({ rfqId: 'rfq-9', status: 'Awaiting', statusTone: 'warn', gmail: false, thread: [] })
+      return undefined
+    }))
+    await openProject('suppliers')
+    fireEvent.click(await screen.findByTitle('Select for RFQ'))
+    fireEvent.click(await screen.findByRole('button', { name: /Generate RFQ draft/ }))
+    await screen.findByText(/Review RFQ draft/)
+    const before = detailFetches
+    fireEvent.click(screen.getByRole('button', { name: 'Send to 1 supplier' }))
+    await waitFor(() => expect(sent).toBe(1))
+    // The bundle (which carries the overview cards) was refetched by the send.
+    await waitFor(() => expect(detailFetches).toBeGreaterThan(before))
+    fireEvent.click(screen.getByTitle('Close'))
+    window.location.hash = `#/project/${PROJECT.id}/overview`
+    await screen.findByText('1 quoted')
+    expect(screen.queryByText('none sent yet')).toBeNull()
+  })
+})
