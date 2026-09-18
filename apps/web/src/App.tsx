@@ -6,8 +6,8 @@ import type { Model, State } from './model'
 import Login from './Login'
 import AcceptInvite from './AcceptInvite'
 import {
-  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
-  saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
+  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, analyzeDocument,
+  saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone, hasDetail,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   getDocumentPreview, sendTestEmail, getEmailConfig,
   listProjectBoms, createSupplier, getSupplierDetail,
@@ -366,9 +366,23 @@ export default function App() {
       set({ docIdx: 0 }) // newest doc lands at the top
       await reload()
     } catch (e) {
-      set({ uploadError: 'Upload failed. Is the backend running?' })
+      // The backend says why it refused (unsupported type, empty/corrupt
+      // file, size limit) — show that; the generic hint is for no response.
+      set({ uploadError: hasDetail(e) ? e.message : 'Upload failed. Is the backend running?' })
     } finally {
       set({ uploading: false })
+    }
+  }
+
+  // Re-run extraction for a document whose last run failed. The document goes
+  // back to 'Processing' and the poll below picks up the outcome.
+  const reanalyzeDoc = async (id: string) => {
+    set({ uploadError: null })
+    try {
+      await analyzeDocument(id)
+      await reload()
+    } catch (e) {
+      set({ uploadError: hasDetail(e) ? e.message : 'Could not restart the analysis. Is the backend running?' })
     }
   }
 
@@ -480,7 +494,7 @@ export default function App() {
       set({ editBom: false, bomDraft: null, docLineItems: { id: doc.id, groups } })
       await reload()
     } catch (e) {
-      set({ uploadError: 'Could not save BOM edits.' })
+      set({ uploadError: hasDetail(e) ? e.message : 'Could not save BOM edits.' })
     } finally {
       set({ bomBusy: false })
     }
@@ -488,8 +502,17 @@ export default function App() {
   const confirmBom = async () => {
     const doc = currentDoc()
     if (!doc) return
-    set({ bomBusy: true })
-    try { await confirmDocument(doc.id); await reload() } finally { set({ bomBusy: false }) }
+    set({ bomBusy: true, uploadError: null })
+    try {
+      await confirmDocument(doc.id)
+      await reload()
+    } catch (e) {
+      // Previously an unhandled rejection: the button just un-busied and the
+      // BOM silently stayed unconfirmed.
+      set({ uploadError: hasDetail(e) ? e.message : 'Could not confirm the BOM. Is the backend running?' })
+    } finally {
+      set({ bomBusy: false })
+    }
   }
 
   // Until the stored token is validated, render nothing (avoids a login flash).
@@ -528,7 +551,7 @@ export default function App() {
     user, onLogout: handleLogout, onUserUpdated: setUser,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
-    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onCreateBom: createBom,
+    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onReanalyzeDoc: reanalyzeDoc, onCreateBom: createBom,
     onCreateTradeScope: createTrade,
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
@@ -1557,8 +1580,23 @@ function TabDocuments({ m }: MProps) {
               <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.pages} pages</span></div>
               <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><Svg size={12} fill d={SPARKLE_SM} />AI Analysis</span>
             </div>
+            {m.doc.status === 'Failed' && !m.doc.processing && (
+              <div role="alert" style={css('display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--danger-soft);font-size:12.5px')}>
+                <span style={css('flex:1;min-width:0;color:var(--danger)')}><b>Analysis failed.</b> {m.doc.error || 'The extraction did not complete.'}</span>
+                {m.doc.id && !m.doc.fileMissing && (
+                  <Box as="button" onClick={() => m.onReanalyzeDoc(m.doc.id as string)} disabled={m.uploading}
+                    style={css('font-size:12px;font-weight:600;color:var(--text);padding:5px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);white-space:nowrap')}
+                    hover="background:var(--panel-2)">Retry analysis</Box>
+                )}
+              </div>
+            )}
             <div style={css('position:relative;height:560px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
-              {m.doc.hasFile && m.doc.id ? (
+              {m.doc.fileMissing ? (
+                <div style={css('display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;max-width:360px;padding:0 16px')}>
+                  <PreviewNote>File no longer available</PreviewNote>
+                  <span style={css('font-size:12.5px;color:var(--text-3)')}>The uploaded file is no longer on this server (uploads are not kept across redeploys). The extracted materials are kept — re-upload the file to preview, attach, or re-analyze it.</span>
+                </div>
+              ) : m.doc.hasFile && m.doc.id ? (
                 <DocPreview docId={m.doc.id} title={m.doc.name} />
               ) : (
                 <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
@@ -1592,7 +1630,8 @@ type PreviewInfo = { pages: number; pageUrl: (page: number) => string; fileUrl: 
 
 function DocPreview({ docId, title }: { docId: string; title: string }) {
   const [info, setInfo] = useState<PreviewInfo | null>(null)
-  const [failed, setFailed] = useState(false)
+  // The reason the preview couldn't load (e.g. the stored file is gone), or ''.
+  const [failed, setFailed] = useState('')
   const [page, setPage] = useState(0)
   // Rendering a page runs a subprocess on the backend the first time (it's
   // cached after), so a page can take a beat — show its own loading state.
@@ -1601,17 +1640,17 @@ function DocPreview({ docId, title }: { docId: string; title: string }) {
 
   useEffect(() => {
     let alive = true
-    setInfo(null); setFailed(false); setPage(0)
+    setInfo(null); setFailed(''); setPage(0)
     getDocumentPreview(docId).then(
       (r) => { if (alive) setInfo(r) },
-      () => { if (alive) setFailed(true) },
+      (e) => { if (alive) setFailed(hasDetail(e) ? e.message : 'Preview unavailable') },
     )
     return () => { alive = false }
   }, [docId])
 
   useEffect(() => { setPageLoaded(false); setPageFailed(false) }, [docId, page])
 
-  if (failed) return <PreviewNote>Preview unavailable</PreviewNote>
+  if (failed) return <PreviewNote>{failed}</PreviewNote>
   if (!info) return <PreviewNote muted>Loading preview…</PreviewNote>
   // Nothing renderable (a CSV/XLSX upload, or a PDF we couldn't rasterise) —
   // the original file is still one click away.
@@ -1867,12 +1906,16 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
   // Poll while a background search runs.
   useEffect(() => {
     if (!searching) return
+    // A poll response can land after the user switched packages; without
+    // this guard it would paint the previous package's suppliers under the
+    // new chip (and clear the new search's spinner).
+    let alive = true
     const t = setInterval(() => {
       getFoundSuppliers(projectId, pkg)
-        .then((r) => { setResult(r); if (r.status !== 'searching') setSearching(false) })
+        .then((r) => { if (!alive) return; setResult(r); if (r.status !== 'searching') setSearching(false) })
         .catch(() => {})
     }, 2500)
-    return () => clearInterval(t)
+    return () => { alive = false; clearInterval(t) }
   }, [searching, projectId, pkg])
 
   const runSearch = async () => {
@@ -1881,7 +1924,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
       await searchSuppliers(projectId, pkg, radius)
       setSearching(true)
       setResult({ status: 'searching', mocked: false, radiusMi: radius, package: pkg, error: null, tiers: [] })
-    } catch (e) { setErr('Search failed. Is the backend running?') }
+    } catch (e) { setErr(hasDetail(e) ? e.message : 'Search failed. Is the backend running?') }
   }
 
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }))
@@ -2205,7 +2248,7 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 // the full email thread is read live from Gmail, and "Check for replies" pulls
 // any supplier response — flipping the RFQ to 'Replied' when one has arrived.
 // Attachable project documents for the RFQ modal — anything with a stored file.
-type AttachableDoc = { id?: string; name: string; hasFile?: boolean }
+type AttachableDoc = { id?: string; name: string; hasFile?: boolean; fileMissing?: boolean }
 
 function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void }) {
   const [subject, setSubject] = useState(rfq.subject)
@@ -2220,7 +2263,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
   // BOMs and trade scopes have no file, so they're excluded automatically.
   const [attachIds, setAttachIds] = useState<string[]>((rfq.attachments || []).map((a) => a.documentId))
   const [attachNames, setAttachNames] = useState<string[]>((rfq.attachments || []).map((a) => a.name))
-  const attachable = (docs || []).filter((d) => d.hasFile && d.id)
+  const attachable = (docs || []).filter((d) => d.hasFile && !d.fileMissing && d.id)
   // Ids chosen earlier can go stale (document deleted since the draft was
   // saved). Sending stale ids would 400 at save with no checkbox to uncheck —
   // a dead end — so both the count and the save payload use the live set.
@@ -2488,18 +2531,23 @@ function TabQuotes({ m }: MProps) {
     try {
       await ingestQuotes(projectId)
       // Poll the background ingest until it finishes, then reload the model.
+      let finished = false
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 1500))
         const st = await getIngestStatus(projectId)
         if (st.status !== 'ingesting') {
           if (st.status === 'error') setNote(st.error || 'Ingest failed')
           else setNote(`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}${st.mocked ? ' (simulated)' : ''}`)
+          finished = true
           break
         }
       }
+      // The mailbox read is still running past the poll window — say so
+      // instead of dropping the spinner with no outcome.
+      if (!finished) setNote('Still checking the mailbox — new quotes will appear on the next refresh.')
       await m.reload()
-    } catch {
-      setNote('Could not check for replies. Is the backend running?')
+    } catch (e) {
+      setNote(hasDetail(e) ? e.message : 'Could not check for replies. Is the backend running?')
     } finally {
       setIngesting(false)
     }
@@ -2594,10 +2642,13 @@ function TabCompare({ m }: MProps) {
   const [strategy, setStrategy] = useState<string>('mix')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  // Set once this screen has awarded the package: the submit button then
+  // stays off so a second click can't issue (and email) the same POs again.
+  const [awarded, setAwarded] = useState(false)
 
   useEffect(() => {
     let alive = true
-    setLoading(true); setErr(null); setMsg(null)
+    setLoading(true); setErr(null); setMsg(null); setAwarded(false)
     getLineComparison(m.projectId, m.comparePkg)
       .then((data) => {
         if (!alive) return
@@ -2635,9 +2686,12 @@ function TabCompare({ m }: MProps) {
     try {
       const res = await awardPackage(m.projectId, lc.package, sel, strategy)
       setMsg(res.message)
+      setAwarded(true)
       await m.reload()
-    } catch {
-      setMsg('Could not submit award. Is the backend running?')
+    } catch (e) {
+      // e.g. "Nothing to award — the quotes for this package have no priced
+      // line items" — the backend's reason beats the generic hint.
+      setMsg(hasDetail(e) ? e.message : 'Could not submit award. Is the backend running?')
     } finally { setBusy(false) }
   }
   const budgetPct = lc.budget ? Math.min(100, (sum.total / lc.budget) * 100) : null
@@ -2750,7 +2804,7 @@ function TabCompare({ m }: MProps) {
             </div>
             {sum.savings > 0 && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>Saves {money(sum.savings)} vs. the best single supplier.</div>}
             {msg && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{msg}</div>}
-            <button onClick={busy || nothingSelected ? undefined : submit} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : nothingSelected ? 'Select at least one line' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            <button onClick={busy || nothingSelected || awarded ? undefined : submit} disabled={busy || nothingSelected || awarded} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected || awarded ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : awarded ? 'Awarded' : nothingSelected ? 'Select at least one line' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
           </div>
         </div>
       </div>

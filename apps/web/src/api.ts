@@ -85,12 +85,43 @@ function onUnauthorized(status: number): void {
   if (status === 401) setToken(null)
 }
 
+// The backend's human-readable reason for a failed response, or null.
+//
+// FastAPI puts a string in `detail` for HTTPException (e.g. "RFQ was already
+// sent", the BOM approval gate, "File exceeds 100MB limit") and a list of
+// `{loc, msg}` objects for a 422 validation error — take the first message so
+// a rejected field ("'x' is not a valid email address") reads as a sentence.
+export function errorDetail(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null
+  const detail = (data as { detail?: unknown }).detail
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail) && detail.length) {
+    const first = detail[0] as { msg?: unknown }
+    if (first && typeof first.msg === 'string') {
+      // Pydantic prefixes custom validator messages with "Value error, ".
+      return first.msg.replace(/^Value error, /, '')
+    }
+  }
+  return null
+}
+
+// Build the Error for a failed response: the backend's reason when it gave
+// one, else `fallback` (a "<path> -> <status>" code the UI can recognise as
+// generic and replace with its own hint).
+export async function responseError(res: Response, fallback: string): Promise<Error> {
+  onUnauthorized(res.status)
+  const data = await res.json().catch(() => null)
+  return new Error(errorDetail(data) || fallback)
+}
+
+// True when an error carries a backend reason (vs. a bare "<path> -> <status>").
+export function hasDetail(e: unknown): e is Error {
+  return e instanceof Error && !!e.message && !e.message.includes('->')
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { headers: { ...authHeaders() } })
-  if (!res.ok) {
-    onUnauthorized(res.status)
-    throw new Error(`${path} -> ${res.status}`)
-  }
+  if (!res.ok) throw await responseError(res, `${path} -> ${res.status}`)
   return res.json() as Promise<T>
 }
 
@@ -100,14 +131,9 @@ export function post<T = unknown>(path: string, body?: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   }).then(async (r) => {
-    if (!r.ok) {
-      onUnauthorized(r.status)
-      // Surface the backend's human-readable reason (e.g. "RFQ was already
-      // sent", BOM approval gate) instead of a bare status code.
-      const data = await r.json().catch(() => null)
-      const detail = data && typeof data.detail === 'string' ? data.detail : null
-      throw new Error(detail || `${path} -> ${r.status}`)
-    }
+    // Surface the backend's human-readable reason (e.g. "RFQ was already
+    // sent", BOM approval gate) instead of a bare status code.
+    if (!r.ok) throw await responseError(r, `${path} -> ${r.status}`)
     return r.json() as Promise<T>
   })
 }
@@ -252,10 +278,17 @@ export function uploadDocument(
   form.append('file', file)
   if (planType) form.append('plan_type', planType)
   if (projectId) form.append('project_id', projectId)
-  return fetch(`${BASE}/api/documents`, { method: 'POST', headers: { ...authHeaders() }, body: form }).then((r) => {
-    if (!r.ok) throw new Error(`upload -> ${r.status}`)
+  return fetch(`${BASE}/api/documents`, { method: 'POST', headers: { ...authHeaders() }, body: form }).then(async (r) => {
+    // The backend explains rejections (unsupported type, empty/corrupt file,
+    // size limit) — pass that through rather than a bare status code.
+    if (!r.ok) throw await responseError(r, `upload -> ${r.status}`)
     return r.json() as Promise<Document>
   })
+}
+
+// Re-run extraction for an uploaded document (e.g. after a failed run).
+export function analyzeDocument(docId: string): Promise<Document> {
+  return post<Document>(`/api/documents/${docId}/analyze`)
 }
 
 // Page count + signed URLs for the document preview. Pages are rendered to
@@ -293,8 +326,8 @@ export function saveDocumentLineItems(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ groups }),
-  }).then((r) => {
-    if (!r.ok) throw new Error(`save line-items -> ${r.status}`)
+  }).then(async (r) => {
+    if (!r.ok) throw await responseError(r, `save line-items -> ${r.status}`)
     return r.json() as Promise<LineItemGroup[]>
   })
 }
@@ -514,13 +547,9 @@ export function saveRfq(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   }).then(async (r) => {
-    if (!r.ok) {
-      // Surface the backend's reason (e.g. "Attachments exceed the 15 MB email
-      // limit") instead of a bare status code.
-      const data = await r.json().catch(() => null)
-      const detail = data && typeof data.detail === 'string' ? data.detail : null
-      throw new Error(detail || `save rfq -> ${r.status}`)
-    }
+    // Surface the backend's reason (e.g. "Attachments exceed the 15 MB email
+    // limit", an invalid recipient email) instead of a bare status code.
+    if (!r.ok) throw await responseError(r, `save rfq -> ${r.status}`)
     return r.json() as Promise<PersistedRfq>
   })
 }

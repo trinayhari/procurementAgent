@@ -775,6 +775,9 @@ export interface paths {
          *       double-click or replayed request never re-emails suppliers.
          *     - Recipients who already received the RFQ successfully are always skipped;
          *       a retry only attempts the failed/unsent ones.
+         *     - Two overlapping sends of the same RFQ (two tabs, a replayed request) are
+         *       serialised by a per-RFQ lock: the second one gets a 409 rather than
+         *       reading the still-'Draft' status and emailing every supplier twice.
          */
         post: operations["send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post"];
         delete?: never;
@@ -1501,6 +1504,11 @@ export interface components {
              * @default false
              */
             hasFile: boolean;
+            /**
+             * Filemissing
+             * @default false
+             */
+            fileMissing: boolean;
             /** Plantype */
             planType?: string | null;
             /** Summary */

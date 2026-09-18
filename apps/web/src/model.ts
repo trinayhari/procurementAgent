@@ -58,6 +58,7 @@ export interface ModelProps {
   docLineItems?: { id: string; groups: LineItemGroup[] } | null
   onUpload?: (file: File, planType?: string) => void
   onDeleteDoc?: (id: string) => void
+  onReanalyzeDoc?: (id: string) => void
   onCreateBom?: () => void
   onCreateTradeScope?: () => void
   editBom?: boolean
@@ -86,7 +87,7 @@ interface DocInput {
   id?: string; name: string; type: string; date: string; status: string; statusTone: string
   items: string; pages: number; processing?: boolean; hasFile?: boolean; planType?: string | null
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
-  timelineEvents?: number
+  timelineEvents?: number; error?: string | null; fileMissing?: boolean
 }
 interface QuoteInput { id?: string; sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }
@@ -444,6 +445,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     uploadError: (props && props.uploadError) || null,
     onUpload: props?.onUpload ?? ((_file: File, _planType?: string) => {}),
     onDeleteDoc: props?.onDeleteDoc ?? ((_id: string) => {}),
+    onReanalyzeDoc: props?.onReanalyzeDoc ?? ((_id: string) => {}),
     // Human-in-the-loop BOM review (see App.tsx + ExtractedPanel).
     bomEditing: !!(props && props.editBom),
     bomDraft: (props && props.bomDraft) || [],
