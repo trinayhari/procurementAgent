@@ -51,6 +51,7 @@ SCOPED_TABLES = (
     "audit_events",
     "background_jobs",
     "lenders",
+    "package_budgets",
 )
 
 

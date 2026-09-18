@@ -577,17 +577,25 @@ def test_fetch_replies_strips_the_quoted_chain_and_keeps_the_thread(monkeypatch)
 # ------------------------------------------------- demo data: dashboard etc.
 def test_dashboard_overview_and_timeline_demo_data_stay_in_the_demo_org(project):
     """A brand-new organization saw the demo org's metric literals, activity
-    feed (naming another tenant's project), overview cards and June timeline."""
+    feed (naming another tenant's project), overview cards and June timeline.
+    KPIs and overview cards are now computed from the org's OWN rows (see
+    test_round3.py) — so here they reflect one empty project, not Riverside."""
     client, headers, pid = project
     from app.repositories import reference as reference_repo
 
     with SessionLocal() as db:
         reference_repo.seed_reference_data(db)
     dash = client.get("/api/dashboard", headers=headers).json()
-    assert dash["metrics"] == []
+    by_label = {m["label"]: m for m in dash["metrics"]}
+    assert by_label["Active projects"]["value"] == "0"
+    assert by_label["RFQs out"]["value"] == "0"
+    assert by_label["Quotes received"]["value"] == "0"
+    assert by_label["Spend committed"]["value"] == "$0"
+    assert "Savings" not in by_label  # no award yet → tile not shown
     assert all("Riverside" not in a.get("meta", "") for a in dash["activity"])
     detail = client.get(f"/api/projects/{pid}", headers=headers).json()
-    assert detail["overviewCards"] == [] and detail["packages"] == []
+    assert [c["value"] for c in detail["overviewCards"]] == ["0", "0", "0", "0"]
+    assert detail["packages"] == []
     tl = client.get(f"/api/projects/{pid}/timeline", headers=headers).json()
     assert tl == {"milestones": [], "gantt": [], "ganttCols": []}
 

@@ -1,7 +1,9 @@
 """ORM models for the prototype's reference/display data.
 
-These tables back the dashboard, project workspace cards, vendor comparison,
-timeline, and the demo RFQ inbox / quote list. They're seeded once on first run
+These tables back the demo activity feed, vendor comparison, timeline, and the
+demo RFQ inbox / quote list. (Dashboard KPIs, project overview cards and
+package progress are COMPUTED from real rows — see services/metrics.py — and
+have no seeded table.) They're seeded once on first run
 from the literals in app/repositories/seed.py so the app renders fully, but they
 now persist (and can be edited) like any other entity rather than living in a
 process-memory list that's lost on restart.
@@ -22,27 +24,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 
 
-class DashboardMetric(Base):
-    __tablename__ = "dashboard_metrics"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    label: Mapped[str] = mapped_column(String, nullable=False)
-    value: Mapped[str] = mapped_column(String, nullable=False)
-    delta: Mapped[str] = mapped_column(String, nullable=False, default="")
-    sub: Mapped[str] = mapped_column(String, nullable=False, default="")
-    up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    down: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    ai: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    risk: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-    def to_dict(self) -> dict:
-        return {
-            "label": self.label, "value": self.value, "delta": self.delta,
-            "sub": self.sub, "up": self.up, "down": self.down,
-            "ai": self.ai, "risk": self.risk,
-        }
-
 
 class ActivityItem(Base):
     __tablename__ = "activity_items"
@@ -62,36 +43,6 @@ class ActivityItem(Base):
         }
 
 
-class OverviewCard(Base):
-    __tablename__ = "overview_cards"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    label: Mapped[str] = mapped_column(String, nullable=False)
-    value: Mapped[str] = mapped_column(String, nullable=False)
-    sub: Mapped[str] = mapped_column(String, nullable=False, default="")
-    icon: Mapped[str] = mapped_column(String, nullable=False, default="file")
-    tone: Mapped[str] = mapped_column(String, nullable=False, default="blue")
-    ai: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-    def to_dict(self) -> dict:
-        return {
-            "label": self.label, "value": self.value, "sub": self.sub,
-            "icon": self.icon, "tone": self.tone, "ai": self.ai,
-        }
-
-
-class PackageProgress(Base):
-    __tablename__ = "packages"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    tone: Mapped[str] = mapped_column(String, nullable=False, default="blue")
-
-    def to_dict(self) -> dict:
-        return {"name": self.name, "pct": self.pct, "tone": self.tone}
 
 
 class SeedLineItemGroup(Base):

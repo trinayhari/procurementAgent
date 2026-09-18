@@ -1246,6 +1246,128 @@
         }
       }
     },
+    "/api/projects/{project_id}/packages/{pkg}/budget": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Package Budget",
+        "description": "The buyer's budget for a package (null when none has been set).",
+        "operationId": "get_package_budget_api_projects__project_id__packages__pkg__budget_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "pkg",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pkg"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageBudget"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Set Package Budget",
+        "description": "Set (a positive amount) or clear (null) the budget for a package.\n\nBudgets are optional and real: the comparison screen shows its\nover/under-budget line only once one exists \u2014 never a sample figure.",
+        "operationId": "set_package_budget_api_projects__project_id__packages__pkg__budget_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "pkg",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pkg"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackageBudgetUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageBudget"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/packages/{pkg}/award": {
       "post": {
         "tags": [
@@ -6076,7 +6198,8 @@
           },
           "delta": {
             "type": "string",
-            "title": "Delta"
+            "title": "Delta",
+            "default": ""
           },
           "sub": {
             "type": "string",
@@ -6107,10 +6230,10 @@
         "type": "object",
         "required": [
           "label",
-          "value",
-          "delta"
+          "value"
         ],
-        "title": "Metric"
+        "title": "Metric",
+        "description": "A dashboard KPI tile. Computed from real rows (services/metrics.py);\n`delta` is empty unless a period-over-period figure can be derived."
       },
       "MetricDeltaOut": {
         "properties": {
@@ -6406,6 +6529,11 @@
           },
           "tone": {
             "$ref": "#/components/schemas/Tone"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage",
+            "default": ""
           }
         },
         "type": "object",
@@ -6414,7 +6542,8 @@
           "pct",
           "tone"
         ],
-        "title": "Package"
+        "title": "Package",
+        "description": "Procurement progress for one package: the furthest step reached."
       },
       "PackageBom": {
         "properties": {
@@ -6485,6 +6614,50 @@
           "q"
         ],
         "title": "PackageBomItem"
+      },
+      "PackageBudget": {
+        "properties": {
+          "package": {
+            "type": "string",
+            "title": "Package"
+          },
+          "budget": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget"
+          }
+        },
+        "type": "object",
+        "required": [
+          "package"
+        ],
+        "title": "PackageBudget"
+      },
+      "PackageBudgetUpdate": {
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget"
+          }
+        },
+        "type": "object",
+        "title": "PackageBudgetUpdate",
+        "description": "Set (a positive amount) or clear (null) the budget for a package."
       },
       "PerDocCompareOut": {
         "properties": {

@@ -11,12 +11,14 @@ from app.repositories import audit as audit_repo
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
 from app.repositories import lenders as lenders_repo
+from app.repositories import package_budgets as budgets_repo
 from app.repositories import projects as projects_repo
 from app.repositories import purchase_decisions as purchase_decisions_repo
 from app.repositories import quotes as quotes_repo
 from app.repositories import reference as reference_repo
 from app.repositories import suppliers as suppliers_repo
 from app.repositories import timeline as timeline_repo
+from app.services import metrics as metrics_service
 from app.services import schedule as schedule_service
 from app.services.quotes import comparison as comparison_service
 from app.services.quotes import line_comparison as line_comparison_service
@@ -31,6 +33,8 @@ from app.schemas.quote import (
     AwardResult,
     Comparison,
     LineComparison,
+    PackageBudget,
+    PackageBudgetUpdate,
     PurchaseDecision,
     Quote,
 )
@@ -109,13 +113,14 @@ def get_project(
 ):
     org_id = current_user.organization_id
     project = _require_project(org_id, project_id, db)
-    demo = _is_demo_org(org_id)
+    # Overview cards and package progress are computed from THIS project's
+    # own documents → RFQs → quotes → awards (services/metrics.py), for every
+    # organization alike — never seeded literals.
+    cards, packages_progress = metrics_service.project_overview(db, org_id, project_id)
     return {
         **project,
-        # Overview cards / package progress are seeded prototype literals —
-        # demo org only (they were identical for every project of every tenant).
-        "overviewCards": reference_repo.list_overview_cards(db) if demo else [],
-        "packages": reference_repo.list_packages(db) if demo else [],
+        "overviewCards": cards,
+        "packages": packages_progress,
         "activity": events_repo.list_for_project(db, org_id, project_id),
     }
 
@@ -337,6 +342,54 @@ def get_line_comparison(
             "poCount": last.get("poCount") or 0,
         }
     return result
+
+
+@router.get("/{project_id}/packages/{pkg}/budget", response_model=PackageBudget)
+def get_package_budget(
+    project_id: str,
+    pkg: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The buyer's budget for a package (null when none has been set)."""
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    key, _label = _resolve_package(db, org_id, project_id, pkg)
+    return {"package": key or pkg, "budget": budgets_repo.get_budget(db, org_id, project_id, key or pkg)}
+
+
+@router.put("/{project_id}/packages/{pkg}/budget", response_model=PackageBudget)
+def set_package_budget(
+    project_id: str,
+    pkg: str,
+    payload: PackageBudgetUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Set (a positive amount) or clear (null) the budget for a package.
+
+    Budgets are optional and real: the comparison screen shows its
+    over/under-budget line only once one exists — never a sample figure.
+    """
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    key, label = _resolve_package(db, org_id, project_id, pkg)
+    package = key or pkg
+    stored = budgets_repo.set_budget(db, org_id, project_id, package, payload.budget)
+    audit_repo.log(
+        db, org_id, current_user, "package.budget_set", "package", package,
+        project_id=project_id, detail={"package": package, "budget": stored},
+    )
+    events_repo.log(
+        db,
+        org_id,
+        project_id,
+        title=(f"Budget set for {label}: ${stored:,.0f}" if stored is not None else f"Budget cleared for {label}"),
+        icon="quote",
+        tone="blue",
+        meta=label,
+    )
+    return {"package": package, "budget": stored}
 
 
 @router.post("/{project_id}/packages/{pkg}/award", response_model=AwardResult)

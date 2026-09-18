@@ -17,8 +17,8 @@ from itertools import combinations
 from typing import Dict, List, Optional
 
 from app.models.quote import _initials
+from app.repositories import package_budgets as budgets_repo
 from app.repositories import quotes as quotes_repo
-from app.services.quotes.sample_data import budget_for
 
 _LOGO_COLORS = ["#0a4d8c", "#16a34a", "#0f766e", "#b45309", "#7c3aed", "#334155"]
 
@@ -233,7 +233,9 @@ def build_line_comparison(
     return {
         "pkg": package_label or package,
         "package": package,
-        "budget": budget_for(package) or None,
+        # The buyer's own budget for this package, if one was set (None hides
+        # the over/under line on the comparison screen) — never a sample.
+        "budget": budgets_repo.get_budget(db, org_id, project_id, package),
         "suppliers": suppliers,
         "lines": lines,
         "options": options,

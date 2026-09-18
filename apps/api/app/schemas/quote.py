@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Quote(BaseModel):
@@ -112,6 +112,17 @@ class LineComparison(BaseModel):
     # an explicit re-award rather than re-issuing (and re-emailing) the POs
     # on a stray click.
     lastAward: Optional[LastAward] = None
+
+
+class PackageBudgetUpdate(BaseModel):
+    """Set (a positive amount) or clear (null) the budget for a package."""
+
+    budget: Optional[float] = Field(default=None, gt=0, le=1e12)
+
+
+class PackageBudget(BaseModel):
+    package: str
+    budget: Optional[float] = None
 
 
 class AwardRequest(BaseModel):

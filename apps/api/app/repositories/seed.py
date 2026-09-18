@@ -7,15 +7,6 @@ a real database later only requires reimplementing the accessor functions below.
 from typing import Dict, List
 
 # --------------------------------------------------------------------- dashboard
-METRICS: List[dict] = [
-    {"label": "Active Projects", "value": "5", "delta": "+2", "up": True, "sub": "this quarter"},
-    {"label": "Active RFQs", "value": "20", "delta": "+6", "up": True, "sub": "5 projects"},
-    {"label": "Pending Quotes", "value": "14", "delta": "4 due soon", "sub": ""},
-    {"label": "Total Material Spend", "value": "$35.3M", "delta": "+8.1%", "up": True, "sub": "committed"},
-    {"label": "Potential Savings", "value": "$1.84M", "delta": "5.2%", "up": True, "sub": "identified", "ai": True},
-    {"label": "Procurement Risks", "value": "3", "delta": "2 high", "down": True, "sub": "need review", "risk": True},
-]
-
 ACTIVITY: List[dict] = [
     {"icon": "quote", "tone": "success", "title": "Quote received from Ferguson", "meta": "Water Utilities · Riverside WTP", "time": "12m"},
     {"icon": "quote", "tone": "success", "title": "Quote received from Core & Main", "meta": "Water Utilities · Riverside WTP", "time": "35m"},
@@ -32,22 +23,6 @@ PROJECTS: List[dict] = [
     {"id": "hwy50", "name": "Highway 50 Interchange", "loc": "Reno, NV", "stage": "Plans Review", "stageTone": "gray", "value": "$12.1M", "progress": 24, "suppliers": 6, "rfqs": 8, "quotes": 2, "risk": "High", "riskTone": "danger", "barColor": "var(--danger)"},
     {"id": "maple", "name": "Maple Grove Subdivision", "loc": "Boise, ID", "stage": "Complete", "stageTone": "success", "value": "$3.4M", "progress": 100, "suppliers": 9, "rfqs": 0, "quotes": 11, "risk": "Low", "riskTone": "success", "barColor": "var(--success)"},
     {"id": "cedar", "name": "Cedar Point Logistics Hub", "loc": "Phoenix, AZ", "stage": "Sourcing", "stageTone": "blue", "value": "$6.9M", "progress": 45, "suppliers": 11, "rfqs": 4, "quotes": 5, "risk": "Medium", "riskTone": "warn", "barColor": "var(--primary)"},
-]
-
-# Workspace detail (only Riverside is fleshed out in the prototype).
-OVERVIEW_CARDS: List[dict] = [
-    {"label": "Documents", "value": "6", "sub": "4 analyzed", "icon": "file", "tone": "blue"},
-    {"label": "Suppliers Found", "value": "12", "sub": "4 quoted", "icon": "supplier", "tone": "violet"},
-    {"label": "RFQs Sent", "value": "6", "sub": "5 quoted", "icon": "rfq", "tone": "blue"},
-    {"label": "Quotes Received", "value": "5", "sub": "2 packages", "icon": "quote", "tone": "success"},
-    {"label": "Savings Identified", "value": "$31.8K", "sub": "AI mix & match", "icon": "sparkles", "tone": "ai", "ai": True},
-]
-
-PACKAGES: List[dict] = [
-    {"name": "Water Utilities", "pct": 100, "tone": "success"},
-    {"name": "Sanitary Sewer", "pct": 100, "tone": "success"},
-    {"name": "Storm Drain", "pct": 45, "tone": "warn"},
-    {"name": "Electrical", "pct": 25, "tone": "gray"},
 ]
 
 # --------------------------------------------------------------------- suppliers

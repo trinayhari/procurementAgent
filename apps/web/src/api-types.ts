@@ -471,6 +471,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/packages/{pkg}/budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Package Budget
+         * @description The buyer's budget for a package (null when none has been set).
+         */
+        get: operations["get_package_budget_api_projects__project_id__packages__pkg__budget_get"];
+        /**
+         * Set Package Budget
+         * @description Set (a positive amount) or clear (null) the budget for a package.
+         *
+         *     Budgets are optional and real: the comparison screen shows its
+         *     over/under-budget line only once one exists — never a sample figure.
+         */
+        put: operations["set_package_budget_api_projects__project_id__packages__pkg__budget_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/packages/{pkg}/award": {
         parameters: {
             query?: never;
@@ -2307,13 +2334,20 @@ export interface components {
             /** Body */
             body: string;
         };
-        /** Metric */
+        /**
+         * Metric
+         * @description A dashboard KPI tile. Computed from real rows (services/metrics.py);
+         *     `delta` is empty unless a period-over-period figure can be derived.
+         */
         Metric: {
             /** Label */
             label: string;
             /** Value */
             value: string;
-            /** Delta */
+            /**
+             * Delta
+             * @default
+             */
             delta: string;
             /**
              * Sub
@@ -2455,13 +2489,21 @@ export interface components {
              */
             ai: boolean;
         };
-        /** Package */
+        /**
+         * Package
+         * @description Procurement progress for one package: the furthest step reached.
+         */
         Package: {
             /** Name */
             name: string;
             /** Pct */
             pct: number;
             tone: components["schemas"]["Tone"];
+            /**
+             * Stage
+             * @default
+             */
+            stage: string;
         };
         /**
          * PackageBom
@@ -2503,6 +2545,21 @@ export interface components {
             n: string;
             /** Q */
             q: string;
+        };
+        /** PackageBudget */
+        PackageBudget: {
+            /** Package */
+            package: string;
+            /** Budget */
+            budget?: number | null;
+        };
+        /**
+         * PackageBudgetUpdate
+         * @description Set (a positive amount) or clear (null) the budget for a package.
+         */
+        PackageBudgetUpdate: {
+            /** Budget */
+            budget?: number | null;
         };
         /**
          * PerDocCompareOut
@@ -4406,6 +4463,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineComparison"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_package_budget_api_projects__project_id__packages__pkg__budget_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                pkg: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageBudget"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_package_budget_api_projects__project_id__packages__pkg__budget_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                pkg: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageBudgetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageBudget"];
                 };
             };
             /** @description Validation Error */

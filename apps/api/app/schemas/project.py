@@ -64,9 +64,12 @@ class OverviewCard(BaseModel):
 
 
 class Package(BaseModel):
+    """Procurement progress for one package: the furthest step reached."""
+
     name: str
     pct: int
     tone: Tone
+    stage: str = ""
 
 
 class ProjectDetail(Project):
