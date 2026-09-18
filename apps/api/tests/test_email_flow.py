@@ -1072,3 +1072,55 @@ def test_providers_health_probe_reports_each_provider(auth, monkeypatch):
 def test_probe_gmail_unconfigured_never_touches_the_network():
     out = rfq_sender.probe_gmail()
     assert out["ok"] is False and "Not configured" in out["error"] and out["sendScope"] is False
+
+
+# ================================================================== metrics
+def test_metrics_do_not_count_a_failed_send_or_superseded_quotes(project, monkeypatch):
+    """Dashboard / overview / project rows: an RFQ nobody received is not
+    'sent', and superseded revisions / needs-review replies are not quotes."""
+    from app.db import SessionLocal
+    from app.repositories import quotes as quotes_repo
+
+    client, headers, pid = project
+    bom_id, rfq = _rfq_ready(client, headers, pid, n=1)
+
+    class Dead:
+        mocked = True
+
+        def send(self, *a, **kw):
+            raise rfq_sender.GmailUnavailable("Gmail connection expired or was revoked (invalid_grant) — re-mint")
+
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: Dead())
+    assert client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers).json()["status"] == "Send failed"
+
+    def cards():
+        return {c["label"]: c for c in client.get(f"/api/projects/{pid}", headers=headers).json()["overviewCards"]}
+
+    def dash():
+        return {m["label"]: m for m in client.get("/api/dashboard", headers=headers).json()["metrics"]}
+
+    c = cards()
+    assert c["RFQs sent"]["value"] == "0" and "1 failed to send" in c["RFQs sent"]["sub"]
+    assert dash()["RFQs out"]["value"] == "0"
+    row = next(p for p in client.get("/api/projects", headers=headers).json() if p["id"] == pid)
+    assert row["rfqs"] == 0 and row["stage"] == "Sourcing"
+    pk = {p["name"]: p for p in client.get(f"/api/projects/{pid}", headers=headers).json()["packages"]}
+    assert pk["Hydrants Package"]["stage"] == "RFQ drafted"
+
+    # Retry delivers; then a superseded revision and a needs-review reply are
+    # stored beside the one real quote.
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: rfq_sender.MockSender())
+    assert client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers).json()["status"] == "Awaiting"
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    me = client.get("/api/auth/me", headers=headers).json()
+    db = SessionLocal()
+    try:
+        for status, mid in (("superseded", "old"), ("needs_review", "nr")):
+            quotes_repo.create_quote(db, me["organizationId"], project_id=pid, package=bom_id, package_label="x",
+                                     rfq_id=rfq["id"], supplier_id="ghost", supplier_name="Ghost", supplier_email="g@x.com",
+                                     total=1.0 if status == "superseded" else None, status=status, source="gmail", source_message_id=mid)
+    finally:
+        db.close()
+    assert cards()["Quotes received"]["value"] == "1"
+    assert dash()["Quotes received"]["value"] == "1"
+    assert cards()["RFQs sent"]["value"] == "1"

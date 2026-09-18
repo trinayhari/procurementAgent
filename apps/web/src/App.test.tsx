@@ -21,7 +21,7 @@ const PROJECTS: Record<string, object[]> = {
   'u-alice': [{
     id: 'p-alice', name: 'ALICE SECRET DAM PROJECT', loc: 'Boulder, CO', stage: 'Plans Review',
     stageTone: 'gray', value: '$4.2M', progress: 0, suppliers: 0, rfqs: 0, quotes: 0,
-    risk: 'Low', riskTone: 'success', barColor: 'var(--primary)',
+    barColor: 'var(--primary)',
   }],
   'u-bob': [],
 }

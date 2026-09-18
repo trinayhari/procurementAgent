@@ -1,7 +1,7 @@
 """Invite delivery record + award notification record
 
-Revision ID: 0021_email_delivery_records
-Revises: 0020_rfq_kind_attachments
+Revision ID: 0024_email_delivery_records
+Revises: 0023_computed_project_rows
 Create Date: 2026-09-17
 
 - organization_invites.emailed_at / email_error: whether (and when) the
@@ -24,8 +24,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0021_email_delivery_records"
-down_revision: Union[str, None] = "0020_rfq_kind_attachments"
+revision: str = "0024_email_delivery_records"
+down_revision: Union[str, None] = "0023_computed_project_rows"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

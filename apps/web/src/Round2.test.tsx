@@ -81,7 +81,7 @@ describe('award confirm is one-shot', () => {
 
 // ------------------------------------------------------------------ BUG-43
 describe('RFQ send is one-shot', () => {
-  it('fires a single POST /send for a rapid triple-click on Send now', async () => {
+  it('fires a single POST /send for a rapid triple-click on the modal send button', async () => {
     const sends: string[] = []
     const g = gate()
     vi.stubGlobal('fetch', makeFetch(async (path, init) => {
@@ -93,8 +93,10 @@ describe('RFQ send is one-shot', () => {
     }))
     await openProject('rfqs')
     fireEvent.click(await screen.findByText(DRAFT.subject))
-    fireEvent.click(await screen.findByRole('button', { name: /Send RFQ \(1\)/ }))
-    const now = within(await screen.findByRole('alertdialog')).getByRole('button', { name: /Send now/ })
+    // Single step: the modal's primary button is the final action — no
+    // second "Send now" bar. It must still be one-shot.
+    const now = await screen.findByRole('button', { name: /Send to 1 supplier/ })
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     rapidClicks(now, 3)
     await waitFor(() => expect(sends).toHaveLength(1))
     await new Promise((r) => setTimeout(r, 30))
@@ -119,12 +121,11 @@ describe('RFQ send is one-shot', () => {
     }))
     await openProject('rfqs')
     fireEvent.click(await screen.findByText(DRAFT.subject))
-    fireEvent.click(await screen.findByRole('button', { name: /Send RFQ \(1\)/ }))
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: /Send now/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Send to 1 supplier/ }))
     await waitFor(() => expect(sent).toBe(1))
     // A replayed send (e.g. a stale second tab) is refused by the backend —
     // the modal treats that as confirmation, not as a failed send.
-    const modalSend = screen.queryByRole('button', { name: /Send now|Retry/ })
+    const modalSend = screen.queryByRole('button', { name: /Send to|Retry/ })
     if (modalSend) fireEvent.click(modalSend)
     await new Promise((r) => setTimeout(r, 30))
     expect(screen.queryByText(/Send failed[ .—]/)).toBeNull()

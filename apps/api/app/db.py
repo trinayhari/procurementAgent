@@ -51,6 +51,7 @@ SCOPED_TABLES = (
     "audit_events",
     "background_jobs",
     "lenders",
+    "package_budgets",
 )
 
 
@@ -147,7 +148,7 @@ def _ensure_dev_columns() -> None:
     if "organization_invites" in tables:
         cols = {c["name"] for c in inspector.get_columns("organization_invites")}
         with engine.begin() as conn:
-            # Mirrors 0021_email_delivery_records.
+            # Mirrors 0024_email_delivery_records.
             if "emailed_at" not in cols:
                 conn.execute(text("ALTER TABLE organization_invites ADD COLUMN emailed_at DATETIME"))
             if "email_error" not in cols:
@@ -155,13 +156,23 @@ def _ensure_dev_columns() -> None:
     if "purchase_decisions" in tables:
         cols = {c["name"] for c in inspector.get_columns("purchase_decisions")}
         with engine.begin() as conn:
-            # Mirrors 0021_email_delivery_records.
+            # Mirrors 0024_email_delivery_records.
             if "notifications" not in cols:
                 conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN notifications TEXT NOT NULL DEFAULT '{}'"))
             if "status" not in cols:
                 conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN status VARCHAR NOT NULL DEFAULT 'active'"))
             if "superseded_by" not in cols:
                 conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN superseded_by VARCHAR"))
+    if "projects" in tables:
+        # Mirrors 0023_computed_project_rows: the seeded display columns are
+        # gone (rows are computed). A dev DB created before that would still
+        # carry them as NOT NULL, so inserts of new projects would fail.
+        cols = {c["name"] for c in inspector.get_columns("projects")}
+        stale = [c for c in ("stage", "stage_tone", "progress", "suppliers", "rfqs", "quotes", "risk", "risk_tone", "bar_color") if c in cols]
+        if stale:
+            with engine.begin() as conn:
+                for col in stale:
+                    conn.execute(text(f"ALTER TABLE projects DROP COLUMN {col}"))
     _ensure_organization_column(inspector, tables)
 
 

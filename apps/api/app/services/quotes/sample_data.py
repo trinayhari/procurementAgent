@@ -11,12 +11,11 @@ supplier on both packages, while the farthest/most-expensive supplier wins nothi
 """
 from typing import Dict, List
 
-# Per package: budget allowance + suppliers, each with the lines they quoted.
+# Per package: suppliers, each with the lines they quoted.
 # A line = (name, qty_display, qty_num, unit, unit_price, lead_days).
 SAMPLE_PACKAGES: Dict[str, dict] = {
     "water": {
         "label": "Water Utilities",
-        "budget": 165_000,
         "suppliers": [
             {
                 "id": "ferguson",
@@ -70,7 +69,6 @@ SAMPLE_PACKAGES: Dict[str, dict] = {
     },
     "sewer": {
         "label": "Sanitary Sewer",
-        "budget": 125_000,
         "suppliers": [
             {
                 "id": "coremain",
@@ -154,8 +152,3 @@ def build_quote_payloads(package_key: str) -> List[dict]:
             }
         )
     return payloads
-
-
-def budget_for(package_key: str) -> float:
-    spec = SAMPLE_PACKAGES.get(package_key)
-    return float(spec["budget"]) if spec else 0.0

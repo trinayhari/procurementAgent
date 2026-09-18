@@ -34,6 +34,8 @@ PENDING = _line("Special (TBD)", None, None, None)  # no supplier can price this
 
 def _patch_quotes(monkeypatch, quotes):
     monkeypatch.setattr(lc.quotes_repo, "list_quotes", lambda db, org_id, pid, pkg: quotes)
+    # No DB here: the package budget (a real, user-set value) is simply unset.
+    monkeypatch.setattr(lc.budgets_repo, "get_budget", lambda db, org_id, pid, pkg: None)
 
 
 def test_universally_unpriced_line_does_not_block_strategies(monkeypatch):

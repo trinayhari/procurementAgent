@@ -471,6 +471,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/packages/{pkg}/budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Package Budget
+         * @description The buyer's budget for a package (null when none has been set).
+         */
+        get: operations["get_package_budget_api_projects__project_id__packages__pkg__budget_get"];
+        /**
+         * Set Package Budget
+         * @description Set (a positive amount) or clear (null) the budget for a package.
+         *
+         *     Budgets are optional and real: the comparison screen shows its
+         *     over/under-budget line only once one exists — never a sample figure.
+         */
+        put: operations["set_package_budget_api_projects__project_id__packages__pkg__budget_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/packages/{pkg}/award": {
         parameters: {
             query?: never;
@@ -2522,13 +2549,20 @@ export interface components {
             /** Body */
             body: string;
         };
-        /** Metric */
+        /**
+         * Metric
+         * @description A dashboard KPI tile. Computed from real rows (services/metrics.py);
+         *     `delta` is empty unless a period-over-period figure can be derived.
+         */
         Metric: {
             /** Label */
             label: string;
             /** Value */
             value: string;
-            /** Delta */
+            /**
+             * Delta
+             * @default
+             */
             delta: string;
             /**
              * Sub
@@ -2670,13 +2704,21 @@ export interface components {
              */
             ai: boolean;
         };
-        /** Package */
+        /**
+         * Package
+         * @description Procurement progress for one package: the furthest step reached.
+         */
         Package: {
             /** Name */
             name: string;
             /** Pct */
             pct: number;
             tone: components["schemas"]["Tone"];
+            /**
+             * Stage
+             * @default
+             */
+            stage: string;
         };
         /**
          * PackageBom
@@ -2718,6 +2760,21 @@ export interface components {
             n: string;
             /** Q */
             q: string;
+        };
+        /** PackageBudget */
+        PackageBudget: {
+            /** Package */
+            package: string;
+            /** Budget */
+            budget?: number | null;
+        };
+        /**
+         * PackageBudgetUpdate
+         * @description Set (a positive amount) or clear (null) the budget for a package.
+         */
+        PackageBudgetUpdate: {
+            /** Budget */
+            budget?: number | null;
         };
         /**
          * PerDocCompareOut
@@ -2856,7 +2913,11 @@ export interface components {
              */
             categories: components["schemas"]["PlanTypeCategoryOut"][];
         };
-        /** Project */
+        /**
+         * Project
+         * @description A project row. `stage`, `progress` and the counts are computed from the
+         *     project's own documents/RFQs/quotes/awards (services/metrics.py).
+         */
         Project: {
             /** Id */
             id: string;
@@ -2864,10 +2925,10 @@ export interface components {
             name: string;
             /** Loc */
             loc: string;
-            stage: components["schemas"]["Stage"];
-            stageTone: components["schemas"]["Tone"];
             /** Value */
             value: string;
+            stage: components["schemas"]["Stage"];
+            stageTone: components["schemas"]["Tone"];
             /** Progress */
             progress: number;
             /** Suppliers */
@@ -2876,8 +2937,6 @@ export interface components {
             rfqs: number;
             /** Quotes */
             quotes: number;
-            risk: components["schemas"]["Risk"];
-            riskTone: components["schemas"]["Tone"];
             /** Barcolor */
             barColor: string;
         };
@@ -2898,8 +2957,6 @@ export interface components {
              * @default
              */
             value: string;
-            /** @default Plans Review */
-            stage: components["schemas"]["Stage"];
         };
         /**
          * ProjectDetail
@@ -2912,10 +2969,10 @@ export interface components {
             name: string;
             /** Loc */
             loc: string;
-            stage: components["schemas"]["Stage"];
-            stageTone: components["schemas"]["Tone"];
             /** Value */
             value: string;
+            stage: components["schemas"]["Stage"];
+            stageTone: components["schemas"]["Tone"];
             /** Progress */
             progress: number;
             /** Suppliers */
@@ -2924,8 +2981,6 @@ export interface components {
             rfqs: number;
             /** Quotes */
             quotes: number;
-            risk: components["schemas"]["Risk"];
-            riskTone: components["schemas"]["Tone"];
             /** Barcolor */
             barColor: string;
             /** Overviewcards */
@@ -3244,11 +3299,6 @@ export interface components {
             /** Attachment Ids */
             attachment_ids?: string[] | null;
         };
-        /**
-         * Risk
-         * @enum {string}
-         */
-        Risk: "Low" | "Medium" | "High";
         /**
          * RunCreate
          * @description A run request. Every field is a cost multiplier — see §6 of the contract.
@@ -4657,6 +4707,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineComparison"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_package_budget_api_projects__project_id__packages__pkg__budget_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                pkg: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageBudget"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_package_budget_api_projects__project_id__packages__pkg__budget_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                pkg: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageBudgetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageBudget"];
                 };
             };
             /** @description Validation Error */

@@ -154,3 +154,43 @@ describe('Quotes table', () => {
     await waitFor(() => expect(screen.getAllByText('Needs review')).toHaveLength(1))
   })
 })
+
+describe('award notifications', () => {
+  const LC = {
+    pkg: 'Water Utilities', package: 'water', budget: null,
+    suppliers: [
+      { id: 's1', name: 'Core & Main', logo: 'CM', logoBg: '#111', leadDays: 10, distanceMiles: 12, freight: 500, total: 10500 },
+      { id: 's2', name: 'Ferguson', logo: 'FW', logoBg: '#222', leadDays: 14, distanceMiles: 30, freight: 800, total: 11800 },
+    ],
+    lines: [{ name: '12" DI Pipe', qty: '100 LF', pending: false, cells: [
+      { supplierId: 's1', unitPrice: 100, extended: 10000, leadDays: 10, available: true, best: true },
+      { supplierId: 's2', unitPrice: 110, extended: 11000, leadDays: 14, available: true, best: false },
+    ] }],
+    options: [{ key: 'mix', label: 'Lowest cost (mix & match)', total: 10500, material: 10000, freight: 500, leadDays: 10, suppliersUsed: 1, deliveries: 1, savings: 0, note: '', selections: { '12" DI Pipe': 's1' } }],
+    recommendedOption: 'mix',
+  }
+  const QUOTES = [{ id: 'q1', sup: 'Core & Main', pkg: 'Water Utilities', package: 'water', amount: '$10,000', freight: '$500', total: '$10,500', lead: '10 days', date: 'Sep 1', logo: 'CM', logoBg: '#111', best: true, status: 'received' }]
+  const FAILED = { supplier: 'Ferguson', email: 'b@x.com', kind: 'decline', error: 'Gmail is rate limiting this mailbox (HTTP 429) — wait a few minutes and retry.' }
+  const AWARDED = { status: 'awarded', message: 'Awarded Water Utilities for $10,500 — 1 PO to Core & Main. 1 supplier notified. 1 notification could not be sent: Ferguson (Gmail is rate limiting this mailbox (HTTP 429) — wait a few minutes and retry.).', total: 10500, material: 10000, freight: 500, leadDays: 10, suppliers: ['Core & Main'], poCount: 1, notified: 1, declined: 0, withdrawn: 0, notifyFailed: [FAILED], notifyMocked: false }
+
+  it('lists the failed notices after an award and re-sends only those on click', async () => {
+    const resends: unknown[] = []
+    vi.stubGlobal('fetch', makeFetch((path, init) => {
+      if (path.endsWith('/quotes')) return json(QUOTES)
+      if (path.includes('/line-comparison')) return json(LC)
+      if (path.endsWith('/award') && init && init.method === 'POST') return json(AWARDED)
+      if (path.endsWith('/award/notify') && init && init.method === 'POST') { resends.push(JSON.parse(String(init.body))); return json({ message: '1 supplier notified.', notified: 0, declined: 1, withdrawn: 0, notifyFailed: [], notifyMocked: false }) }
+      return undefined
+    }))
+    await openProject('quotes')
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Submit award/ }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm award' }))
+    await screen.findByText(/1 notification could not be sent/)
+    expect(screen.getByText(/Ferguson \(b@x.com\): Gmail is rate limiting/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Re-send 1 failed notification' }))
+    await screen.findByText('1 supplier notified.')
+    expect(resends).toEqual([{ all: false }])
+    expect(screen.queryByRole('button', { name: /Re-send/ })).toBeNull()
+  })
+})

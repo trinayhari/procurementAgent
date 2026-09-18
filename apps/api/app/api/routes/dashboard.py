@@ -7,6 +7,7 @@ from app.models.user import User
 from app.repositories import events as events_repo
 from app.repositories import reference as reference_repo
 from app.schemas.dashboard import Dashboard
+from app.services import metrics as metrics_service
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -17,19 +18,15 @@ def get_dashboard(
     current_user: User = Depends(get_current_user),
 ):
     org_id = current_user.organization_id
-    # The seeded metric literals and demo activity feed are the prototype's
-    # Riverside story: only the demo organization gets them. Every other
-    # tenant sees its own activity stream (and, until metrics are computed
-    # from real data, no metric cards) — never another tenant's project
-    # names on its dashboard.
-    if org_id == DEMO_ORG_ID:
-        data = reference_repo.get_dashboard(db)
-    else:
-        data = {"metrics": [], "activity": []}
-    # Prefer the real, cross-project activity stream (events logged as users work
-    # their projects) over the seeded `activity_items`. Kept small so the
-    # dashboard panel is a glance.
-    recent = events_repo.list_recent(db, org_id)
-    if recent:
-        data["activity"] = recent
-    return data
+    # KPI tiles are computed from this organization's own projects, RFQs,
+    # quotes and awards — the same arithmetic for the demo org and for a
+    # brand-new tenant (see services/metrics.py for the definitions).
+    metrics = metrics_service.dashboard_metrics(db, org_id)
+    # Prefer the real, cross-project activity stream (events logged as users
+    # work their projects). Only the demo organization falls back to the
+    # prototype's seeded feed — it names the demo projects, never another
+    # tenant's.
+    activity = events_repo.list_recent(db, org_id)
+    if not activity and org_id == DEMO_ORG_ID:
+        activity = reference_repo.list_activity(db)
+    return {"metrics": metrics, "activity": activity}

@@ -668,6 +668,25 @@ export function listPurchaseDecisions(projectId: string): Promise<PurchaseDecisi
   return get<PurchaseDecision[]>(`/api/projects/${projectId}/purchase-decisions`)
 }
 
+// The buyer's budget for a package — optional and real (there is no sample).
+// `budget: null` clears it; the comparison screen hides its over/under line
+// while none is set.
+export type PackageBudget = Schemas['PackageBudget']
+export function setPackageBudget(
+  projectId: string,
+  pkg: string,
+  budget: number | null,
+): Promise<PackageBudget> {
+  return fetch(`${BASE}/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/budget`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ budget }),
+  }).then(async (r) => {
+    if (!r.ok) throw await responseError(r, `set budget -> ${r.status}`)
+    return r.json() as Promise<PackageBudget>
+  })
+}
+
 // Submit a (possibly split) award — selections map each line name to a supplier id.
 // `supersede` must be true to award a package that already has a purchase
 // decision — the backend refuses a repeat award (409) otherwise, since every

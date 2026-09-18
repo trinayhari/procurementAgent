@@ -11,7 +11,7 @@ const USER = { id: 'u-pm', email: 'pm@acmebuild.com', name: 'PM', company: 'Acme
 const PROJECT = {
   id: 'p-1', name: 'Riverside Yard', loc: 'Austin, TX', stage: 'Plans Review',
   stageTone: 'gray', value: '$1.0M', progress: 0, suppliers: 0, rfqs: 0, quotes: 0,
-  risk: 'Low', riskTone: 'success', barColor: 'var(--primary)',
+  barColor: 'var(--primary)',
 }
 
 const TRADE_DOC = {
@@ -127,7 +127,7 @@ describe('subcontractor trade scopes', () => {
     // send button labeled for a bid request with the recipient count.
     await screen.findByText(/Review bid request/)
     expect(screen.getAllByText('Sub bid')).toHaveLength(2)
-    expect(screen.getByText('Send bid request (1)')).toBeTruthy()
+    expect(screen.getByText('Send to 1 subcontractor')).toBeTruthy()
 
     // Attachment picker: only the uploaded plan is attachable — the file-less
     // trade-scope document is filtered out (hasFile).

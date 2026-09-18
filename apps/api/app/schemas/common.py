@@ -21,12 +21,6 @@ class Stage(str, Enum):
     sourcing = "Sourcing"
 
 
-class Risk(str, Enum):
-    low = "Low"
-    medium = "Medium"
-    high = "High"
-
-
 class RfqStatus(str, Enum):
     draft = "Draft"
     sent = "Sent"
