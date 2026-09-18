@@ -497,6 +497,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/packages/{pkg}/award/notify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend Award Notifications
+         * @description Re-send the PO / decline emails for the package's latest award.
+         *
+         *     By default only the suppliers whose notification failed last time are
+         *     emailed again (the award itself is untouched); `all: true` re-notifies
+         *     every supplier. 409 when nothing failed and `all` isn't set, 404 when the
+         *     package has no award.
+         */
+        post: operations["resend_award_notifications_api_projects__project_id__packages__pkg__award_notify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/purchase-decisions": {
         parameters: {
             query?: never;
@@ -1304,6 +1329,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Providers Health */
+        get: operations["providers_health_api_health_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/bench/status": {
         parameters: {
             query?: never;
@@ -1502,6 +1544,103 @@ export interface components {
             /** Time */
             time: string;
         };
+        /**
+         * AwardNotifications
+         * @description Who was told what about an award, and who could not be reached.
+         */
+        AwardNotifications: {
+            /**
+             * Notified
+             * @default []
+             */
+            notified: components["schemas"]["AwardNotifiedSupplier"][];
+            /**
+             * Declined
+             * @default []
+             */
+            declined: components["schemas"]["AwardNotifiedSupplier"][];
+            /**
+             * Withdrawn
+             * @default []
+             */
+            withdrawn: components["schemas"]["AwardNotifiedSupplier"][];
+            /**
+             * Failed
+             * @default []
+             */
+            failed: components["schemas"]["AwardNotifyFailure"][];
+            /**
+             * Mock
+             * @default false
+             */
+            mock: boolean;
+            /** At */
+            at?: string | null;
+        };
+        /** AwardNotifiedSupplier */
+        AwardNotifiedSupplier: {
+            /** Supplier */
+            supplier: string;
+            /** Email */
+            email?: string | null;
+            /**
+             * Threaded
+             * @default false
+             */
+            threaded: boolean;
+        };
+        /** AwardNotifyFailure */
+        AwardNotifyFailure: {
+            /** Supplier */
+            supplier: string;
+            /** Email */
+            email?: string | null;
+            /**
+             * Kind
+             * @default award
+             */
+            kind: string;
+            /** Error */
+            error: string;
+        };
+        /** AwardNotifyRequest */
+        AwardNotifyRequest: {
+            /**
+             * All
+             * @default false
+             */
+            all: boolean;
+        };
+        /** AwardNotifyResult */
+        AwardNotifyResult: {
+            /** Message */
+            message: string;
+            /**
+             * Notified
+             * @default 0
+             */
+            notified: number;
+            /**
+             * Declined
+             * @default 0
+             */
+            declined: number;
+            /**
+             * Withdrawn
+             * @default 0
+             */
+            withdrawn: number;
+            /**
+             * Notifyfailed
+             * @default []
+             */
+            notifyFailed: components["schemas"]["AwardNotifyFailure"][];
+            /**
+             * Notifymocked
+             * @default false
+             */
+            notifyMocked: boolean;
+        };
         /** AwardOption */
         AwardOption: {
             /** Key */
@@ -1572,6 +1711,31 @@ export interface components {
             suppliers: string[];
             /** Pocount */
             poCount: number;
+            /**
+             * Notified
+             * @default 0
+             */
+            notified: number;
+            /**
+             * Declined
+             * @default 0
+             */
+            declined: number;
+            /**
+             * Withdrawn
+             * @default 0
+             */
+            withdrawn: number;
+            /**
+             * Notifyfailed
+             * @default []
+             */
+            notifyFailed: components["schemas"]["AwardNotifyFailure"][];
+            /**
+             * Notifymocked
+             * @default false
+             */
+            notifyMocked: boolean;
         };
         /**
          * BenchStatus
@@ -1935,6 +2099,21 @@ export interface components {
             fromHeader: string;
             /** Ccemail */
             ccEmail?: string | null;
+            /**
+             * Missing
+             * @default []
+             */
+            missing: string[];
+            /**
+             * Gmail
+             * @default {}
+             */
+            gmail: Record<string, never>;
+            /**
+             * Llm
+             * @default {}
+             */
+            llm: Record<string, never>;
         };
         /** FollowupDraft */
         FollowupDraft: {
@@ -1999,6 +2178,29 @@ export interface components {
              */
             warn: boolean;
         };
+        /** GmailProbe */
+        GmailProbe: {
+            /** Ok */
+            ok: boolean;
+            /** Error */
+            error?: string | null;
+            /** Emailaddress */
+            emailAddress?: string | null;
+            /** Senderaddress */
+            senderAddress: string;
+            /** Senderaddressmatches */
+            senderAddressMatches?: boolean | null;
+            /**
+             * Sendscope
+             * @default false
+             */
+            sendScope: boolean;
+            /**
+             * Readscope
+             * @default false
+             */
+            readScope: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -2031,6 +2233,10 @@ export interface components {
              * @default true
              */
             emailed: boolean;
+            /** Emailedat */
+            emailedAt?: string | null;
+            /** Emailerror */
+            emailError?: string | null;
             /** Accepturl */
             acceptUrl?: string | null;
         };
@@ -2226,6 +2432,15 @@ export interface components {
         LineItemsUpdate: {
             /** Groups */
             groups: components["schemas"]["LineItemGroup"][];
+        };
+        /** LlmProbe */
+        LlmProbe: {
+            /** Ok */
+            ok: boolean;
+            /** Error */
+            error?: string | null;
+            /** Model */
+            model?: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -2720,6 +2935,13 @@ export interface components {
             /** Activity */
             activity: components["schemas"]["Activity"][];
         };
+        /** ProvidersHealth */
+        ProvidersHealth: {
+            /** Ok */
+            ok: boolean;
+            gmail: components["schemas"]["GmailProbe"];
+            llm: components["schemas"]["LlmProbe"];
+        };
         /**
          * PurchaseDecision
          * @description A recorded award for a package — who bought what, from whom, decided by
@@ -2779,6 +3001,11 @@ export interface components {
             decidedByEmail?: string | null;
             /** Createdat */
             createdAt?: string | null;
+            notifications?: components["schemas"]["AwardNotifications"] | null;
+            /** Status */
+            status?: string | null;
+            /** Supersededby */
+            supersededBy?: string | null;
         };
         /** Quote */
         Quote: {
@@ -2812,6 +3039,11 @@ export interface components {
              * @default false
              */
             best: boolean;
+            /**
+             * Status
+             * @default received
+             */
+            status: string;
         };
         /**
          * QuoteIngestResult
@@ -2835,6 +3067,16 @@ export interface components {
              * @default 0
              */
             total: number;
+            /**
+             * Needsreview
+             * @default 0
+             */
+            needsReview: number;
+            /**
+             * Superseded
+             * @default 0
+             */
+            superseded: number;
             /** Error */
             error?: string | null;
         };
@@ -2905,6 +3147,13 @@ export interface components {
             statusTone: components["schemas"]["Tone"];
             /** Gmail */
             gmail: boolean;
+            /**
+             * Configured
+             * @default false
+             */
+            configured: boolean;
+            /** Readerror */
+            readError?: string | null;
             /** Thread */
             thread: components["schemas"]["ConversationMessage"][];
         };
@@ -2976,6 +3225,8 @@ export interface components {
             sendStatus?: string | null;
             /** Senderror */
             sendError?: string | null;
+            /** Outboundmessageids */
+            outboundMessageIds?: string[] | null;
         };
         /**
          * RfqStatus
@@ -4455,6 +4706,42 @@ export interface operations {
             };
         };
     };
+    resend_award_notifications_api_projects__project_id__packages__pkg__award_notify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                pkg: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AwardNotifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AwardNotifyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_purchase_decisions_api_projects__project_id__purchase_decisions_get: {
         parameters: {
             query?: never;
@@ -5894,6 +6181,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    providers_health_api_health_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvidersHealth"];
                 };
             };
         };

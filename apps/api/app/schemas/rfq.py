@@ -59,7 +59,7 @@ class RfqRecipient(BaseModel):
     sendError: Optional[str] = None  # human-readable failure reason when sendStatus="failed"
     # Gmail ids of later messages we sent this recipient on the RFQ thread
     # (award / decline notices); ingest skips them.
-    outboundMessageIds: List[str] = []
+    outboundMessageIds: Optional[List[str]] = None
 
 
 class RfqLineItem(BaseModel):

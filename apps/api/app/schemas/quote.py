@@ -125,6 +125,23 @@ class AwardRequest(BaseModel):
     supersede: bool = False
 
 
+class AwardNotifiedSupplier(BaseModel):
+    supplier: str
+    email: Optional[str] = None
+    threaded: bool = False
+
+
+class AwardNotifications(BaseModel):
+    """Who was told what about an award, and who could not be reached."""
+
+    notified: List[AwardNotifiedSupplier] = []
+    declined: List[AwardNotifiedSupplier] = []
+    withdrawn: List[AwardNotifiedSupplier] = []
+    failed: List["AwardNotifyFailure"] = []
+    mock: bool = False
+    at: Optional[str] = None
+
+
 class AwardNotifyFailure(BaseModel):
     supplier: str
     email: Optional[str] = None
@@ -192,10 +209,12 @@ class PurchaseDecision(BaseModel):
     decidedBy: Optional[str] = None
     decidedByEmail: Optional[str] = None
     createdAt: Optional[str] = None
-    # {"notified": [...], "declined": [...], "failed": [...], "mock": bool, "at": iso}
-    notifications: Dict[str, Any] = {}
+    # Supplier-notification record for this award (see award_notify). Optional
+    # so the generated TS type stays constructible client-side.
+    notifications: Optional["AwardNotifications"] = None
     # "active" (the live PO set for the package) or "superseded" by a re-award.
-    status: str = "active"
+    # None only on a client-side placeholder; the API always fills it.
+    status: Optional[str] = None
     supersededBy: Optional[str] = None
 
 

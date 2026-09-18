@@ -789,7 +789,7 @@ def test_award_route_reports_notification_failures(project, monkeypatch):
     assert out["notified"] + out["declined"] + len(out["notifyFailed"]) == 2
     # The ingest skip-list now includes the notice we did send.
     stored = client.get(f"/api/projects/{pid}/rfqs/{rfq['id']}", headers=headers).json()
-    ids = [i for rcp in stored["recipients"] for i in rcp.get("outboundMessageIds", [])]
+    ids = [i for rcp in stored["recipients"] for i in (rcp.get("outboundMessageIds") or [])]
     assert ids == ["out-1"]
 
 

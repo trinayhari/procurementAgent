@@ -9,7 +9,7 @@ import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, analyzeDocument,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone, hasDetail,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  getDocumentPreview, sendTestEmail, getEmailConfig,
+  getDocumentPreview, sendTestEmail, getEmailConfig, getProvidersHealth,
   listProjectBoms, createSupplier, getSupplierDetail,
   listTradeScopes, createTradeScope, updateTradeScope,
   listLenders, createLender, deleteLender,
@@ -21,7 +21,7 @@ import {
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
-  CustomBomSummary, TradeScopeSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers, EmailConfig,
+  CustomBomSummary, TradeScopeSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers, EmailConfig, ProvidersHealth,
   PurchaseDecision,
 } from './api'
 
@@ -1113,7 +1113,19 @@ function Settings({ m }: MProps) {
       setTestErr(ex instanceof Error ? ex.message : 'Test send failed')
     } finally {
       setTesting(false)
+      getEmailConfig().then(setEmailCfg).catch(() => {})
     }
+  }
+  // Live provider check (GET /api/health/providers) — only on an explicit
+  // click: it refreshes the Gmail token and makes a model call for real.
+  const [probing, setProbing] = useState(false)
+  const [probe, setProbe] = useState<ProvidersHealth | null>(null)
+  const [probeErr, setProbeErr] = useState<string | null>(null)
+  const runProbe = async () => {
+    setProbing(true); setProbe(null); setProbeErr(null)
+    try { setProbe(await getProvidersHealth()) }
+    catch (ex) { setProbeErr(ex instanceof Error ? ex.message : 'Could not check the providers') }
+    finally { setProbing(false); getEmailConfig().then(setEmailCfg).catch(() => {}) }
   }
   const dirty = ccEmail.trim() !== m.userCcEmail
   const saveSender = async (e: FormEvent) => {
@@ -1147,8 +1159,17 @@ function Settings({ m }: MProps) {
               <div style={css('font-size:12px;color:var(--text-3)')}>
                 Every RFQ, award notice and update leaves the workspace's connected Gmail account, showing your name and company. Supplier replies come back to it, which is how quotes are ingested.
               </div>
-              {emailCfg && !emailCfg.configured && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>No Gmail account connected — nothing is delivered, sends are only logged. See docs/email-setup.md.</div>}
-              {emailCfg && emailCfg.configured && !emailCfg.senderAddressSet && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>PROCUREAI_GMAIL_SENDER_ADDRESS is not set — set it to the connected account's address. See docs/email-setup.md.</div>}
+              {emailCfg && !emailCfg.configured && (
+                <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>
+                  No Gmail account connected — nothing is delivered, sends are only logged.
+                  {(emailCfg.missing || []).length > 0 && <> Missing: <span style={css("font-family:'JetBrains Mono',monospace;font-weight:500")}>{(emailCfg.missing || []).join(', ')}</span>.</>} See docs/email-setup.md.
+                </div>
+              )}
+              {emailCfg && emailCfg.configured && emailCfg.gmail && emailCfg.gmail.lastError && (
+                <div style={css('font-size:12px;color:var(--danger);font-weight:600;margin-top:4px')}>
+                  Gmail is configured but the last call failed: {String(emailCfg.gmail.lastError)}
+                </div>
+              )}
             </div>
             <span style={css(`font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border);flex:none;${emailCfg && emailCfg.configured && emailCfg.senderAddressSet ? '' : 'color:var(--warn)'}`)}>
               {!emailCfg ? '…' : emailCfg.configured && emailCfg.senderAddressSet ? emailCfg.fromAddress : 'Not configured'}
@@ -1182,6 +1203,35 @@ function Settings({ m }: MProps) {
             </div>
             <Box as="button" onClick={runTestEmail} disabled={testing} style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;flex:none;${testing ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
               {testing ? 'Sending…' : 'Send test email'}
+            </Box>
+          </div>
+          <div style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
+            <div style={{ flex: 1 }}>
+              <div style={css('font-size:13.5px;font-weight:600')}>Connections</div>
+              <div style={css('font-size:12px;color:var(--text-3)')}>
+                Gmail delivers RFQs and reads replies; the AI model turns replies into structured quotes.
+                {emailCfg && emailCfg.llm && (
+                  emailCfg.llm.configured
+                    ? (emailCfg.llm.lastError
+                        ? <span style={css('display:block;color:var(--danger);font-weight:600;margin-top:4px')}>AI parsing unavailable — {String(emailCfg.llm.lastError)} Replies are read by the basic parser until this is fixed.</span>
+                        : <span style={css('display:block;margin-top:4px')}>AI model: <span style={css("font-family:'JetBrains Mono',monospace")}>{String(emailCfg.llm.model || '')}</span>{emailCfg.llm.lastOkAt ? ' · last call OK' : ' · not called yet'}</span>)
+                    : <span style={css('display:block;color:var(--warn);font-weight:600;margin-top:4px')}>No AI key set (PROCUREAI_OPENAI_API_KEY) — replies are read by the basic parser.</span>
+                )}
+              </div>
+              {probe && (
+                <div style={css('font-size:12px;margin-top:6px;display:flex;flex-direction:column;gap:3px')}>
+                  <div style={css(`font-weight:600;color:${probe.gmail.ok ? 'var(--success)' : 'var(--danger)'}`)}>
+                    Gmail: {probe.gmail.ok ? `connected as ${probe.gmail.emailAddress} (send + read OK)` : (probe.gmail.error || 'failed')}
+                  </div>
+                  <div style={css(`font-weight:600;color:${probe.llm.ok ? 'var(--success)' : 'var(--danger)'}`)}>
+                    AI model: {probe.llm.ok ? `${probe.llm.model} answered` : (probe.llm.error || 'failed')}
+                  </div>
+                </div>
+              )}
+              {probeErr && <div style={css('font-size:12px;color:var(--danger);margin-top:4px')}>{probeErr}</div>}
+            </div>
+            <Box as="button" onClick={runProbe} disabled={probing} title="Makes a real Gmail token refresh and a one-token model call" style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;flex:none;${probing ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
+              {probing ? 'Checking…' : 'Check connections'}
             </Box>
           </div>
           {/* Not wired up yet. Shown as roadmap rows, explicitly marked, rather
@@ -1226,7 +1276,9 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
       // unconfigured the accept link is handed back for the inviter to share.
       setNote(inv.emailed
         ? `Invitation sent to ${target}.`
-        : `Invitation created for ${target}. Email isn’t configured, so nothing was delivered — copy the invite link below and send it yourself.`)
+        : inv.emailError
+          ? `Invitation created for ${target}, but the email could not be sent: ${inv.emailError} Copy the invite link below and send it yourself, or fix the connection and Resend.`
+          : `Invitation created for ${target}. Email isn’t configured, so nothing was delivered — copy the invite link below and send it yourself.`)
       load()
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Could not send the invite')
@@ -1248,7 +1300,11 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
     setErr(null); setNote(null); setBusyInvite(id)
     try {
       const inv = await resendInvite(id)
-      setNote(inv.emailed ? `Invitation re-sent to ${to}.` : `Email isn’t configured — copy the invite link for ${to} and send it yourself.`)
+      setNote(inv.emailed
+        ? `Invitation re-sent to ${to}.`
+        : inv.emailError
+          ? `The email to ${to} could not be sent: ${inv.emailError} Copy the invite link and send it yourself.`
+          : `Email isn’t configured — copy the invite link for ${to} and send it yourself.`)
       load()
     } catch (ex) { setErr(ex instanceof Error ? ex.message : 'Could not resend') }
     finally { setBusyInvite(null) }
@@ -1295,7 +1351,11 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{inv.email}</div>
-            <div style={css('font-size:12px;color:var(--text-3)')}>{inv.acceptUrl ? 'Invitation pending — not emailed (email isn’t configured); share the link' : 'Invitation pending'}</div>
+            <div style={css(`font-size:12px;color:${inv.emailError ? 'var(--danger)' : 'var(--text-3)'}`)}>
+              {inv.emailError
+                ? `Invitation pending — email failed: ${inv.emailError} Share the link or Resend.`
+                : inv.acceptUrl ? 'Invitation pending — not emailed (email isn’t configured); share the link' : 'Invitation pending — emailed'}
+            </div>
           </div>
           {confirmRevoke === inv.id ? (
             <ConfirmBar compact busy={busyInvite === inv.id}
@@ -1412,7 +1472,9 @@ export function computeSteps(input: {
   const failed = plans.filter((d) => d.status === 'Failed').length
   const reviewable = plans.filter((d) => !d.processing && d.status !== 'Failed' && d.items !== '—').length + customWithItems.length
   const reviewed = docs.filter((d) => d.reviewed).length
-  const sent = (rfqs || []).filter((r) => r.status !== 'Draft').length
+  // 'Send failed' means nobody received it — it is neither sent nor a draft.
+  const sent = (rfqs || []).filter((r) => r.status !== 'Draft' && r.status !== 'Send failed').length
+  const sendFailed = (rfqs || []).filter((r) => r.status === 'Send failed').length
   const drafts = (rfqs || []).filter((r) => r.status === 'Draft').length
   const awarded = (decisions || 0) > 0
 
@@ -1438,9 +1500,10 @@ export function computeSteps(input: {
   steps.push({
     key: 'rfq', title: 'Find suppliers & send RFQs',
     detail: sent > 0
-      ? `${sent} sent${drafts ? ` · ${drafts} draft${drafts === 1 ? '' : 's'} not sent yet` : ''}`
+      ? `${sent} sent${sendFailed ? ` · ${sendFailed} failed to send — retry from RFQs` : ''}${drafts ? ` · ${drafts} draft${drafts === 1 ? '' : 's'} not sent yet` : ''}`
+      : sendFailed > 0 ? `${sendFailed} RFQ${sendFailed === 1 ? '' : 's'} failed to send — open it and retry.`
       : drafts > 0 ? `${drafts} draft${drafts === 1 ? '' : 's'} waiting to be sent.` : 'Pick a package, search nearby suppliers, generate and send the RFQ.',
-    state: rfqState, cta: rfqState === 'current' ? (drafts > 0 ? 'Open drafts' : 'Find suppliers') : undefined, go: drafts > 0 && sent === 0 ? nav.rfqs : nav.suppliers,
+    state: rfqState, cta: rfqState === 'current' ? (drafts > 0 || sendFailed > 0 ? (sendFailed > 0 && drafts === 0 ? 'Retry send' : 'Open drafts') : 'Find suppliers') : undefined, go: (drafts > 0 || sendFailed > 0) && sent === 0 ? nav.rfqs : nav.suppliers,
   })
   const quoteState: Step['state'] = quotes > 0 ? 'done' : sent > 0 ? 'current' : 'todo'
   steps.push({
@@ -2978,7 +3041,13 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
                   style={css(`display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);${loadingConv ? 'opacity:.6' : ''}`)}
                   hover="background:var(--panel-2)"><Svg size={13} sw={2} d='M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5' />{loadingConv ? 'Checking…' : 'Check for replies'}</Box>
               </div>
-              {conv && !conv.gmail && <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>Showing a local preview — set Gmail credentials to read the live thread.</div>}
+              {conv && !conv.gmail && (
+                conv.readError
+                  ? <div style={css('font-size:11.5px;color:var(--danger);font-weight:600;margin-bottom:10px')}>Couldn’t read the live Gmail thread — {conv.readError} Showing what Proq has on record; supplier replies may be missing.</div>
+                  : conv.configured
+                    ? <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>No live Gmail thread for this RFQ yet — showing what Proq has on record.</div>
+                    : <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>Showing a local preview — set Gmail credentials to read the live thread.</div>
+              )}
               <div style={css('display:flex;flex-direction:column;gap:16px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);max-height:340px;overflow-y:auto')}>
                 {!conv && loadingConv && <div style={css('font-size:12.5px;color:var(--text-3);text-align:center;padding:18px')}>Loading conversation…</div>}
                 {conv && conv.thread.length === 0 && <div style={css('font-size:12.5px;color:var(--text-3);text-align:center;padding:18px')}>No messages yet.</div>}
@@ -3167,7 +3236,12 @@ function TabQuotes({ m }: MProps) {
         if (st.status !== 'ingesting') {
           finished = true
           if (st.status === 'error') setNote(`Couldn’t read replies: ${st.error || 'ingest failed'}`)
-          else setNote(`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}${st.mocked ? ' (simulated — no Gmail connected)' : ''}`)
+          else {
+            const bits = [`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}`]
+            if (st.needsReview) bits.push(`${st.needsReview} repl${st.needsReview === 1 ? 'y' : 'ies'} with no amount — open the RFQ conversation to review`)
+            if (st.superseded) bits.push(`${st.superseded} earlier revision${st.superseded === 1 ? '' : 's'} replaced`)
+            setNote(bits.join(' · ') + (st.mocked ? ' (simulated — no Gmail connected)' : ''))
+          }
           break
         }
       }
@@ -3223,7 +3297,7 @@ function TabQuotes({ m }: MProps) {
               <div style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase') }}><span>Supplier</span><span style={css('text-align:right')}>Quote</span><span style={css('text-align:right')}>Freight</span><span style={css('text-align:right')}>Total</span><span style={css('text-align:right')}>Lead</span><span style={css('text-align:right')}>Received</span></div>
               {g.rows.map((q, i) => (
                 <Box key={i} onClick={q.onOpen} style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);align-items:center;cursor:pointer') }} hover="background:var(--panel-2)">
-                  <div style={css('display:flex;align-items:center;gap:10px;min-width:0')}><div style={q.logoStyle}>{q.logo}</div><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{q.sup}</span>{q.best && <span style={css('display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 7px;border-radius:999px;white-space:nowrap')}><Svg size={10} sw={3} d='m5 12 5 5L20 7' />Best</span>}</div>
+                  <div style={css('display:flex;align-items:center;gap:10px;min-width:0')}><div style={q.logoStyle}>{q.logo}</div><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{q.sup}</span>{q.best && <span style={css('display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 7px;border-radius:999px;white-space:nowrap')}><Svg size={10} sw={3} d='m5 12 5 5L20 7' />Best</span>}{q.status === 'needs_review' && <span title="A reply arrived from this supplier but no amount could be read from it — open the RFQ conversation to review it." style={css('display:inline-flex;align-items:center;font-size:10px;font-weight:700;color:var(--warn);background:var(--warn-soft,rgba(217,119,6,.12));padding:2px 7px;border-radius:999px;white-space:nowrap')}>Needs review</span>}</div>
                   <span style={css("text-align:right;font-size:13px;font-family:'JetBrains Mono',monospace")}>{q.amount}</span>
                   <span style={css("text-align:right;font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--text-2)")}>{q.freight}</span>
                   <span style={css("text-align:right;font-size:13.5px;font-weight:700;font-family:'JetBrains Mono',monospace")}>{q.total}</span>

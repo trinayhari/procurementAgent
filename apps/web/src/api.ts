@@ -233,6 +233,14 @@ export function getEmailConfig(): Promise<EmailConfig> {
   return get<EmailConfig>('/api/auth/email-config')
 }
 
+// Live provider check — actually calls Gmail (token refresh + mailbox
+// profile) and the LLM (one-token completion). Rate-limited (3/min); only
+// call on an explicit click, never on page load.
+export type ProvidersHealth = Schemas['ProvidersHealth']
+export function getProvidersHealth(): Promise<ProvidersHealth> {
+  return get<ProvidersHealth>('/api/health/providers')
+}
+
 export function logout(): void {
   setToken(null)
 }
@@ -625,6 +633,15 @@ export function selectQuote(
   quoteId: string,
 ): Promise<{ quote_id: string; status: string; message: string }> {
   return post(`/api/quotes/${quoteId}/select`)
+}
+
+// Re-send the PO / decline emails for a package's latest award — by default
+// only the ones that failed last time; `all` re-notifies every supplier.
+export type AwardNotifyResult = Schemas['AwardNotifyResult']
+export function resendAwardNotifications(
+  projectId: string, pkg: string, all = false,
+): Promise<AwardNotifyResult> {
+  return post<AwardNotifyResult>(`/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/award/notify`, { all })
 }
 
 // ----------------------------------------------------- line-by-line comparison

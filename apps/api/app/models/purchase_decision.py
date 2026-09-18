@@ -69,7 +69,7 @@ class PurchaseDecision(Base):
             "decidedBy": self.decided_by,
             "decidedByEmail": self.decided_by_email,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
-            "notifications": json.loads(self.notifications or "{}"),
+            "notifications": json.loads(self.notifications or "{}") or None,
             "status": self.status or "active",
             "supersededBy": self.superseded_by,
         }
