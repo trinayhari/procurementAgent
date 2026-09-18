@@ -1015,7 +1015,6 @@ function EditSupplierModal({ m, onClose }: { m: Model; onClose: () => void }) {
 
 /* ----------------------------------------------------------------- Settings */
 function Settings({ m }: MProps) {
-  const toggleOn = css('width:38px;height:22px;border-radius:999px;background:var(--primary);position:relative;flex:none')
   // Your CC address — the one writable setting; saves via PATCH /api/auth/me.
   // It is never a From address: all mail leaves the workspace mailbox below.
   const [ccEmail, setCcEmail] = useState(m.userCcEmail)
@@ -1114,18 +1113,18 @@ function Settings({ m }: MProps) {
               {testing ? 'Sending…' : 'Send test email'}
             </Box>
           </div>
-          <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
-            <div><div style={css('font-size:13.5px;font-weight:600')}>Default RFQ due window</div><div style={css('font-size:12px;color:var(--text-3)')}>Days suppliers get to respond</div></div>
-            <span style={css("font-size:13px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border)")}>7 days</span>
-          </div>
-          <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
-            <div><div style={css('font-size:13.5px;font-weight:600')}>AI auto-follow-up</div><div style={css('font-size:12px;color:var(--text-3)')}>Nudge non-responsive suppliers automatically</div></div>
-            <span style={toggleOn}><span style={css('position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff')}></span></span>
-          </div>
-          <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
-            <div><div style={css('font-size:13.5px;font-weight:600')}>Email notifications</div><div style={css('font-size:12px;color:var(--text-3)')}>Quote received & risk alerts</div></div>
-            <span style={toggleOn}><span style={css('position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff')}></span></span>
-          </div>
+          {/* Not wired up yet. Shown as roadmap rows, explicitly marked, rather
+              than as live toggles that silently do nothing. */}
+          {[
+            { title: 'Default RFQ due window', sub: 'Days suppliers get to respond — RFQs currently ask for quotes within 7 days.' },
+            { title: 'AI auto-follow-up', sub: 'Nudge non-responsive suppliers automatically.' },
+            { title: 'Email notifications', sub: 'Quote received & risk alerts.' },
+          ].map((row) => (
+            <div key={row.title} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border);opacity:.7')}>
+              <div><div style={css('font-size:13.5px;font-weight:600')}>{row.title}</div><div style={css('font-size:12px;color:var(--text-3)')}>{row.sub}</div></div>
+              <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-2);border:1px dashed var(--border-strong);padding:4px 10px;border-radius:999px;white-space:nowrap')}>Coming soon</span>
+            </div>
+          ))}
         </div>
       </div>
       <TeamPanel currentEmail={m.userEmail} />
@@ -1948,7 +1947,7 @@ function pkgLabel(key: string): string {
 // created in the Documents panel and selected here by their document id — they
 // quote exactly like a package (replacing the old free-text ad-hoc flow).
 // Manages its own state + polling.
-function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<unknown>; docs?: AttachableDoc[] }) {
+function SupplierSearch({ projectId, saved, networkNames, onAdded, docs, onReview, onViewRfqs }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<unknown>; docs?: AttachableDoc[]; onReview: () => void; onViewRfqs: () => void }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
   const [boms, setBoms] = useState<CustomBomSummary[]>([])     // custom BOMs on this project
@@ -1964,6 +1963,10 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
   const [savingId, setSavingId] = useState<string | null>(null)   // found supplier currently being added
   const [scope, setScope] = useState('')       // scope of work for the selected trade
   const [scopeNote, setScopeNote] = useState<string | null>(null)
+  // Confirmation after a send, so the user knows what happened and where the
+  // RFQ went; the selection is cleared at the same time so the still-armed
+  // "Generate" button can't produce a duplicate RFQ for the same suppliers.
+  const [sentNote, setSentNote] = useState<{ n: number; sub: boolean } | null>(null)
 
   // Resolve a package key — a preset key, a custom BOM's document id, or a trade
   // scope's document id — to its display label.
@@ -2003,7 +2006,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
   // Load any prior results when the package changes.
   useEffect(() => {
     let alive = true
-    setResult(null); setSelected({}); setErr(null)
+    setResult(null); setSelected({}); setErr(null); setSentNote(null)
     getFoundSuppliers(projectId, pkg)
       .then((r) => { if (!alive) return; setResult(r); if (r.status === 'searching') setSearching(true) })
       .catch(() => {})
@@ -2038,7 +2041,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
   }, [searching, projectId, pkg])
 
   const runSearch = async () => {
-    setErr(null); setSelected({})
+    setErr(null); setSelected({}); setSentNote(null)
     try {
       await searchSuppliers(projectId, pkg, radius)
       setSearching(true)
@@ -2069,8 +2072,20 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
     finally { setSavingId(null) }
   }
 
+  // Why the generate button is disabled, if it is — shown next to it so the
+  // user isn't left with a dead button.
+  const noApproved = !isTrade && !bomLoading && !!bom && bom.count === 0
+  const generateBlocked = generating || (isTrade && !scope.trim()) || noApproved
+  const generateReason = isTrade && !scope.trim()
+    ? 'Write a scope of work first'
+    : noApproved
+      ? (bom && bom.pendingReview
+        ? `Confirm the extracted BOM on ${bom.pendingReview} document${bom.pendingReview === 1 ? '' : 's'} first`
+        : `No ${subjectLabel} items to quote yet`)
+      : null
+
   const generate = async () => {
-    setGenerating(true); setErr(null)
+    setGenerating(true); setErr(null); setSentNote(null)
     try {
       if (isTrade) await saveScope() // the modal shows what's actually stored
       const rfq = await generateRfq(projectId, pkg, selectedIds, isTrade ? scope : undefined)
@@ -2196,7 +2211,10 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
           Tier 1 local (0–25 mi) · Tier 2 regional (25–75 mi) · Tier 3 manufacturers (75–250 mi). Distances are approximate (straight-line).
           {result && result.mocked && <span style={css('color:var(--warn);font-weight:600')}> · Showing mock results (no Google API key set)</span>}
         </div>
-        {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>{err}</div>}
+        {result && result.status === 'error' && (
+          <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>Search failed{result.error ? `: ${result.error}` : ''}. Try again, or add suppliers by hand from the Suppliers page.</div>
+        )}
+        {err && !selectedIds.length && <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>{err}</div>}
       </div>
 
       {/* What we're asking for — the package/BOM's line items, or (for a trade
@@ -2227,7 +2245,15 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
           {bom && bom.seeded && <span style={css('color:var(--warn);font-weight:600')}> · Sample BOM (nothing extracted for this package yet)</span>}
         </div>
         {bomLoading && <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>Loading BOM…</div>}
-        {!bomLoading && bom && bom.count === 0 && (
+        {!bomLoading && bom && bom.count === 0 && bom.pendingReview > 0 && (
+          <div style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--warn-soft);border:1px solid var(--warn)')}>
+            <span style={css('flex:1;min-width:200px;font-size:12.5px;color:var(--text);line-height:1.4')}>
+              <b>{bom.pendingReview} document{bom.pendingReview === 1 ? ' has' : 's have'} {labelFor(pkg)} items awaiting your review.</b> Only a human-confirmed BOM is quoted — confirm it and these items will appear here.
+            </span>
+            <Box as="button" onClick={onReview} style={css('height:30px;padding:0 12px;border-radius:8px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:600;white-space:nowrap')} hover="background:var(--panel-2)">Review in Documents →</Box>
+          </div>
+        )}
+        {!bomLoading && bom && bom.count === 0 && !bom.pendingReview && (
           <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>
             {isCustom
               ? 'This BOM has no items yet — add line items in the Documents tab, then come back to quote it.'
@@ -2273,20 +2299,42 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
         </div>
       ))}
 
+      {/* Post-send confirmation: selection is cleared so the button below
+          can't mint a duplicate RFQ for the same suppliers. */}
+      {sentNote && (
+        <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;flex-wrap:wrap;background:var(--success-soft);border:1px solid var(--success);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
+          <Svg size={16} sw={2.4} stroke="var(--success)" d="M20 6 9 17l-5-5" />
+          <span style={css('font-size:13px;font-weight:600;flex:1;min-width:200px;color:var(--text)')}>{sentNote.sub ? 'Bid request' : 'RFQ'} sent to {sentNote.n} {sentNote.sub ? 'subcontractor' : 'supplier'}{sentNote.n === 1 ? '' : 's'} for {subjectLabel}. Replies land in Quotes.</span>
+          <Box as="button" onClick={onViewRfqs} style={css('height:32px;padding:0 13px;border-radius:8px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:12.5px;font-weight:600')} hover="background:var(--panel-2)">View in RFQs →</Box>
+          <Box as="button" onClick={() => setSentNote(null)} title="Dismiss" style={css('width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3)')} hover="background:rgba(0,0,0,.06)"><Svg size={14} d='M6 6l12 12M18 6 6 18' /></Box>
+        </div>
+      )}
+
       {/* Action bar */}
       {selectedIds.length > 0 && (
-        <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--primary-soft);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
-          <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} {isTrade ? 'subcontractor' : 'supplier'}{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</span>
-          {/* A trade bid request needs a scope — disable rather than 400 later. */}
-          <Box as="button" onClick={generate} disabled={generating || (isTrade && !scope.trim())}
-            title={isTrade && !scope.trim() ? 'Write a scope of work first' : undefined}
-            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating || (isTrade && !scope.trim()) ? '.6' : '1'}`)}
+        <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--primary-soft);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
+          <div style={css('flex:1;min-width:200px')}>
+            <div style={css('font-size:13px;font-weight:600')}>{selectedIds.length} {isTrade ? 'subcontractor' : 'supplier'}{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</div>
+            {/* The reason a disabled button is disabled, or the backend's
+                reason a generate failed — right next to the action. */}
+            {err && <div style={css('font-size:12px;color:var(--danger);margin-top:2px')}>{err}</div>}
+            {!err && generateReason && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:2px')}>{generateReason}</div>}
+          </div>
+          {/* Disable rather than 400 later: a trade bid needs a scope; a
+              materials RFQ needs approved BOM items. */}
+          <Box as="button" onClick={generate} disabled={generateBlocked}
+            title={generateReason || undefined}
+            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generateBlocked ? '.6' : '1'}`)}
             hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />{generating ? 'Generating…' : isTrade ? 'Generate bid request' : 'Generate RFQ draft'}</Box>
         </div>
       )}
 
       {draft && (
-        <RfqReviewModal projectId={projectId} rfq={draft} docs={docs} onClose={() => setDraft(null)} />
+        <RfqReviewModal projectId={projectId} rfq={draft} docs={docs} onClose={() => setDraft(null)}
+          onSent={(out) => {
+            setSelected({})
+            setSentNote({ n: (out.recipients || []).length, sub: out.kind === 'subcontractor' })
+          }} />
       )}
     </>
   )
@@ -2370,7 +2418,17 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 // Attachable project documents for the RFQ modal — anything with a stored file.
 type AttachableDoc = { id?: string; name: string; hasFile?: boolean }
 
-function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void }) {
+// Per-recipient delivery state. New sends record sendStatus; rows written
+// before that field existed are recognised by an "error:" sentMessageId.
+function recipientState(r: RfqRecipient): 'sent' | 'failed' | 'unsent' {
+  if (r.sendStatus === 'sent') return 'sent'
+  if (r.sendStatus === 'failed') return 'failed'
+  const id = String(r.sentMessageId || '')
+  if (!id) return 'unsent'
+  return id.startsWith('error') ? 'failed' : 'sent'
+}
+
+function RfqReviewModal({ projectId, rfq, docs, onClose, onSent }: { projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void; onSent?: (rfq: PersistedRfq) => void }) {
   const [subject, setSubject] = useState(rfq.subject)
   const [body, setBody] = useState(rfq.body)
   const [recipients, setRecipients] = useState<RfqRecipient[]>(rfq.recipients || [])
@@ -2379,6 +2437,20 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
   const [err, setErr] = useState<string | null>(null)
   const [conv, setConv] = useState<RfqConversation | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
+  // What the server currently holds for the draft, so we can tell whether the
+  // user has unsaved edits (closing then asks instead of silently dropping
+  // them) and whether "Save draft" has anything to do.
+  const [saved, setSaved] = useState(() => ({
+    subject: rfq.subject, body: rfq.body,
+    recipients: (rfq.recipients || []).map((r) => r.email).join(','),
+    attachIds: (rfq.attachments || []).map((a) => a.documentId).slice().sort().join(','),
+  }))
+  const [saving, setSaving] = useState(false)
+  const [savedNote, setSavedNote] = useState<string | null>(null)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // Second step before an actual send: the user sees who will receive it
+  // and that it cannot be recalled.
+  const [confirmSend, setConfirmSend] = useState(false)
   // The user chooses which project documents ride along on the email. Custom
   // BOMs and trade scopes have no file, so they're excluded automatically.
   const [attachIds, setAttachIds] = useState<string[]>((rfq.attachments || []).map((a) => a.documentId))
@@ -2393,11 +2465,45 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
     : attachIds
   const isSub = rfq.kind === 'subcontractor'
   const draft = status === 'Draft'
+  // A partially failed send can be retried: the backend re-attempts only the
+  // recipients without a successful delivery on record.
+  const sendFailed = status === 'Send failed'
+  const unsent = recipients.filter((r) => recipientState(r) !== 'sent')
+  const dirty = draft && (
+    subject !== saved.subject || body !== saved.body ||
+    recipients.map((r) => r.email).join(',') !== saved.recipients ||
+    liveAttachIds.slice().sort().join(',') !== saved.attachIds
+  )
 
   const toggleAttach = (id: string) =>
     setAttachIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
 
   const dropRecipient = (email: string) => setRecipients((rs) => rs.filter((r) => r.email !== email))
+
+  // Persist the draft's current fields (also the first half of `send`).
+  const persist = async () => {
+    const out = await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
+    setSaved({
+      subject, body,
+      recipients: recipients.map((r) => r.email).join(','),
+      attachIds: liveAttachIds.slice().sort().join(','),
+    })
+    return out
+  }
+  const saveDraft = async () => {
+    setSaving(true); setErr(null); setSavedNote(null)
+    try { await persist(); setSavedNote('Draft saved.') }
+    catch (e) {
+      const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      setErr(msg || 'Could not save the draft. Is the backend running?')
+    } finally { setSaving(false) }
+  }
+  // Closing a draft with unsaved edits asks first — the edits only live in
+  // this modal, so a stray backdrop click would otherwise throw them away.
+  const requestClose = () => {
+    if (dirty && !busy) { setConfirmDiscard(true); return }
+    onClose()
+  }
 
   const loadConversation = async () => {
     setLoadingConv(true); setErr(null)
@@ -2413,13 +2519,20 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
   useEffect(() => { if (!draft) loadConversation() }, [])
 
   const send = async () => {
-    setBusy(true); setErr(null)
+    setBusy(true); setErr(null); setConfirmSend(false)
     try {
-      await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
+      // A 'Send failed' RFQ is no longer editable server-side — retry as-is.
+      if (draft) await persist()
       const out = await sendRfq(projectId, rfq.id)
       setRecipients(out.recipients || [])
       setStatus(out.status)
       setAttachNames((out.attachments || []).map((a) => a.name))
+      if (out.status === 'Send failed') {
+        const failed = (out.recipients || []).filter((r) => recipientState(r) === 'failed')
+        setErr(`${failed.length} of ${(out.recipients || []).length} recipient${(out.recipients || []).length === 1 ? '' : 's'} could not be emailed — see the reasons below and retry.`)
+      } else if (onSent) {
+        onSent(out)
+      }
       loadConversation() // surface the just-sent message as the thread
     } catch (e) {
       // Backend reasons (already sent, no approved BOM items, …) come through
@@ -2432,15 +2545,24 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
 
   return (
     <div style={css('position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px')}>
-      <div onClick={onClose} style={css('position:absolute;inset:0;background:rgba(15,20,30,.45)')}></div>
+      <div onClick={requestClose} style={css('position:absolute;inset:0;background:rgba(15,20,30,.45)')}></div>
       <div style={css('position:relative;width:min(640px,100%);max-height:90vh;overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);animation:pcUp .2s ease both')}>
         <div style={css('display:flex;align-items:center;gap:9px;padding:16px 18px;border-bottom:1px solid var(--border)')}>
           <span style={css('width:26px;height:26px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} fill d={SPARKLE_SM} /></span>
-          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? (isSub ? 'Review bid request' : 'Review RFQ draft') : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
+          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? (isSub ? 'Review bid request' : 'Review RFQ draft') : sendFailed ? 'Delivery failed' : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
           {isSub && <span style={DcBadge('violet')}>Sub bid</span>}
           {!draft && <span style={DcBadge(STATUS_TONE[status] || 'gray')}>{status}</span>}
-          <Box as="button" onClick={onClose} style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={17} d='M6 6l12 12M18 6 6 18' /></Box>
+          <Box as="button" onClick={requestClose} title="Close" style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={17} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
+        {confirmDiscard && (
+          <div style={css('padding:12px 18px 0')}>
+            <ConfirmBar
+              message={<>You have unsaved changes to this {isSub ? 'bid request' : 'RFQ'}. Discard them?</>}
+              confirmLabel="Discard changes"
+              onConfirm={() => { setConfirmDiscard(false); onClose() }}
+              onCancel={() => setConfirmDiscard(false)} />
+          </div>
+        )}
         <div style={css('padding:18px;display:flex;flex-direction:column;gap:16px')}>
           {draft && (
             <div>
@@ -2452,15 +2574,25 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
             <label style={fieldLabel}>Recipients ({recipients.length})</label>
             <div style={css('display:flex;flex-direction:column;gap:6px')}>
               {recipients.length === 0 && <div style={css('font-size:12.5px;color:var(--text-3)')}>No recipients.</div>}
-              {recipients.map((r) => (
-                <div key={r.email} style={css('display:flex;align-items:center;gap:9px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2)')}>
-                  <div style={css('flex:1;min-width:0')}><div style={css('font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.name}</div><div style={css('font-size:11.5px;color:var(--text-3)')}>{r.email}</div></div>
-                  {r.sentMessageId
-                    ? <span style={css(`font-size:11px;font-weight:600;color:${r.sentMessageId.startsWith('error') ? 'var(--danger)' : 'var(--success)'}`)}>{r.sentMessageId.startsWith('error') ? 'Failed' : 'Sent'}</span>
-                    : draft && <Box as="button" onClick={() => dropRecipient(r.email)} style={css('width:24px;height:24px;border-radius:6px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>}
+              {recipients.map((r) => {
+                const st = recipientState(r)
+                return (
+                <div key={r.email} style={css(`display:flex;flex-direction:column;gap:4px;padding:7px 11px;border:1px solid ${st === 'failed' ? 'var(--danger)' : 'var(--border)'};border-radius:9px;background:var(--panel-2)`)}>
+                  <div style={css('display:flex;align-items:center;gap:9px')}>
+                    <div style={css('flex:1;min-width:0')}><div style={css('font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.name}</div><div style={css('font-size:11.5px;color:var(--text-3)')}>{r.email}</div></div>
+                    {st === 'sent' && <span style={css('font-size:11px;font-weight:600;color:var(--success)')}>Sent</span>}
+                    {st === 'failed' && <span style={css('font-size:11px;font-weight:600;color:var(--danger)')}>Failed</span>}
+                    {st === 'unsent' && !draft && <span style={css('font-size:11px;font-weight:600;color:var(--text-3)')}>Not sent</span>}
+                    {st === 'unsent' && draft && <Box as="button" onClick={() => dropRecipient(r.email)} title="Remove recipient" style={css('width:24px;height:24px;border-radius:6px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>}
+                  </div>
+                  {st === 'failed' && r.sendError && <div style={css('font-size:11.5px;color:var(--danger);line-height:1.4;word-break:break-word')}>{r.sendError}</div>}
                 </div>
-              ))}
+                )
+              })}
             </div>
+            {draft && recipients.length === 0 && (
+              <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:6px')}>Add at least one supplier with an email address to send this {isSub ? 'bid request' : 'RFQ'} — go back to Supplier Search and generate it again with recipients.</div>
+            )}
           </div>
           {draft ? (
             <div>
@@ -2528,14 +2660,39 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
             </div>
           ) : null}
           {err && <div style={css('font-size:12.5px;color:var(--danger)')}>{err}</div>}
+          {savedNote && !err && <div style={css('font-size:12.5px;color:var(--success)')}>{savedNote}</div>}
+          {confirmSend && (
+            <ConfirmBar tone="primary" busy={busy}
+              message={<>Send this {isSub ? 'bid request' : 'RFQ'} to <b>{(draft ? recipients : unsent).length}</b> {isSub ? 'subcontractor' : 'supplier'}{(draft ? recipients : unsent).length === 1 ? '' : 's'} now{liveAttachIds.length ? ` with ${liveAttachIds.length} attachment${liveAttachIds.length === 1 ? '' : 's'}` : ''}? Emails can’t be recalled once sent.</>}
+              confirmLabel={draft ? 'Send now' : 'Retry now'}
+              onConfirm={send}
+              onCancel={() => setConfirmSend(false)} />
+          )}
         </div>
-        <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border)')}>
-          <span style={css('flex:1;font-size:11.5px;color:var(--text-3)')}>{draft ? 'Sending delivers to all recipients via Gmail (or a logging mock if unconfigured).' : 'The conversation is read live from Gmail — use Check for replies to refresh.'}</span>
-          <Box as="button" onClick={onClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{draft ? 'Cancel' : 'Close'}</Box>
+        <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border);flex-wrap:wrap')}>
+          <span style={css('flex:1;min-width:180px;font-size:11.5px;color:var(--text-3)')}>
+            {draft
+              ? (recipients.length === 0 ? 'Nothing can be sent without a recipient.' : 'Sending delivers to all recipients via Gmail (or a logging mock if unconfigured).')
+              : sendFailed
+                ? `${unsent.length} recipient${unsent.length === 1 ? '' : 's'} still unsent — retry only re-attempts those; suppliers already emailed are never sent twice.`
+                : 'The conversation is read live from Gmail — use Check for replies to refresh.'}
+          </span>
+          <Box as="button" onClick={requestClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{draft ? (dirty ? 'Cancel' : 'Close') : 'Close'}</Box>
           {draft && (
-            <Box as="button" onClick={send} disabled={busy || recipients.length === 0}
-              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || recipients.length === 0 ? '.6' : '1'}`)}
+            <Box as="button" onClick={saveDraft} disabled={busy || saving || !dirty} title={dirty ? 'Save without sending' : 'No unsaved changes'}
+              style={css(`height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600;opacity:${busy || saving || !dirty ? '.55' : '1'}`)}
+              hover="background:var(--panel-2)">{saving ? 'Saving…' : 'Save draft'}</Box>
+          )}
+          {draft && (
+            <Box as="button" onClick={() => { setErr(null); setConfirmSend(true) }} disabled={busy || confirmSend || recipients.length === 0}
+              title={recipients.length === 0 ? 'Add a recipient first' : undefined}
+              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || confirmSend || recipients.length === 0 ? '.6' : '1'}`)}
               hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send ${isSub ? 'bid request' : 'RFQ'} (${recipients.length})`}</Box>
+          )}
+          {sendFailed && unsent.length > 0 && (
+            <Box as="button" onClick={() => { setErr(null); setConfirmSend(true) }} disabled={busy || confirmSend}
+              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || confirmSend ? '.6' : '1'}`)}
+              hover="background:var(--primary-2)"><IconHtml html={ic('refresh')} size={14} />{busy ? 'Retrying…' : `Retry send (${unsent.length})`}</Box>
           )}
         </div>
       </div>
@@ -2547,7 +2704,7 @@ function TabSuppliers({ m }: MProps) {
   // Names already in the customer's network — the search marks matching results
   // as "In your network" and adding one refreshes the global list via m.reload.
   const networkNames = new Set<string>((m.suppliers || []).map((s) => s.name.toLowerCase()))
-  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} docs={m.docs} />
+  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} docs={m.docs} onReview={m.setDocuments} onViewRfqs={m.setRfqs} />
 }
 
 /* ----------------------------------------------------------------- RFQs tab */
@@ -2771,10 +2928,16 @@ function TabCompare({ m }: MProps) {
   const [strategy, setStrategy] = useState<string>('mix')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [submitErr, setSubmitErr] = useState<string | null>(null)
+  // Awards already recorded for this package. Submitting is a real commitment
+  // (purchase decision + award/decline emails to every supplier), and the
+  // backend allows repeat awards, so the screen must say when one exists.
+  const [prior, setPrior] = useState<PurchaseDecision[]>([])
+  const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
     let alive = true
-    setLoading(true); setErr(null); setMsg(null)
+    setLoading(true); setErr(null); setMsg(null); setSubmitErr(null); setConfirming(false); setPrior([])
     getLineComparison(m.projectId, m.comparePkg)
       .then((data) => {
         if (!alive) return
@@ -2782,8 +2945,15 @@ function TabCompare({ m }: MProps) {
         const rec = data.options.find((o) => o.key === data.recommendedOption) || data.options[0]
         setSel(rec ? { ...rec.selections } : {})
         setStrategy(rec ? rec.key : 'custom')
+        listPurchaseDecisions(m.projectId)
+          .then((ds) => { if (alive) setPrior(ds.filter((d) => d.package === data.package || d.packageLabel === data.pkg)) })
+          .catch(() => {})
       })
-      .catch(() => { if (alive) setErr('Could not load comparison. Is the backend running?') })
+      .catch((e) => {
+        if (!alive) return
+        const notFound = e instanceof Error && /-> 404/.test(e.message)
+        setErr(notFound ? 'No quotes to compare for this package yet — send RFQs and check for replies first.' : 'Could not load comparison. Is the backend running?')
+      })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [m.projectId, m.comparePkg])
@@ -2808,18 +2978,27 @@ function TabCompare({ m }: MProps) {
   const sum = summarizeAward(lc, sel)
   const gridCols = `minmax(150px,1.4fr) repeat(${lc.suppliers.length}, minmax(116px,1fr))`
   const submit = async () => {
-    setBusy(true)
+    setBusy(true); setSubmitErr(null)
     try {
       const res = await awardPackage(m.projectId, lc.package, sel, strategy)
       setMsg(res.message)
+      setConfirming(false)
+      listPurchaseDecisions(m.projectId)
+        .then((ds) => setPrior(ds.filter((d) => d.package === lc.package || d.packageLabel === lc.pkg)))
+        .catch(() => {})
       await m.reload()
-    } catch {
-      setMsg('Could not submit award. Is the backend running?')
+    } catch (e) {
+      const reason = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      setSubmitErr(reason || 'Could not submit the award. Is the backend running? Nothing was committed.')
     } finally { setBusy(false) }
   }
   const budgetPct = lc.budget ? Math.min(100, (sum.total / lc.budget) * 100) : null
   const overBudget = lc.budget != null && sum.total > lc.budget
   const nothingSelected = sum.deliveries === 0
+  const supNames = lc.suppliers.filter((su) => Object.values(sel).includes(su.id)).map((su) => su.name)
+  const declined = lc.suppliers.length - supNames.length
+  const lastAward = prior[0]
+  const awardedOn = (d: PurchaseDecision) => (d.createdAt ? new Date(d.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '')
 
   return (
     <>
@@ -2828,6 +3007,14 @@ function TabCompare({ m }: MProps) {
         <h2 style={css('margin:0;font-size:19px;font-weight:700;letter-spacing:-.02em')}>{lc.pkg} — Quote Comparison</h2>
         <p style={css('margin:4px 0 0;font-size:13px;color:var(--text-2)')}>{lc.suppliers.length} suppliers · {lc.lines.length} line items{lc.budget != null ? ` · budget ${money(lc.budget)}` : ''}</p>
       </div>
+      {lastAward && (
+        <div role="status" style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:11px 14px;border-radius:11px;background:var(--success-soft);border:1px solid var(--success)')}>
+          <Svg size={16} sw={2.4} stroke="var(--success)" d="M20 6 9 17l-5-5" />
+          <span style={css('flex:1;min-width:220px;font-size:13px;color:var(--text);line-height:1.4')}>
+            <b>Already awarded</b> {awardedOn(lastAward) ? `on ${awardedOn(lastAward)} ` : ''}for <b>{money(lastAward.total)}</b> to {lastAward.suppliers.join(', ')}{lastAward.decidedByEmail ? ` by ${lastAward.decidedByEmail}` : ''} · {lastAward.poCount} {lastAward.poCount === 1 ? 'PO' : 'POs'}{prior.length > 1 ? ` · ${prior.length} awards on record` : ''}. Submitting again records a new decision and re-emails every supplier.
+          </span>
+        </div>
+      )}
 
       {/* Strategy switcher */}
       <div style={css('display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px')}>
@@ -2927,7 +3114,19 @@ function TabCompare({ m }: MProps) {
             </div>
             {sum.savings > 0 && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>Saves {money(sum.savings)} vs. the best single supplier.</div>}
             {msg && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{msg}</div>}
-            <button onClick={busy || nothingSelected ? undefined : submit} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : nothingSelected ? 'Select at least one line' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            {submitErr && <div style={css('font-size:12px;color:var(--danger);background:var(--danger-soft,rgba(220,38,38,.08));border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{submitErr}</div>}
+            {confirming ? (
+              <ConfirmBar tone={lastAward ? 'danger' : 'primary'} busy={busy}
+                message={<>
+                  {lastAward ? <><b>This package was already awarded.</b> Submitting again records a second decision and emails every supplier again. </> : null}
+                  Award <b>{money(sum.total)}</b> to <b>{supNames.join(', ') || '—'}</b> ({sum.deliveries} {sum.deliveries === 1 ? 'PO' : 'POs'}){declined > 0 ? <>, and notify {declined} other supplier{declined === 1 ? '' : 's'} they were not selected</> : null}? Award emails can’t be recalled.
+                </>}
+                confirmLabel={lastAward ? 'Award again' : 'Confirm award'}
+                onConfirm={submit}
+                onCancel={() => setConfirming(false)} />
+            ) : (
+              <button onClick={busy || nothingSelected ? undefined : () => { setSubmitErr(null); setConfirming(true) }} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : nothingSelected ? 'Select at least one line' : lastAward ? `Award again · ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}` : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            )}
           </div>
         </div>
       </div>
