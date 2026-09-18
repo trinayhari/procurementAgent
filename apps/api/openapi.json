@@ -1252,7 +1252,7 @@
           "projects"
         ],
         "summary": "Award Package",
-        "description": "Submit a (possibly split) award for a package and issue the purchase orders.",
+        "description": "Submit a (possibly split) award for a package and issue the purchase orders.\n\nExactly-once: the whole award \u2014 the already-awarded check, the decision\nrow, the quote flips and the supplier notifications \u2014 runs under a lock\nkeyed by (org, project, package). Overlapping requests (a triple-clicked\nconfirm) used to all pass the check-then-insert and each issue POs and\nemail every supplier; now the losers answer 409 immediately.",
         "operationId": "award_package_api_projects__project_id__packages__pkg__award_post",
         "security": [
           {
@@ -3540,6 +3540,54 @@
         ]
       }
     },
+    "/api/team/invites/{invite_id}/resend": {
+      "post": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Resend Invite",
+        "description": "Re-send a pending invitation (or, with no email provider, hand back\nthe accept link again).",
+        "operationId": "resend_invite_api_team_invites__invite_id__resend_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "invite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Invite Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invite"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/team/invites/{invite_id}": {
       "delete": {
         "tags": [
@@ -5263,6 +5311,22 @@
               }
             ],
             "title": "Acceptedat"
+          },
+          "emailed": {
+            "type": "boolean",
+            "title": "Emailed",
+            "default": true
+          },
+          "acceptUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepturl"
           }
         },
         "type": "object",

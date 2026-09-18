@@ -253,6 +253,12 @@ export function createInvite(email: string): Promise<Invite> {
   return post<Invite>('/api/team/invites', { email })
 }
 
+// Re-send a pending invitation. With no email provider the response carries
+// the accept link again instead (emailed: false).
+export function resendInvite(inviteId: string): Promise<Invite> {
+  return post<Invite>(`/api/team/invites/${inviteId}/resend`)
+}
+
 // Cancel a pending invitation.
 export async function revokeInvite(inviteId: string): Promise<void> {
   const res = await fetch(`${BASE}/api/team/invites/${inviteId}`, {
@@ -715,7 +721,6 @@ export function emptyProjectSlices(): Pick<ModelData,
 // error so a single missing sub-resource (or zero projects) can never blank the
 // whole UI.
 export async function loadModelData(projectId?: string): Promise<ModelData> {
-  const pkg = encodeURIComponent('Water Utilities')
   const safe = <T>(p: Promise<T>, fb: T): Promise<T> => p.catch(() => fb)
 
   const [dashboard, projects, suppliers] = await Promise.all([
@@ -740,7 +745,10 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
       proj(`/api/projects/${pid}/documents`, [] as Document[]),
       proj(`/api/projects/${pid}/line-items`, [] as LineItemGroup[]),
       proj(`/api/projects/${pid}/quotes`, [] as Quote[]),
-      proj(`/api/projects/${pid}/packages/${pkg}/comparison`, emptyComparison),
+      // The prototype comparison summary for a fixed package: nothing on
+      // screen reads it any more (the compare view fetches its own
+      // line-comparison), and the request 404'd on every workspace load.
+      Promise.resolve(emptyComparison),
       proj(`/api/projects/${pid}/rfqs`, [] as Rfq[]),
       proj(`/api/projects/${pid}/rfq-folders`, [] as RfqFolder[]),
       proj(`/api/projects/${pid}/timeline`, emptyTimeline),
