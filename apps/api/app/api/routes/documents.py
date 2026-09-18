@@ -344,7 +344,10 @@ async def upload_document(
     attached to `project_id` so each project keeps its own document list."""
     org_id = current_user.organization_id
     _require_project(db, org_id, project_id)
-    plan_type = plan_type or extraction.registry.default_key()
+    # No plan type → an additional (reference) document. The old default was
+    # the site-plan slot, which is a singleton: an API call that omitted the
+    # field silently deleted the project's site plan and its confirmed BOM.
+    plan_type = plan_type or "other"
     spec = extraction.registry.get(plan_type)
     if spec is None or not spec.enabled:
         raise HTTPException(status_code=400, detail=f"Unsupported or disabled plan type '{plan_type}'")

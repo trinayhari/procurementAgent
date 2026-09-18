@@ -107,10 +107,13 @@ def get_project(
 ):
     org_id = current_user.organization_id
     project = _require_project(org_id, project_id, db)
+    demo = _is_demo_org(org_id)
     return {
         **project,
-        "overviewCards": reference_repo.list_overview_cards(db),
-        "packages": reference_repo.list_packages(db),
+        # Overview cards / package progress are seeded prototype literals —
+        # demo org only (they were identical for every project of every tenant).
+        "overviewCards": reference_repo.list_overview_cards(db) if demo else [],
+        "packages": reference_repo.list_packages(db) if demo else [],
         "activity": events_repo.list_for_project(db, org_id, project_id),
     }
 
@@ -269,7 +272,9 @@ def get_timeline(
     )
     if built is not None:
         return built
-    return reference_repo.get_timeline(db)
+    if _is_demo_org(org_id):
+        return reference_repo.get_timeline(db)
+    return {"milestones": [], "gantt": [], "ganttCols": []}
 
 
 @router.get("/{project_id}/packages/{pkg}/comparison", response_model=Comparison)

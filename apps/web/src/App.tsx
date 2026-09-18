@@ -208,6 +208,9 @@ export default function App() {
   // Hydrate the backend bundle for one project. On failure the previous bundle
   // (or the empty state) is left in place. Pass an explicit id (e.g. right
   // after creating a project) to avoid the stale-closure value of s.projectId.
+  // Pass '' to say "no project is on screen any more" (after a delete): the
+  // bundle is then applied for whichever project the API falls back to, even
+  // if the route change that left the project hasn't rendered yet.
   // Resolves to whether the response was APPLIED: it is dropped unless it is
   // still the newest load, fetched for the account AND credentials still signed
   // in, and for the project still on screen — a late response must never
@@ -230,7 +233,26 @@ export default function App() {
         // optimistic not-yet-saved id, or a stale hash) — never paint that
         // fallback under a different project's route.
         const eff = pid && data.projects.some((p) => p.id === pid) ? pid : data.projects[0] ? data.projects[0].id : ''
-        if (projectIdRef.current && eff !== projectIdRef.current) return false
+        if (pid && eff !== pid && !pid.startsWith('proj-')) {
+          // The requested project no longer exists (deleted — here or in
+          // another tab — or a stale deep link). Dropping the response left
+          // the old list on screen after a delete and a stale #/project/…
+          // hash on the loading splash forever. Apply the fresh bundle; if
+          // that project is still the one on screen, leave it for the
+          // projects list and say why. (Optimistic 'proj-…' ids are the
+          // create flow's own placeholder — the real id follows.)
+          bundleForRef.current = { uid, pid: eff }
+          const onIt = projectIdRef.current === pid
+          set({
+            data,
+            ...(onIt ? {
+              nav: 'projects', projectId: undefined, tab: 'overview', compare: false, comparePkg: undefined,
+              supplierId: null, projError: 'That project no longer exists — it may have been deleted.',
+            } : {}),
+          })
+          return true
+        }
+        if (pid !== '' && projectIdRef.current && eff !== projectIdRef.current) return false
         bundleForRef.current = { uid, pid: eff }
         set({ data })
         return true

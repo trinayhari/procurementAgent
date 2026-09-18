@@ -80,3 +80,28 @@ describe('analyzeDocument', () => {
     expect(init.method).toBe('POST')
   })
 })
+
+describe('auth requests', () => {
+  it('turns a 422 field error into a sentence instead of "[object Object]"', async () => {
+    const { acceptInvite, login } = await import('./api')
+    nextResponse = json({ detail: [{ type: 'string_too_short', loc: ['body', 'password'], msg: 'String should have at least 8 characters' }] }, 422)
+    await expect(acceptInvite('tok', { password: 'short' })).rejects.toThrow('String should have at least 8 characters')
+    nextResponse = json({ detail: 'Invalid email or password' }, 401)
+    await expect(login('a@b.co', 'x')).rejects.toThrow('Invalid email or password')
+  })
+})
+
+describe('css() border handling', () => {
+  it('rewrites a border shorthand + side colour as conflict-free longhands', async () => {
+    const { css } = await import('./lib')
+    const o = css('width:22px;border:2.5px solid var(--border-strong);border-top-color:var(--primary);border-radius:50%') as Record<string, string>
+    expect(o.border).toBeUndefined()
+    expect(o.borderTopColor).toBeUndefined()
+    expect(o.borderWidth).toBe('2.5px')
+    expect(o.borderStyle).toBe('solid')
+    expect(o.borderColor).toBe('var(--primary) var(--border-strong) var(--border-strong) var(--border-strong)')
+    expect(o.borderRadius).toBe('50%')
+    // A plain shorthand is left alone.
+    expect(css('border:1px solid var(--border)')).toEqual({ border: '1px solid var(--border)' })
+  })
+})

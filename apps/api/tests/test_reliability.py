@@ -572,3 +572,50 @@ def test_fetch_replies_strips_the_quoted_chain_and_keeps_the_thread(monkeypatch)
     [msg] = gmail_reader.fetch_replies(["sales@pipe.co"])
     assert msg.thread_id == "thr-9"
     assert "$47,500" in msg.text and "$52,000" not in msg.text
+
+
+# ------------------------------------------------- demo data: dashboard etc.
+def test_dashboard_overview_and_timeline_demo_data_stay_in_the_demo_org(project):
+    """A brand-new organization saw the demo org's metric literals, activity
+    feed (naming another tenant's project), overview cards and June timeline."""
+    client, headers, pid = project
+    from app.repositories import reference as reference_repo
+
+    with SessionLocal() as db:
+        reference_repo.seed_reference_data(db)
+    dash = client.get("/api/dashboard", headers=headers).json()
+    assert dash["metrics"] == []
+    assert all("Riverside" not in a.get("meta", "") for a in dash["activity"])
+    detail = client.get(f"/api/projects/{pid}", headers=headers).json()
+    assert detail["overviewCards"] == [] and detail["packages"] == []
+    tl = client.get(f"/api/projects/{pid}/timeline", headers=headers).json()
+    assert tl == {"milestones": [], "gantt": [], "ganttCols": []}
+
+
+def test_upload_without_plan_type_is_an_additional_document(project, monkeypatch):
+    """The old default (site_plan, a singleton slot) silently replaced the
+    project's site plan — and its confirmed BOM — for any caller that omitted
+    the field."""
+    client, headers, pid = project
+    monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
+    site = _upload(client, headers, "site.pdf", _MINI_PDF, plan_type="site_plan").json()["id"]
+    r = client.post(
+        "/api/documents", headers=headers,
+        files={"file": ("spec.pdf", io.BytesIO(_MINI_PDF), "application/pdf")},
+        data={"project_id": pid},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["planType"] == "other"
+    ids = {d["id"] for d in client.get(f"/api/projects/{pid}/documents", headers=headers).json()}
+    assert site in ids  # the site plan survived
+
+
+def test_supplier_email_is_validated_but_optional(auth):
+    client, headers = auth
+    assert client.post("/api/suppliers", headers=headers, json={"name": "A", "email": "bad-email"}).status_code == 422
+    r = client.post("/api/suppliers", headers=headers, json={"name": "A", "email": " a@b.co "})
+    assert r.status_code == 201 and r.json()["email"] == "a@b.co"
+    assert client.post("/api/suppliers", headers=headers, json={"name": "B"}).status_code == 201
+    sid = r.json()["id"]
+    assert client.patch(f"/api/suppliers/{sid}", headers=headers, json={"email": "nope"}).status_code == 422
+    assert client.patch(f"/api/suppliers/{sid}", headers=headers, json={"email": ""}).status_code == 200

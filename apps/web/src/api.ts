@@ -151,7 +151,9 @@ async function authRequest(path: string, body: unknown): Promise<TokenResponse> 
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error((data && data.detail) || `Request failed (${res.status})`)
+    // A 422 carries a list of field errors, which stringified to
+    // "[object Object]" on the login / register / invite-accept screens.
+    throw new Error(errorDetail(data) || `Request failed (${res.status})`)
   }
   return data as TokenResponse
 }

@@ -20,7 +20,36 @@ export function css(str?: string): CSSProperties {
     // would mangle it into "-Panel-2" and the declaration would be dropped.
     o[k.startsWith('--') ? k : k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = v
   }
-  return o as CSSProperties
+  return expandBorder(o) as CSSProperties
+}
+
+// React warns (and drops the shorthand, leaving e.g. a spinner as a faint
+// arc) when a style object mixes a `border` shorthand with a per-side colour
+// such as `border-top-color`. Rewrite that combination as longhands so the
+// declaration is unambiguous: borderWidth/borderStyle from the shorthand and a
+// four-value borderColor with the side override folded in.
+const SIDE_COLORS = ['borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'] as const
+const BORDER_STYLES = new Set(['none', 'solid', 'dashed', 'dotted', 'double', 'hidden'])
+function expandBorder(o: Record<string, string>): Record<string, string> {
+  const border = o.border
+  const hasSide = SIDE_COLORS.some((k) => k in o) || 'borderColor' in o
+  if (!border || !hasSide) return o
+  const tokens = border.trim().split(/\s+/)
+  let width = '', style = ''
+  const colorTokens: string[] = []
+  for (const t of tokens) {
+    if (!width && /^[\d.]+(px|em|rem|%)?$|^(thin|medium|thick)$/.test(t)) width = t
+    else if (!style && BORDER_STYLES.has(t)) style = t
+    else colorTokens.push(t)
+  }
+  const base = o.borderColor || colorTokens.join(' ') || 'currentColor'
+  const sides = [base, base, base, base]
+  SIDE_COLORS.forEach((k, i) => { if (k in o) { sides[i] = o[k]; delete o[k] } })
+  delete o.border
+  if (width) o.borderWidth = width
+  if (style) o.borderStyle = style
+  o.borderColor = sides.join(' ')
+  return o
 }
 
 // Polymorphic element with optional hover styles (replaces the design's `style-hover`).

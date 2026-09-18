@@ -1,8 +1,23 @@
+import re
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.schemas.common import Tone
+
+# Loose on purpose (anything@anything.tld): catches a typo that Gmail would
+# reject at send time — when the RFQ goes out — rather than validating
+# deliverability. Blank is fine: a supplier can be saved without an email.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _check_email(v):
+    if v is None:
+        return v
+    v = v.strip()
+    if v and not _EMAIL_RE.match(v):
+        raise ValueError(f"'{v}' is not a valid email address")
+    return v
 
 
 class SupplierFinancials(BaseModel):
@@ -42,6 +57,8 @@ class SupplierCreate(BaseModel):
     web: str = ""
     cats: List[str] = []
 
+    _email = field_validator("email")(_check_email)
+
 
 class SupplierUpdate(BaseModel):
     """Edit an existing directory supplier. Every field is optional — only the
@@ -53,6 +70,8 @@ class SupplierUpdate(BaseModel):
     email: Optional[str] = None
     web: Optional[str] = None
     cats: Optional[List[str]] = None
+
+    _email = field_validator("email")(_check_email)
 
 
 class SupplierComm(BaseModel):

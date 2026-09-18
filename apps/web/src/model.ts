@@ -423,8 +423,12 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       set({ customProjects: (s.customProjects || []).filter((p) => p.id !== id) })
       try {
         await apiDeleteProject(id)
-        if (props && props.reload) await props.reload()
+        // Leave the deleted project's route BEFORE refetching: a reload that
+        // resolves while it is still the project on screen is treated as a
+        // stale deep link (see App.reload), which would also flash a
+        // "no longer exists" notice the user doesn't need after their own delete.
         if (wasActive) set({ nav: 'projects', projectId: undefined, tab: 'overview', compare: false, supplierId: null, mnav: false })
+        if (props && props.reload) await props.reload(wasActive ? '' : undefined)
       } catch {
         set({ projError: 'Couldn’t delete the project — is the backend running?' })
         if (props && props.reload) await props.reload()
