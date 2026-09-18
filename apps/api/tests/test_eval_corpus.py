@@ -174,3 +174,21 @@ def test_declared_truth_file_missing_is_a_problem(corpus_root):
 def test_unexpected_manifest_version_is_reported(corpus_root):
     write_manifest(corpus_root, [entry()], version=2)
     assert any("version" in p for p in corpus.validate_corpus())
+
+
+def test_an_empty_full_truth_is_a_negative_control_not_a_problem(corpus_root):
+    """A non-plan document whose correct BOM is nothing: `full` with no items."""
+    control = {"doc_id": "site-test-01", "plan_type": "site_plan", "completeness": "full", "items": []}
+    (corpus_root / "truth" / "site-test-01.json").write_text(json.dumps(control), encoding="utf-8")
+    write_manifest(corpus_root, [entry(truth="truth/site-test-01.json")])
+    assert corpus.validate_corpus() == []
+    truth = corpus.load_truth("site-test-01")
+    assert truth.items == []
+
+
+def test_an_empty_partial_truth_measures_nothing_and_is_rejected(corpus_root):
+    empty = {"doc_id": "site-test-01", "plan_type": "site_plan", "completeness": "partial", "items": []}
+    (corpus_root / "truth" / "site-test-01.json").write_text(json.dumps(empty), encoding="utf-8")
+    write_manifest(corpus_root, [entry(truth="truth/site-test-01.json")])
+    problems = "\n".join(corpus.validate_corpus())
+    assert "no items" in problems

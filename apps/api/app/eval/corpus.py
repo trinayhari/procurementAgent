@@ -340,8 +340,11 @@ def _validate_truth(entry, doc_id, plan_type, root, where) -> List[str]:
         )
     if truth.doc_id != doc_id:
         problems.append("{}: truth doc_id '{}' does not match".format(where, truth.doc_id))
-    if not truth.items:
-        problems.append("{}: truth file has no items".format(where))
+    # An EMPTY `full` truth is a negative control: the document is not a plan
+    # set, the correct BOM is nothing, and every extracted line is an extra. An
+    # empty `partial` truth measures nothing at all and is a mistake.
+    if not truth.items and truth.completeness != "full":
+        problems.append("{}: truth file has no items (only a `full` truth may be empty)".format(where))
 
     spec = registry.get(truth.plan_type or plan_type)
     valid_categories = {c.key for c in spec.categories} if spec else None

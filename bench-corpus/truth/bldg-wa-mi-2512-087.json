@@ -9,7 +9,11 @@
     {
       "category": "concrete",
       "name": "3,000 psi Concrete — Footings",
-      "aliases": ["3000 psi concrete footings", "concrete footings f'c = 3,000 psi", "3,000 psi concrete — spread and continuous footings"],
+      "aliases": [
+        "3000 psi concrete footings",
+        "concrete footings f'c = 3,000 psi",
+        "3,000 psi concrete — spread and continuous footings"
+      ],
       "quantity": null,
       "unit": "CY",
       "qty_tolerance": 0.05,
@@ -19,7 +23,10 @@
     {
       "category": "concrete",
       "name": "3,000 psi Concrete — Foundation Walls",
-      "aliases": ["3000 psi concrete foundation walls", "concrete foundation wall f'c = 3,000 psi"],
+      "aliases": [
+        "3000 psi concrete foundation walls",
+        "concrete foundation wall f'c = 3,000 psi"
+      ],
       "quantity": null,
       "unit": "CY",
       "qty_tolerance": 0.05,
@@ -29,7 +36,10 @@
     {
       "category": "concrete",
       "name": "2,500 psi Concrete — Interior Slabs on Grade",
-      "aliases": ["2500 psi concrete interior slab on grade", "interior slab on grade f'c = 2,500 psi"],
+      "aliases": [
+        "2500 psi concrete interior slab on grade",
+        "interior slab on grade f'c = 2,500 psi"
+      ],
       "quantity": null,
       "unit": "CY",
       "qty_tolerance": 0.05,
@@ -39,7 +49,12 @@
     {
       "category": "concrete",
       "name": "3,500 psi Concrete — Garage & Exterior Slabs on Grade, 4\" thick",
-      "aliases": ["3500 psi concrete garage slab on grade", "4 inch garage slab on grade", "exterior slab on grade f'c = 3,500 psi", "4\" conc. slab on grade — garage/porch"],
+      "aliases": [
+        "3500 psi concrete garage slab on grade",
+        "4 inch garage slab on grade",
+        "exterior slab on grade f'c = 3,500 psi",
+        "4\" conc. slab on grade — garage/porch"
+      ],
       "quantity": null,
       "unit": "CY",
       "qty_tolerance": 0.05,
@@ -49,7 +64,10 @@
     {
       "category": "concrete",
       "name": "24\" Sq. x 8\" Thick Spread Footing",
-      "aliases": ["24 inch square x 8 inch thick footing", "24\" sq. x 8\" thick ftg."],
+      "aliases": [
+        "24 inch square x 8 inch thick footing",
+        "24\" sq. x 8\" thick ftg."
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.05,
@@ -59,7 +77,10 @@
     {
       "category": "concrete",
       "name": "30\" Sq. x 12\" Thick Spread Footing",
-      "aliases": ["30 inch square x 12 inch thick footing", "30\" sq. x 12\" thick ftg."],
+      "aliases": [
+        "30 inch square x 12 inch thick footing",
+        "30\" sq. x 12\" thick ftg."
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.05,
@@ -69,7 +90,10 @@
     {
       "category": "concrete",
       "name": "36\" Sq. x 12\" Thick Spread Footing",
-      "aliases": ["36 inch square x 12 inch thick footing", "36\" sq. x 12\" thick ftg."],
+      "aliases": [
+        "36 inch square x 12 inch thick footing",
+        "36\" sq. x 12\" thick ftg."
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.05,
@@ -79,7 +103,10 @@
     {
       "category": "concrete",
       "name": "42\" Sq. x 12\" Thick Spread Footing w/ (4) #4 Each Way Bottom",
-      "aliases": ["42 inch square x 12 inch thick footing", "42\" sq. x 12\" thick ftg. w/ (4) #4 ea. way bot."],
+      "aliases": [
+        "42 inch square x 12 inch thick footing",
+        "42\" sq. x 12\" thick ftg. w/ (4) #4 ea. way bot."
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.05,
@@ -89,7 +116,10 @@
     {
       "category": "concrete",
       "name": "48\" Sq. x 12\" Thick Spread Footing w/ (4) #4 Each Way Bottom",
-      "aliases": ["48 inch square x 12 inch thick footing", "48\" sq. x 12\" thick ftg. w/ (4) #4 ea. way bot."],
+      "aliases": [
+        "48 inch square x 12 inch thick footing",
+        "48\" sq. x 12\" thick ftg. w/ (4) #4 ea. way bot."
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.05,
@@ -99,7 +129,11 @@
     {
       "category": "concrete",
       "name": "10-mil Vapor Retarder — Crawl Space",
-      "aliases": ["10 mil vapor barrier crawl space", "crawlspace vapor retarder", "10-mil polyethylene vapor barrier"],
+      "aliases": [
+        "10 mil vapor barrier crawl space",
+        "crawlspace vapor retarder",
+        "10-mil polyethylene vapor barrier"
+      ],
       "quantity": 1974,
       "unit": "SF",
       "qty_tolerance": 0.05,
@@ -109,7 +143,10 @@
     {
       "category": "concrete",
       "name": "10-mil Vapor Retarder — under Slab on Grade",
-      "aliases": ["10 mil vapor retarder under slab", "under-slab vapor barrier"],
+      "aliases": [
+        "10 mil vapor retarder under slab",
+        "under-slab vapor barrier"
+      ],
       "quantity": null,
       "unit": "SF",
       "qty_tolerance": 0.05,
@@ -119,7 +156,11 @@
     {
       "category": "concrete",
       "name": "4\" Granular Fill under Slab on Grade",
-      "aliases": ["4 inch granular fill", "compacted granular fill under slab", "4\" min. granular fill"],
+      "aliases": [
+        "4 inch granular fill",
+        "compacted granular fill under slab",
+        "4\" min. granular fill"
+      ],
       "quantity": null,
       "unit": "SF",
       "qty_tolerance": 0.05,
@@ -129,7 +170,11 @@
     {
       "category": "rebar",
       "name": "#4 Rebar (Grade 60) — Spread footing bottom mat, (4) each way",
-      "aliases": ["#4 rebar footing bottom bars", "(4) #4 each way bottom", "no. 4 reinforcing bar grade 60"],
+      "aliases": [
+        "#4 rebar footing bottom bars",
+        "(4) #4 each way bottom",
+        "no. 4 reinforcing bar grade 60"
+      ],
       "quantity": null,
       "unit": "LB",
       "qty_tolerance": 0.1,
@@ -139,7 +184,11 @@
     {
       "category": "steel",
       "name": "5/8\" Dia. Anchor Bolt w/ 3\"x3\"x1/4\" Plate Washer (sill plate)",
-      "aliases": ["5/8 inch diameter anchor bolt", "sill plate anchor bolt 5/8\"", "anchor bolt w/ plate washer"],
+      "aliases": [
+        "5/8 inch diameter anchor bolt",
+        "sill plate anchor bolt 5/8\"",
+        "anchor bolt w/ plate washer"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -149,7 +198,11 @@
     {
       "category": "framing",
       "name": "9-1/2\" TJI 210 Floor Joist @ 16\" O.C.",
-      "aliases": ["9 1/2 inch TJI 210 floor joist", "9-1/2\" I-joist at 16 inches on center", "TJI 210 joist"],
+      "aliases": [
+        "9 1/2 inch TJI 210 floor joist",
+        "9-1/2\" I-joist at 16 inches on center",
+        "TJI 210 joist"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -159,7 +212,11 @@
     {
       "category": "framing",
       "name": "23/32\" OSB Sturd-I-Floor Subfloor, T&G",
-      "aliases": ["23/32 inch OSB subfloor", "23/32\" APA rated Sturd-I-Floor", "tongue and groove OSB subfloor"],
+      "aliases": [
+        "23/32 inch OSB subfloor",
+        "23/32\" APA rated Sturd-I-Floor",
+        "tongue and groove OSB subfloor"
+      ],
       "quantity": null,
       "unit": "SF",
       "qty_tolerance": 0.1,
@@ -169,7 +226,10 @@
     {
       "category": "framing",
       "name": "7/16\" OSB Roof Sheathing (APA rated 24/16)",
-      "aliases": ["7/16 inch OSB roof sheathing", "7/16\" APA rated roof sheathing"],
+      "aliases": [
+        "7/16 inch OSB roof sheathing",
+        "7/16\" APA rated roof sheathing"
+      ],
       "quantity": null,
       "unit": "SF",
       "qty_tolerance": 0.1,
@@ -178,8 +238,15 @@
     },
     {
       "category": "framing",
-      "name": "7/16\" OSB (or 15/32\" Plywood) Exterior Wall Sheathing",
-      "aliases": ["7/16 inch OSB wall sheathing", "15/32\" plywood wall sheathing", "exterior wall sheathing OSB"],
+      "name": "7/16\" OSB Exterior Wall Sheathing",
+      "aliases": [
+        "15/32\" Plywood Exterior Wall Sheathing",
+        "15/32\" plywood wall sheathing",
+        "7/16 inch OSB wall sheathing",
+        "7/16\" OSB wall sheathing",
+        "exterior wall sheathing 7/16\" OSB",
+        "exterior wall sheathing OSB"
+      ],
       "quantity": null,
       "unit": "SF",
       "qty_tolerance": 0.1,
@@ -189,7 +256,11 @@
     {
       "category": "framing",
       "name": "Prefabricated Wood Roof Truss @ 24\" O.C.",
-      "aliases": ["common trusses at 24 inches on center", "wood roof truss 24\" o.c.", "prefabricated roof truss"],
+      "aliases": [
+        "common trusses at 24 inches on center",
+        "wood roof truss 24\" o.c.",
+        "prefabricated roof truss"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -199,7 +270,11 @@
     {
       "category": "framing",
       "name": "4x10 Header (H3-6 / H3-7 / H3-9)",
-      "aliases": ["4x10 header", "4 x 10 HDR", "4x10 door/window header"],
+      "aliases": [
+        "4x10 header",
+        "4 x 10 HDR",
+        "4x10 door/window header"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -209,7 +284,11 @@
     {
       "category": "framing",
       "name": "3-1/2\"x9\" Glulam Header (H3-8)",
-      "aliases": ["3-1/2 x 9 GLB header", "3.5x9 glulam beam header", "3-1/2\"x9\" GLB HDR"],
+      "aliases": [
+        "3-1/2 x 9 GLB header",
+        "3.5x9 glulam beam header",
+        "3-1/2\"x9\" GLB HDR"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -219,7 +298,10 @@
     {
       "category": "framing",
       "name": "4x10 Continuous Dropped Girder (B1)",
-      "aliases": ["4x10 dropped girder", "4 x 10 continuous girder"],
+      "aliases": [
+        "4x10 dropped girder",
+        "4 x 10 continuous girder"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -229,7 +311,10 @@
     {
       "category": "framing",
       "name": "1-3/4\"x11-7/8\" LVL Ledger",
-      "aliases": ["1 3/4 x 11 7/8 LVL", "1-3/4\"x11-7/8\" laminated veneer lumber ledger"],
+      "aliases": [
+        "1 3/4 x 11 7/8 LVL",
+        "1-3/4\"x11-7/8\" laminated veneer lumber ledger"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -239,7 +324,10 @@
     {
       "category": "framing",
       "name": "2x6 Pressure-Treated Ledger",
-      "aliases": ["P.T. 2x6 ledger", "2x6 pressure treated ledger to foundation wall"],
+      "aliases": [
+        "P.T. 2x6 ledger",
+        "2x6 pressure treated ledger to foundation wall"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -249,7 +337,11 @@
     {
       "category": "framing",
       "name": "4x4 DF#2 Post (typical crawlspace post)",
-      "aliases": ["4x4 post", "typical post DF#2 4x4", "4x4 P.T. post"],
+      "aliases": [
+        "4x4 post",
+        "typical post DF#2 4x4",
+        "4x4 P.T. post"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -259,7 +351,11 @@
     {
       "category": "framing",
       "name": "(2) 2x6 King Studs at header bearing",
-      "aliases": ["(2) 2x6 kings", "double 2x6 king stud", "2x6 king studs"],
+      "aliases": [
+        "(2) 2x6 kings",
+        "double 2x6 king stud",
+        "2x6 king studs"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -269,7 +365,11 @@
     {
       "category": "framing",
       "name": "Simpson STHD14 Hold-down (HD-1)",
-      "aliases": ["STHD14 holdown", "Simpson Strong-Tie STHD14", "HD-1 hold-down"],
+      "aliases": [
+        "STHD14 holdown",
+        "Simpson Strong-Tie STHD14",
+        "HD-1 hold-down"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -279,7 +379,11 @@
     {
       "category": "framing",
       "name": "Simpson CS16 Strap Tie (HD-5), 14\" end length",
-      "aliases": ["CS16 strap tie", "Simpson Strong-Tie CS16", "HD-5 strap tie"],
+      "aliases": [
+        "CS16 strap tie",
+        "Simpson Strong-Tie CS16",
+        "HD-5 strap tie"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -289,7 +393,11 @@
     {
       "category": "framing",
       "name": "Simpson MSTC40 Strap Tie (HD-6)",
-      "aliases": ["MSTC40 strap tie", "Simpson Strong-Tie MSTC40", "HD-6 strap tie"],
+      "aliases": [
+        "MSTC40 strap tie",
+        "Simpson Strong-Tie MSTC40",
+        "HD-6 strap tie"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -299,7 +407,11 @@
     {
       "category": "framing",
       "name": "Simpson MSTC66 Strap Tie (HD-7)",
-      "aliases": ["MSTC66 strap tie", "Simpson Strong-Tie MSTC66", "HD-7 strap tie"],
+      "aliases": [
+        "MSTC66 strap tie",
+        "Simpson Strong-Tie MSTC66",
+        "HD-7 strap tie"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -309,7 +421,10 @@
     {
       "category": "framing",
       "name": "Simpson LUS210 Joist Hanger",
-      "aliases": ["LUS210 hanger", "Simpson Strong-Tie LUS210 joist hanger"],
+      "aliases": [
+        "LUS210 hanger",
+        "Simpson Strong-Tie LUS210 joist hanger"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -319,7 +434,10 @@
     {
       "category": "framing",
       "name": "Simpson LUS210-2 Joist Hanger (double)",
-      "aliases": ["LUS210-2 hanger", "Simpson LUS210-2 double joist hanger"],
+      "aliases": [
+        "LUS210-2 hanger",
+        "Simpson LUS210-2 double joist hanger"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -329,7 +447,11 @@
     {
       "category": "framing",
       "name": "Simpson H2.5T Truss/Rafter Clip",
-      "aliases": ["H2.5T clip", "Simpson Strong-Tie H2.5T hurricane clip", "H2.5 clip"],
+      "aliases": [
+        "H2.5T clip",
+        "Simpson Strong-Tie H2.5T hurricane clip",
+        "H2.5 clip"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,

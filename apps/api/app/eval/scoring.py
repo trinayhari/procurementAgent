@@ -280,6 +280,12 @@ _SPACING_RE = re.compile(
 _SIZE_PRODUCT_RE = re.compile(
     r"(?<![a-z0-9.])(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?(?![a-z0-9])"
 )
+# `3,000 psi`, `1,450 LF` — a thousands separator, not two numbers.
+_THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
+# `1'-3"`, `2'-0"`, `1' 6"` — feet-and-inches is ONE dimension, in inches.
+_FEET_INCHES_RE = re.compile(r"(?<![\d.])(\d+)'\s*-?\s*(\d+(?:\.\d+)?)\s*[\"”″]")
+# `r-3067-7004-v`, `sthd-14`: letters, then numeric segments — a catalogue code.
+_ALPHA_LED_CODE_RE = re.compile(r"^([a-z]+)(?:-([a-z0-9]+))+$")
 
 
 def _fraction_value(whole: str, num: str, den: str) -> Optional[float]:
@@ -335,6 +341,11 @@ def _prepass(text: str, codes: Dict[str, set]) -> str:
             return m.group(0)
         return " " + _canonical_number(str(value)) + " "
 
+    text = _THOUSANDS_RE.sub("", text)
+    text = _FEET_INCHES_RE.sub(
+        lambda m: " " + _canonical_number(str(int(m.group(1)) * 12 + float(m.group(2)))) + '" ',
+        text,
+    )
     text = _PAREN_COUNT_RE.sub(take_count, text)
     text = _SPACING_RE.sub(take_spacing, text)
     text = _MIXED_NUMBER_RE.sub(take_mixed, text)
@@ -386,6 +397,14 @@ def _scan_token(token: str, dims: Dict[str, int], codes: Dict[str, set]) -> None
         if mixed and len(segments) > 1:
             for segment in segments:
                 _scan_code(segment, codes)
+            return
+        # `r-3067-7004-v`: a letter prefix followed by numeric segments is a
+        # catalogue number (Neenah castings, Simpson connectors), keyed by
+        # its prefix so `R-3067` and `R-1550` can contradict each other.
+        if _ALPHA_LED_CODE_RE.match(token) and any(s.isdigit() for s in segments[1:]):
+            for segment in segments[1:]:
+                if segment.isdigit():
+                    codes.setdefault(segments[0], set()).add(_canonical_number(segment))
             return
         for segment in segments:
             _scan_token(segment, dims, codes)

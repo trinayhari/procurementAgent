@@ -1,0 +1,124 @@
+{
+  "doc_id": "bldg-tx-taylor-northbb-54-61",
+  "plan_type": "building_plan",
+  "authored_by": "agent:evals",
+  "authored_at": "2026-09-17",
+  "completeness": "partial",
+  "notes": "Same 8-unit townhouse building as elec-tx-taylor-northbb-54-61, scored for the structural disciplines. Footprint 139'-8\" x 55' (slab ≈7,700 SF gross). The CAD text layer INTERLEAVES note columns word-by-word (it is unreadable as prose), which is why building_plan prefers vision. The set carries REAL internal conflicts (4000 vs 3000 psi slab, 10 vs 6 mil poly, PT slab on A13 vs conventional on A4/A12): a faithful extraction keeps ONE line and records the conflict in `assumptions` rather than emitting both — a second slab line is over-extraction, not recall. Anchors from the 2026-07-22 vision ground-truth session; sizes are exact, quantities are ±.",
+  "items": [
+    {
+      "category": "concrete",
+      "name": "4\" Concrete Slab on Grade",
+      "aliases": [
+        "concrete slab on grade",
+        "4 inch slab on grade",
+        "slab on grade"
+      ],
+      "quantity": 7700,
+      "unit": "SF",
+      "qty_tolerance": 0.15,
+      "required": true,
+      "source": "Sheet A4 foundation plan; footprint 139'-8\" x 55'"
+    },
+    {
+      "category": "concrete",
+      "name": "24\" x 12\" Continuous Footing",
+      "aliases": [
+        "24 inch wide x 12 inch deep continuous footing",
+        "continuous footing 24x12",
+        "2'-0\" x 1'-0\" continuous footing"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A4 / A12 footing detail"
+    },
+    {
+      "category": "rebar",
+      "name": "#4 Rebar, Grade 60 — (2) continuous in footings",
+      "aliases": [
+        "#4 rebar",
+        "#4 grade 60 rebar",
+        "(2) #4 continuous"
+      ],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A12 footing detail: (2) #4 Gr.60 continuous"
+    },
+    {
+      "category": "steel",
+      "name": "1/2\" Anchor Bolt @ 6' O.C., 7\" embed",
+      "aliases": [
+        "1/2\" anchor bolt",
+        "1/2 inch anchor bolts",
+        "anchor bolts 1/2\" dia"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A12 general notes: 1/2\" AB @ 6'-0\" O.C., 7\" embedment"
+    },
+    {
+      "category": "framing",
+      "name": "2x6 Exterior Wall Stud @ 16\" O.C.",
+      "aliases": [
+        "2x6 exterior wall studs",
+        "2x6 stud",
+        "2x6 exterior wall framing"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheets A5/A6 wall legend; R-21 exterior walls"
+    },
+    {
+      "category": "framing",
+      "name": "2x10 Floor Joist",
+      "aliases": [
+        "2x10 floor joists @ 16\" O.C.",
+        "2x10 floor joist @ 12\" O.C.",
+        "2x10 flr. jsts."
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A5 floor plan callouts (2X10 FLR. JSTS.)"
+    },
+    {
+      "category": "framing",
+      "name": "Prefabricated Roof Truss (by manufacturer)",
+      "aliases": [
+        "roof trusses",
+        "prefabricated wood roof truss",
+        "engineered roof trusses"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.15,
+      "required": false,
+      "source": "Sheet A6/A7: TRUSS ROOF DESIGN BY MANUFACTURER"
+    },
+    {
+      "category": "concrete",
+      "name": "6 mil Polyethylene Vapor Barrier under slab",
+      "aliases": [
+        "6 mil poly vapor barrier",
+        "polyethylene vapor barrier",
+        "10 mil polyethylene vapor barrier",
+        "vapor barrier"
+      ],
+      "quantity": null,
+      "unit": "SF",
+      "qty_tolerance": 0.15,
+      "required": false,
+      "source": "Sheet A12 general notes (6 mil) — conflicts with 10 mil on A13"
+    }
+  ],
+  "forbidden": []
+}

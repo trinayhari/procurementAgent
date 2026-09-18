@@ -615,6 +615,12 @@ NOTATION_PAIRS = [
     ("voltage pair is not a fraction", "480/277V Panelboard", "480/277V panelboard, 42 circuit", True),
     ("trailing note is not a spec", "3/0 Copper Feeder (feeder mark 1, 200A/4W)", "3/0 copper feeder", True),
     ("32nds are fractions too", '23/32" OSB Subfloor, T&G', '23/32" T&G OSB subfloor', True),
+    ("feet-inches is one dimension, in inches", "Pad Footing F2, 2'-0\" x 2'-0\" x 1'-6\" thick", '24" x 24" x 18" pad footing F2', True),
+    ("feet-inches still gates", "Continuous Footing, 1'-3\" wide", '12" wide continuous footing', False),
+    ("thousands separator is not two numbers", "3,000 psi Concrete — Footings", "3000 psi concrete footings", True),
+    ("thousands separator still gates", "3,000 psi Concrete — Footings", "2,500 psi concrete footings", False),
+    ("alpha-led catalogue number is a code", "R-3067-7004-V Casting", "R-3067-7004-V casting, frame and grate", True),
+    ("alpha-led catalogue numbers contradict", "R-3067-7004-V Casting", "R-1550 casting", False),
 ]
 
 
@@ -641,6 +647,10 @@ def test_fractions_and_products_become_dimensions():
     assert scoring.code_values('2x6 Studs @ 16" O.C.') == {"oc": {"16"}}
     assert scoring.code_values("3/0 Copper") == {"/0": {"3"}}
     assert scoring.dimensional_numbers("3/0 Copper") == {}
+    assert scoring.dimensional_numbers("Footing 1'-3\" wide") == {"15": 1}
+    assert scoring.dimensional_numbers("3,000 psi concrete") == {"3000": 1}
+    assert scoring.code_values("R-3067-7004-V Casting") == {"r": {"3067", "7004"}}
+    assert scoring.dimensional_numbers("R-3067-7004-V Casting") == {}
 
 
 # ------------------------------------------------ usable recall + scale errors
@@ -744,3 +754,18 @@ def test_aggregate_carries_usable_recall_and_scale_errors():
     assert agg["usable_recall"] == 0.5
     assert agg["counts"]["scale_errors"] == 1
     assert agg["defined"]["usable_recall"] == 2
+
+
+def test_negative_control_scores_every_extracted_line_as_an_extra():
+    """An empty `full` truth: the document is not a plan set, so anything found is invented."""
+    control = truth()  # full, no items
+    clean = scoring.score_document([], control, SPEC)
+    assert clean.precision is None and clean.recall is None  # nothing to divide
+    assert clean.counts["extra"] == 0
+    hallucinated = scoring.score_document(
+        [group(WATER, ('8" PVC Water Main', "500 LF"), ("Fire Hydrant", "2 EA"))], control, SPEC
+    )
+    assert kinds(hallucinated) == ["extra", "extra"]
+    assert hallucinated.precision == 0.0
+    assert hallucinated.recall is None
+    assert hallucinated.counts["extra"] == 2

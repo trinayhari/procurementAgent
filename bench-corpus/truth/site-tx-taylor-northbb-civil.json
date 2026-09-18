@@ -1,0 +1,224 @@
+{
+  "doc_id": "site-tx-taylor-northbb-civil",
+  "plan_type": "site_plan",
+  "authored_by": "agent:evals",
+  "authored_at": "2026-09-17",
+  "completeness": "partial",
+  "notes": "THE CAD TEXT-LAYER ANCHOR (see memory: cad-text-quirks). 26-sheet vector civil set for the same Taylor TX townhouse project (Paradise Engineers). Two traps: (1) plan sheets export their text 2-3x STACKED at identical coordinates (~950 of 1,548 words on the water plan are same-position dupes) — the pipeline's position-dedup must remove them or every summed quantity inflates ~3x; (2) every run and structure appears on the PLAN sheet AND again on its PROFILE sheet (sheet 13 drainage plan vs 14/16/19 profiles; 15 water plan; 18 WW plan) — merge by station label, never add plan + profile. There is NO summary-of-quantities table: totals come only from summing run callouts with that dedup. The authoritative storm source is the DRAINAGE PLAN (sheet 13: trunk + all lot laterals + curb inlets), not the storm profile (trunk only). Erosion control has no plan sheet (ESC details only) so it legitimately extracts as qualitative items with null quantity and is not scored here. Pipe LF anchors were callout-sum verified on 2026-06-22/07-22; structure counts are ±1-2. A got/want near 2 or 3 on a pipe line is the plan+profile or stacked-text failure — reported as scale_errors.",
+  "items": [
+    {
+      "category": "storm",
+      "name": "18\" RCP Storm Sewer",
+      "aliases": [
+        "18\" RCP",
+        "18 inch RCP storm pipe",
+        "18\" reinforced concrete pipe"
+      ],
+      "quantity": 1013,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 13 drainage plan run callouts (nn.n LF OF 18\" RCP @ x%), lot laterals + trunk; profiles 14/16/19 repeat them"
+    },
+    {
+      "category": "storm",
+      "name": "36\" RCP Storm Sewer",
+      "aliases": [
+        "36\" RCP",
+        "36 inch RCP storm pipe",
+        "36\" reinforced concrete pipe"
+      ],
+      "quantity": 202,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 13 drainage plan trunk callout; repeated on storm profile"
+    },
+    {
+      "category": "storm",
+      "name": "24\" RCP Storm Sewer",
+      "aliases": [
+        "24\" RCP",
+        "24 inch RCP storm pipe"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.15,
+      "required": true,
+      "source": "Sheet 13 drainage plan (12.3 LF of 24\" RCP + trunk segments); profile repeats"
+    },
+    {
+      "category": "storm",
+      "name": "10' Curb Inlet",
+      "aliases": [
+        "10 ft curb inlet",
+        "curb inlet",
+        "10' recessed curb inlet"
+      ],
+      "quantity": 9,
+      "unit": "EA",
+      "qty_tolerance": 0.2,
+      "required": true,
+      "source": "Sheet 13 drainage plan — nine 10' CURB INLET callouts after position-dedup"
+    },
+    {
+      "category": "storm",
+      "name": "Storm Sewer Manhole",
+      "aliases": [
+        "storm manhole",
+        "standard 4' manhole",
+        "standard 5' manhole",
+        "4' diameter storm manhole",
+        "5' diameter storm manhole",
+        "standard 4' storm manhole"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.2,
+      "required": true,
+      "source": "Sheet 13 drainage plan STANDARD 4'/5' MANHOLE callouts; also on profiles"
+    },
+    {
+      "category": "storm",
+      "name": "4'x4' Grate Inlet",
+      "aliases": [
+        "grate inlet",
+        "4x4 grate inlet"
+      ],
+      "quantity": 2,
+      "unit": "EA",
+      "qty_tolerance": 0.5,
+      "required": false,
+      "source": "Sheet 13 drainage plan (4'X4' GRATE INLET, storm line B)"
+    },
+    {
+      "category": "sewer",
+      "name": "8\" PVC SDR 26 Sanitary Sewer",
+      "aliases": [
+        "8\" PVC SDR-26 wastewater line",
+        "8\" SDR 26 sewer main",
+        "8 inch PVC sanitary sewer",
+        "8\" wastewater line"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.15,
+      "required": true,
+      "source": "Sheet 18 WW plan run callouts (LF - 8\" SDR 26 @ x%), WW lines A/B/C; profile 19 repeats"
+    },
+    {
+      "category": "sewer",
+      "name": "Standard 4' Sanitary Sewer Manhole",
+      "aliases": [
+        "sanitary manhole",
+        "water-tight 4' manhole",
+        "4' diameter sanitary sewer manhole",
+        "wastewater manhole",
+        "standard 4' manhole"
+      ],
+      "quantity": 11,
+      "unit": "EA",
+      "qty_tolerance": 0.15,
+      "required": true,
+      "source": "Sheet 18 WW plan: STANDARD/WATER-TIGHT 4' MANHOLE callouts on WW lines A/B/C (≈11); profile 19 repeats them"
+    },
+    {
+      "category": "water",
+      "name": "8\" PVC Water Line (C900)",
+      "aliases": [
+        "8\" PVC water main",
+        "8 inch PVC waterline",
+        "8\" PVC pipe"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.15,
+      "required": true,
+      "source": "Sheet 15 water plan run callouts (±nn.n LF ~ 8\" PVC PIPE); profiles 16/17 repeat"
+    },
+    {
+      "category": "water",
+      "name": "Fire Hydrant Assembly",
+      "aliases": [
+        "fire hydrant",
+        "proposed fire hydrant",
+        "hydrant"
+      ],
+      "quantity": 4,
+      "unit": "EA",
+      "qty_tolerance": 0.25,
+      "required": true,
+      "source": "Sheet 15 water plan: PROPOSED FIRE HYDRANT callouts (3 in text + 1) — vision-verified 4"
+    },
+    {
+      "category": "water",
+      "name": "8\" Gate Valve",
+      "aliases": [
+        "8 inch gate valve",
+        "8\" gate valves",
+        "gate valve 8\""
+      ],
+      "quantity": 7,
+      "unit": "EA",
+      "qty_tolerance": 0.15,
+      "required": true,
+      "source": "Sheet 15 water plan: 1-8\" GATE VALVE + three (2) 8\" GATE VALVES callouts"
+    },
+    {
+      "category": "water",
+      "name": "24\"x8\" Tapping Sleeve and Valve",
+      "aliases": [
+        "24\" x 8\" tapping sleeve",
+        "tapping sleeve",
+        "24x8 tapping sleeve & valve"
+      ],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.0,
+      "required": true,
+      "source": "Sheet 15 water plan: INSTALL 1-24\"X8\" TAPPING SLEEVE"
+    },
+    {
+      "category": "water",
+      "name": "8\"x8\" Tee",
+      "aliases": [
+        "8 inch x 8 inch tee",
+        "8x8 tee"
+      ],
+      "quantity": 3,
+      "unit": "EA",
+      "qty_tolerance": 0.34,
+      "required": false,
+      "source": "Sheet 15 water plan INSTALL 8\"x8\" TEE callouts"
+    },
+    {
+      "category": "water",
+      "name": "8\"x6\" Tee",
+      "aliases": [
+        "8 inch x 6 inch tee",
+        "8x6 tee",
+        "8\"x6\" reducing tee"
+      ],
+      "quantity": 2,
+      "unit": "EA",
+      "qty_tolerance": 0.5,
+      "required": false,
+      "source": "Sheet 15 water plan INSTALL 8\"X6\" TEE callouts (hydrant leads)"
+    },
+    {
+      "category": "water",
+      "name": "6\" PVC Water Line (hydrant lead)",
+      "aliases": [
+        "6\" PVC pipe",
+        "6 inch PVC waterline",
+        "6\" PVC water main"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.2,
+      "required": false,
+      "source": "Sheet 15 water plan (±nn.n LF ~ 6\" PVC PIPE, hydrant leads)"
+    }
+  ],
+  "forbidden": []
+}
