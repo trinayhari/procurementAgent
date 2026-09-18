@@ -155,13 +155,28 @@ def test_documents_without_a_file_have_no_preview(project):
 
 def test_a_corrupt_pdf_fails_the_page_not_the_api(project, monkeypatch):
     """A file that PyMuPDF can't parse must surface as an error response — the
-    render runs in a child process precisely so it can't take the API down."""
+    render runs in a child process precisely so it can't take the API down.
+
+    Upload now refuses a PDF it can't open outright, so the corrupt file is
+    planted after upload (the on-disk file going bad is the remaining path)."""
     client, headers, _pid = project
     monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
-    doc_id = _upload(client, headers, "broken.pdf", b"%PDF-1.4 not really a pdf").json()["id"]
+    r = _upload(client, headers, "broken.pdf", b"%PDF-1.4 not really a pdf")
+    assert r.status_code == 400
+    assert "Could not read this PDF" in r.json()["detail"]
+
+    doc_id = _upload(client, headers, "plan.pdf", _pdf_bytes(2)).json()["id"]
+    from app.db import SessionLocal
+    from app.repositories import documents as documents_repo
+    from app.repositories import users as users_repo
+
+    with SessionLocal() as db:
+        org_id = users_repo.get_by_email(db, "pm@example.com").organization_id
+        with open(documents_repo.get(db, org_id, doc_id).source_path, "wb") as fh:
+            fh.write(b"%PDF-1.4 not really a pdf")
 
     body = client.get(f"/api/documents/{doc_id}/preview", headers=headers).json()
-    if body["pages"]:  # unparseable files usually report 0 pages and offer the original
+    if body["pages"]:  # the count recorded at upload is trusted; the render fails
         assert client.get(body["pageUrl"].replace("{page}", "0")).status_code in (404, 502)
     # The API is still alive.
     assert client.get("/health").status_code == 200

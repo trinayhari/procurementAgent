@@ -2207,7 +2207,7 @@
           "sourcing"
         ],
         "summary": "Send Generated Rfq",
-        "description": "Send (or retry) an RFQ. Idempotent and duplicate-safe:\n\n- Only a Draft or 'Send failed' RFQ can be sent (409 otherwise), so a\n  double-click or replayed request never re-emails suppliers.\n- Recipients who already received the RFQ successfully are always skipped;\n  a retry only attempts the failed/unsent ones.",
+        "description": "Send (or retry) an RFQ. Idempotent and duplicate-safe:\n\n- Only a Draft or 'Send failed' RFQ can be sent (409 otherwise), so a\n  double-click or replayed request never re-emails suppliers.\n- Recipients who already received the RFQ successfully are always skipped;\n  a retry only attempts the failed/unsent ones.\n- Two overlapping sends of the same RFQ (two tabs, a replayed request) are\n  serialised by a per-RFQ lock: the second one gets a 409 rather than\n  reading the still-'Draft' status and emailing every supplier twice.",
         "operationId": "send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post",
         "security": [
           {
@@ -4104,6 +4104,11 @@
             "title": "Hasfile",
             "default": false
           },
+          "fileMissing": {
+            "type": "boolean",
+            "title": "Filemissing",
+            "default": false
+          },
           "planType": {
             "anyOf": [
               {
@@ -5461,15 +5466,19 @@
         "properties": {
           "name": {
             "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
             "title": "Name"
           },
           "loc": {
             "type": "string",
+            "maxLength": 200,
             "title": "Loc",
             "default": ""
           },
           "value": {
             "type": "string",
+            "maxLength": 50,
             "title": "Value",
             "default": ""
           },

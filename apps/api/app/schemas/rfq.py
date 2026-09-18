@@ -1,6 +1,7 @@
+import re
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import RfqStatus, Tone
 
@@ -112,10 +113,27 @@ class RfqGenerateRequest(BaseModel):
     scope: Optional[str] = Field(default=None, max_length=20_000)
 
 
+# Deliberately loose (anything@anything.tld): the point is to catch a recipient
+# row that was edited into something Gmail will reject outright, not to
+# validate deliverability.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
 class RfqUpdate(BaseModel):
     subject: str
     body: str
     recipients: List[RfqRecipient]
+
+    @field_validator("recipients")
+    @classmethod
+    def _recipients_have_valid_emails(cls, recipients: List[RfqRecipient]) -> List[RfqRecipient]:
+        for r in recipients:
+            r.email = (r.email or "").strip()
+            if not _EMAIL_RE.match(r.email):
+                raise ValueError(
+                    f"'{r.email or '(blank)'}' is not a valid email address"
+                )
+        return recipients
     # Document ids to attach to the outgoing email. None = leave unchanged
     # (an older client that doesn't send the field won't clear attachments).
     # Count-capped: the byte budget alone doesn't bound N tiny files, each of

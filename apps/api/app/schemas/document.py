@@ -15,7 +15,11 @@ class Document(BaseModel):
     items: str
     pages: int
     processing: bool = False
-    hasFile: bool = False  # True when the original file is on disk and previewable
+    hasFile: bool = False  # True when an original file was uploaded with this document
+    # True when `hasFile` but the stored file can no longer be found (e.g. the
+    # upload directory lived on an ephemeral disk that was wiped by a redeploy).
+    # The UI shows a "re-upload" state instead of a preview or attachment.
+    fileMissing: bool = False
     # Extraction metadata (populated for uploaded docs).
     planType: Optional[str] = None
     summary: Optional[str] = None

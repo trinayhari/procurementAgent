@@ -49,7 +49,7 @@ file_router = APIRouter(prefix="/api/documents", tags=["documents"])
 logger = logging.getLogger(__name__)
 
 # File types the upload endpoint accepts (plan sets, schedules, material lists).
-_ALLOWED_EXTENSIONS = {".pdf", ".csv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg"}
+_ALLOWED_EXTENSIONS = {".pdf", ".csv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".webp"}
 
 # Signed file URLs stay valid this long — enough for a preview session.
 _FILE_TOKEN_MINUTES = 15
@@ -81,7 +81,7 @@ def get_document(
     doc = documents_repo.get(db, org_id, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    payload = doc.to_dict()
+    payload = documents_repo.annotate_file_state(doc.to_dict(), doc.source_path)
     payload["timelineEvents"] = timeline_repo.count_for_document(db, org_id, document_id)
     return payload
 
@@ -101,8 +101,7 @@ def get_document_file_url(
     doc = documents_repo.get(db, current_user.organization_id, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    if not storage.exists(doc.source_path):
-        raise HTTPException(status_code=404, detail="No previewable file for this document")
+    _require_stored_file(doc)
     token = create_scoped_token(document_id, f"file:{document_id}", _FILE_TOKEN_MINUTES)
     return {"url": f"/api/documents/{document_id}/file?token={token}", "expiresInMinutes": _FILE_TOKEN_MINUTES}
 
@@ -125,8 +124,7 @@ def get_document_preview(
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     locator = doc.source_path
-    if not storage.exists(locator):
-        raise HTTPException(status_code=404, detail="No previewable file for this document")
+    _require_stored_file(doc)
 
     token = create_scoped_token(document_id, f"file:{document_id}", _FILE_TOKEN_MINUTES)
     file_url = f"/api/documents/{document_id}/file?token={token}"
@@ -369,10 +367,38 @@ async def upload_document(
     except storage.UploadTooLarge:
         raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb}MB limit")
 
+    # Validate BEFORE persisting: a rejected upload must leave nothing behind
+    # (no stored file, no document row). Anything that fails here would
+    # otherwise be created in 'Processing' only to flip straight to 'Failed'
+    # with a reason the user can't act on.
     try:
-        pages = pdf.page_count(temp.locator)  # temp is always a local path
-    except pdf.UnsupportedDocument:
-        pages = 0
+        if temp.size == 0:
+            raise HTTPException(status_code=400, detail="The file is empty")
+        try:
+            pages = pdf.page_count(temp.locator)  # temp is always a local path
+        except pdf.UnsupportedDocument as exc:
+            if ext in pdf.PDF_EXTS:
+                # A .pdf we can't open is corrupt/truncated — not a plan set.
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not read this PDF — the file appears to be corrupt or incomplete",
+                ) from exc
+            pages = 0
+        # A BOM plan slot only makes sense for something the extractor can
+        # read (PDF / image). Spreadsheets belong in the additional-documents
+        # slot, where nothing is extracted.
+        if spec.categories and pages == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{spec.label} uploads must be a PDF or image — "
+                f"upload '{ext}' files as an additional document instead",
+            )
+    except HTTPException:
+        try:
+            os.unlink(temp.locator)
+        except OSError:
+            pass
+        raise
 
     stored = storage.persist_temp(temp, safe_name)
 
@@ -438,19 +464,29 @@ def analyze_document(
     doc = documents_repo.get(db, org_id, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    audit_repo.log(
-        db, org_id, current_user, "document.reanalyzed", "document", document_id,
-        project_id=doc.project_id, detail={"name": doc.name},
-    )
     plan_type = doc.plan_type
     path = doc.source_path
-    if not plan_type or not storage.exists(path):
+    if not plan_type:
+        raise HTTPException(status_code=409, detail="Document has no source file to re-analyze")
+    if not storage.exists(path):
+        if doc.has_file and path:
+            raise HTTPException(status_code=410, detail=_FILE_GONE_DETAIL)
         raise HTTPException(status_code=409, detail="Document has no source file to re-analyze")
     spec = extraction.registry.get(plan_type)
     if spec is None:
         raise HTTPException(status_code=409, detail="This document type cannot be analyzed")
+    if doc.processing:
+        # Already running — a second pipeline would race the first one's
+        # writes. The poller picks up the in-flight run's result.
+        raise HTTPException(status_code=409, detail="This document is already being analyzed")
+    # Audit only an analysis that actually starts (not a rejected request).
+    audit_repo.log(
+        db, org_id, current_user, "document.reanalyzed", "document", document_id,
+        project_id=doc.project_id, detail={"name": doc.name},
+    )
     documents_repo.update_status(
-        db, org_id, document_id, status="Processing", status_tone="blue", processing=True
+        db, org_id, document_id, status="Processing", status_tone="blue", processing=True,
+        error=None,
     )
     background.add_task(_run_pipeline, org_id, document_id, path, plan_type)
     return documents_repo.get(db, org_id, document_id).to_dict()
@@ -596,6 +632,25 @@ def _run_extraction(org_id: str, document_id: str, path: str, plan_type: str) ->
                 title=f"BOM extracted — {result.total_items} line items",
                 icon="sparkles", tone="ai", meta=doc.name,
             )
+
+
+_FILE_GONE_DETAIL = (
+    "The uploaded file is no longer available on this server — re-upload the "
+    "document to preview or re-analyze it"
+)
+
+
+def _require_stored_file(doc) -> None:
+    """404 when the document never had a file, 410 when it had one that is gone.
+
+    The distinction lets the UI explain an ephemeral-disk loss ("re-upload")
+    instead of a generic "preview unavailable".
+    """
+    if storage.exists(doc.source_path):
+        return
+    if doc.has_file and doc.source_path:
+        raise HTTPException(status_code=410, detail=_FILE_GONE_DETAIL)
+    raise HTTPException(status_code=404, detail="No previewable file for this document")
 
 
 def _require_project(db: Session, org_id: str, project_id: str) -> None:

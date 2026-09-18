@@ -81,6 +81,11 @@ def set_s3_client(client) -> None:
     _s3_client = client
 
 
+def is_remote(locator: Optional[str]) -> bool:
+    """True when `locator` lives in object storage (existence checks cost a request)."""
+    return bool(locator) and _is_s3(locator)
+
+
 def backend_name() -> str:
     return "s3" if settings.storage_backend == "s3" else "local"
 

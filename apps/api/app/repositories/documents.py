@@ -91,7 +91,27 @@ def list_for_project(db: Session, org_id: str, project_id: str) -> List[dict]:
         .where(Document.organization_id == org_id, Document.project_id == project_id)
         .order_by(Document.seq.desc())
     ).all()
-    return [d.to_dict() for d in rows]
+    return [annotate_file_state(d.to_dict(), d.source_path) for d in rows]
+
+
+def annotate_file_state(payload: dict, source_path: Optional[str]) -> dict:
+    """Set ``fileMissing`` on a document payload.
+
+    Uploaded files live on local disk by default, and in some deployments that
+    disk is ephemeral (a redeploy wipes it) while the document rows survive in
+    the database. Without this flag the UI offers previews/attachments for a
+    file that is gone and every attempt ends in a bare 404. The check is a
+    single stat, and only for the local backend — an S3 HEAD per document on
+    every list would be a request storm, and object storage doesn't lose files
+    on redeploy.
+    """
+    from app.services import storage
+
+    missing = False
+    if payload.get("hasFile") and source_path and not storage.is_remote(source_path):
+        missing = not os.path.exists(source_path)
+    payload["fileMissing"] = missing
+    return payload
 
 
 def get(db: Session, org_id: str, doc_id: str) -> Optional[Document]:

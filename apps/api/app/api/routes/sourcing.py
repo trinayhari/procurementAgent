@@ -4,16 +4,18 @@ Search runs as a background task (geocode → Places → website email scrape is
 and the frontend polls GET .../suppliers/found, mirroring the document-extraction
 UX. With no Google/Gmail keys the whole flow runs against mocks.
 """
+import logging
 import os
 import re
+import threading
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
-from app.db import SessionLocal, get_db
+from app.db import DEMO_ORG_ID, SessionLocal, get_db
 from app.models.user import User
 from app.repositories import audit as audit_repo
 from app.repositories import documents as documents_repo
@@ -126,6 +128,12 @@ def search_suppliers(
     org_id = current_user.organization_id
     project = _require_project(org_id, project_id, db)
     _require_package(org_id, package, project_id, db)
+    # Idempotent while a search is in flight: a double-click (or two tabs)
+    # must not start a second Places crawl that races the first one's
+    # replace-all write of the results. The poller reports on the running job.
+    current = jobs_repo.latest(db, org_id, SEARCH_JOB, _search_ref(project_id, package))
+    if current is not None and current.get("status") == "running":
+        return {"status": "searching", "package": package}
     audit_repo.log(
         db, org_id, current_user, "supplier_search.started", "package", package,
         project_id=project_id, detail={"radiusMi": payload.radius_mi},
@@ -211,9 +219,29 @@ def run_search_job(
             )
         jobs_repo.finish(db, org_id, job_id, {"mocked": mocked, "found": len(results)})
     except Exception as exc:  # surface the failure to the poller + exception queue
-        jobs_repo.fail(db, org_id, job_id, str(exc))
+        _fail_job(db, org_id, job_id, exc)
     finally:
         db.close()
+
+
+def _fail_job(db: Session, org_id: str, job_id: str, exc: Exception) -> None:
+    """Record a worker failure on its job row.
+
+    If the failure was a database error the session is left mid-transaction and
+    every further statement raises until it is rolled back — so without this
+    the very write that reports the error would fail too, pinning the job in
+    'running' (and the UI in its spinner) with nothing in the exception queue.
+    """
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001 — a broken connection; still try to record
+        pass
+    try:
+        jobs_repo.fail(db, org_id, job_id, str(exc))
+    except Exception:  # noqa: BLE001 — last resort: at least log it
+        logging.getLogger(__name__).exception(
+            "Could not record job failure: job=%s error=%s", job_id, exc
+        )
 
 
 _SEARCH_STATUS_MAP = {"running": "searching", "done": "done", "error": "error"}
@@ -288,6 +316,12 @@ def ingest_quotes(
     """
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
+    # Idempotent while an ingest is running: two concurrent passes would both
+    # see the same Gmail replies as new (the dedupe reads ingested message ids
+    # at the start) and store every quote twice.
+    current = jobs_repo.latest(db, org_id, INGEST_JOB, project_id)
+    if current is not None and current.get("status") == "running":
+        return {"status": "ingesting", "ingested": 0, "total": 0}
     audit_repo.log(
         db, org_id, current_user, "quotes.ingest_started", "project", project_id,
         project_id=project_id,
@@ -312,7 +346,7 @@ def run_ingest_job(job_id: str, org_id: str, project_id: str) -> None:
             db, org_id, job_id, {"mocked": mocked, "ingested": ingested, "total": total}
         )
     except Exception as exc:  # surface to the poller + exception queue
-        jobs_repo.fail(db, org_id, job_id, str(exc))
+        _fail_job(db, org_id, job_id, exc)
     finally:
         db.close()
 
@@ -406,7 +440,14 @@ def _line_items_for_package(
     if items or pending_review:
         return items, False, pending_review
 
-    # nothing extracted for this package yet → prototype demo BOM
+    # Nothing extracted for this package yet. The prototype's demo BOM fills
+    # the gap ONLY for the demo organization's own projects: for any real
+    # tenant on a demo-seeded instance, falling back here would send seed
+    # quantities nobody approved to real suppliers (and bypass the review
+    # gate above). Real tenants get an empty BOM, which the RFQ route turns
+    # into a clear "no approved BOM items" 409.
+    if org_id != DEMO_ORG_ID:
+        return items, False, 0
     _add(_matching_items(reference_repo.list_line_item_groups(db)))
     return items, True, 0
 
@@ -841,9 +882,39 @@ def send_generated_rfq(
       double-click or replayed request never re-emails suppliers.
     - Recipients who already received the RFQ successfully are always skipped;
       a retry only attempts the failed/unsent ones.
+    - Two overlapping sends of the same RFQ (two tabs, a replayed request) are
+      serialised by a per-RFQ lock: the second one gets a 409 rather than
+      reading the still-'Draft' status and emailing every supplier twice.
     """
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
+    lock = _send_lock(rfq_id)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="This RFQ is already being sent")
+    try:
+        return _send_locked(db, org_id, project_id, rfq_id, current_user)
+    finally:
+        lock.release()
+
+
+# One lock per RFQ id, held only for the duration of a send. Process-local:
+# sufficient for the single-process deployment; a multi-worker deployment
+# would need the status flip to move into the database (SELECT … FOR UPDATE).
+_send_locks: Dict[str, threading.Lock] = {}
+_send_locks_guard = threading.Lock()
+
+
+def _send_lock(rfq_id: str) -> threading.Lock:
+    with _send_locks_guard:
+        lock = _send_locks.get(rfq_id)
+        if lock is None:
+            lock = _send_locks[rfq_id] = threading.Lock()
+        return lock
+
+
+def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current_user: User):
+    # Read the RFQ INSIDE the lock so a send that just finished on another
+    # thread is seen as already sent rather than re-attempted.
     rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
     if rfq is None or rfq["projectId"] != project_id:
         raise HTTPException(status_code=404, detail="RFQ not found")

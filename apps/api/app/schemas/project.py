@@ -1,6 +1,6 @@
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import Risk, Stage, Tone
 from app.schemas.dashboard import Activity
@@ -25,10 +25,18 @@ class Project(BaseModel):
 class ProjectCreate(BaseModel):
     """Payload for creating a project from the New project modal."""
 
-    name: str
-    loc: str = ""
-    value: str = ""
+    # The project id is derived from the name, so a blank one would mint an
+    # anonymous "project" row the list can't distinguish. Length-capped: the
+    # name is echoed into every event/audit title and breadcrumb.
+    name: str = Field(min_length=1, max_length=200)
+    loc: str = Field(default="", max_length=200)
+    value: str = Field(default="", max_length=50)
     stage: Stage = Stage.plans_review
+
+    @field_validator("name", "loc", "value", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return v.strip() if isinstance(v, str) else v
 
 
 class OverviewCard(BaseModel):
