@@ -87,6 +87,10 @@ interface ProjectInput {
   id: string; name: string; loc: string; stage: string; stageTone: string
   value: string; progress: number; suppliers: number; rfqs: number; quotes: number
   risk: string; riskTone: string; barColor: string
+  // An optimistic copy from the New project modal whose server id doesn't
+  // exist yet. Nothing per-project may be fetched for it (every such request
+  // would 404) — see App.tsx NextStepsCard and the projectId effect.
+  pending?: boolean
 }
 interface MetricInput { label: string; value: string; delta: string; sub?: string; up?: boolean; down?: boolean; ai?: boolean; risk?: boolean }
 interface OverviewCardInput { label: string; value: string; sub: string; icon: string; tone: string; ai?: boolean }
@@ -175,9 +179,13 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const projectActivity = projActRaw.map((a) => ({ ...a, chipStyle: chip(a.tone), iconHtml: ic(a.icon) }))
 
   const baseProjects: ProjectInput[] = D.projects || []
-  // Locally-created projects (from the New project modal) overlay the seed/API
-  // list so they appear instantly; they're also POSTed to the backend.
-  const projRaw = [...(s.customProjects || []), ...baseProjects]
+  // Locally-created projects (from the New project modal) overlay the API list
+  // so they appear instantly; they're also POSTed to the backend. Once the
+  // refetched list carries the saved project, the local copy is shadowed.
+  const projRaw = [
+    ...(s.customProjects || []).filter((c) => !baseProjects.some((b) => b.id === c.id)),
+    ...baseProjects,
+  ]
   const projectCount = projRaw.length
   const projects = projRaw.map((p) => ({
     ...p, stageBadge: badge(p.stageTone), riskBadge: badge(p.riskTone),
@@ -190,6 +198,9 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const activeProject = projects.find((p) => p.id === s.projectId) || projects[0] || ({
     id: '', name: '', loc: '', stage: '', value: '', stageBadge: badge('gray'),
   } as (typeof projects)[number])
+  // True while the open project has no server id to fetch against: it is the
+  // optimistic copy of one being created, or there is no project at all.
+  const projectPending = !activeProject.id || !!activeProject.pending
 
   const tabStyleFor = (k: string): CSSProperties => {
     const active = s.tab === k
@@ -405,11 +416,11 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       const stage = form.stage || 'Plans Review'
       // Optimistic project so the workspace opens instantly; reconciled with the
       // persisted record (real id) once the backend responds.
-      const temp = {
+      const temp: ProjectInput = {
         id: 'proj-' + Date.now(), name: form.name.trim(), loc: form.loc.trim() || '—',
         stage, stageTone: stageToneMap[stage] || 'gray', value: form.value.trim() || '$0',
         progress: 0, suppliers: 0, rfqs: 0, quotes: 0, risk: 'Low', riskTone: 'success',
-        barColor: 'var(--primary)',
+        barColor: 'var(--primary)', pending: true,
       }
       set({
         customProjects: [temp, ...(s.customProjects || [])], newProjOpen: false,
@@ -417,10 +428,16 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       })
       try {
         const saved = await post<{ id: string }>('/api/projects', { name: temp.name, loc: form.loc.trim(), value: form.value.trim(), stage })
-        // Now persisted: refetch the project list and drop the optimistic copy,
-        // keeping the workspace pinned to the saved project's real id.
-        if (props && props.reload) await props.reload()
-        set({ customProjects: (s.customProjects || []).filter((p) => p.id !== temp.id), projectId: saved.id, projError: null })
+        // Now persisted: swap the optimistic copy for one carrying the real id
+        // (in the same render as the route change, so the workspace never
+        // points at an id the server doesn't know). The route change refetches
+        // the list; once it carries the saved project the local copy is
+        // shadowed (see projRaw), so nothing is cleared here — clearing before
+        // that fetch lands would leave a frame with no project on screen.
+        set({
+          customProjects: [{ ...temp, id: saved.id, pending: false }, ...(s.customProjects || [])],
+          projectId: saved.id, projError: null,
+        })
       } catch {
         // Save failed (backend unreachable or rejected). Roll the optimistic
         // project back out and surface the failure instead of silently keeping a
@@ -455,7 +472,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     openProject: (p?: { id?: string }) => { if (!canNavigate()) return; set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }) },
     toggleMnav: () => set({ mnav: !s.mnav }),
     mnavOpen: s.mnav, closeMnav: () => set({ mnav: false }),
-    activeProject, tabStyle,
+    activeProject, projectPending, tabStyle,
     tabOverview: s.tab === 'overview', tabDocuments: s.tab === 'documents', tabSuppliers: s.tab === 'suppliers',
     tabRfqs: s.tab === 'rfqs', tabQuotesTable: s.tab === 'quotes' && !s.compare, tabCompare: s.tab === 'quotes' && s.compare, tabTimeline: s.tab === 'timeline',
     overviewCards, packages,

@@ -14,7 +14,7 @@ import {
   listTradeScopes, createTradeScope, updateTradeScope,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
-  getLineComparison, awardPackage, listPurchaseDecisions,
+  getLineComparison, awardPackage, listPurchaseDecisions, setPackageBudget,
   getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
   getTeam, createInvite, revokeInvite, resendInvite,
   TOKEN_KEY, emptyProjectSlices,
@@ -334,6 +334,9 @@ export default function App() {
         ? { ...prev, data: { ...prev.data, ...emptyProjectSlices() }, docLineItems: null, docIdx: 0, rfqIdx: 0, editBom: false, bomDraft: null, bomEditDocId: null }
         : prev,
     )
+    // The optimistic copy of a project still being created has no server id:
+    // fetching its slices would only 404. The real id follows (createProject).
+    if ((s.customProjects || []).some((p) => p.id === pid && p.pending)) return
     reload(pid)
   }, [s.projectId])
 
@@ -755,7 +758,7 @@ function Dashboard({ m }: MProps) {
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px')}>
         <div>
           <h1 style={css('margin:0;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>{m.greeting}, {m.firstName}</h1>
-          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>{m.projectCount > 0 ? `Portfolio snapshot across ${m.projectCount} active project${m.projectCount === 1 ? '' : 's'}` : 'No projects yet — create one to get started'}</p>
+          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>{m.projectCount > 0 ? `Portfolio snapshot across ${m.projectCount} project${m.projectCount === 1 ? '' : 's'}` : 'No projects yet — create one to get started'}</p>
         </div>
         <Box as="button" onClick={m.openNewProject} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)">
           <Svg size={16} sw={2.2} d={PLUS} />New project
@@ -853,7 +856,7 @@ function Projects({ m }: MProps) {
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
         <div>
           <h1 style={css('margin:0;font-size:clamp(22px,3vw,27px);font-weight:700;letter-spacing:-.02em')}>Projects</h1>
-          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>{m.projectCount} active · everything in Proq lives inside a project</p>
+          <p style={css('margin:5px 0 0;font-size:14px;color:var(--text-2)')}>{m.projectCount} project{m.projectCount === 1 ? '' : 's'} · everything in Proq lives inside a project</p>
         </div>
         <Box as="button" onClick={m.openNewProject} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13.5px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)">
           <Svg size={16} sw={2.2} d={PLUS} />New project
@@ -1184,18 +1187,6 @@ function Settings({ m }: MProps) {
               {testing ? 'Sending…' : 'Send test email'}
             </Box>
           </div>
-          {/* Not wired up yet. Shown as roadmap rows, explicitly marked, rather
-              than as live toggles that silently do nothing. */}
-          {[
-            { title: 'Default RFQ due window', sub: 'Days suppliers get to respond — RFQs currently ask for quotes within 7 days.' },
-            { title: 'AI auto-follow-up', sub: 'Nudge non-responsive suppliers automatically.' },
-            { title: 'Email notifications', sub: 'Quote received & risk alerts.' },
-          ].map((row) => (
-            <div key={row.title} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border);opacity:.7')}>
-              <div><div style={css('font-size:13.5px;font-weight:600')}>{row.title}</div><div style={css('font-size:12px;color:var(--text-3)')}>{row.sub}</div></div>
-              <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-2);border:1px dashed var(--border-strong);padding:4px 10px;border-radius:999px;white-space:nowrap')}>Coming soon</span>
-            </div>
-          ))}
         </div>
       </div>
       <TeamPanel currentEmail={m.userEmail} />
@@ -1459,15 +1450,21 @@ export function computeSteps(input: {
 
 function NextStepsCard({ m }: MProps) {
   const projectId = m.activeProject.id
+  const pending = m.projectPending
   const [rfqs, setRfqs] = useState<{ status: string }[] | null>(null)
   const [decisions, setDecisions] = useState<number | null>(null)
   useEffect(() => {
     let alive = true
     setRfqs(null); setDecisions(null)
+    // No server id yet (a project still being created, or none at all):
+    // there is nothing to fetch — a request would only 404 against the
+    // optimistic id or an empty path segment. A brand-new project has no
+    // RFQs or awards anyway.
+    if (pending) { setRfqs([]); setDecisions(0); return }
     listGeneratedRfqs(projectId).then((r) => { if (alive) setRfqs(r) }).catch(() => { if (alive) setRfqs([]) })
     listPurchaseDecisions(projectId).then((d) => { if (alive) setDecisions(d.length) }).catch(() => { if (alive) setDecisions(0) })
     return () => { alive = false }
-  }, [projectId, m.docs.length, m.quotes.length])
+  }, [projectId, pending, m.docs.length, m.quotes.length])
   const steps = computeSteps({
     docs: m.docs, rfqs, quotes: m.quotes.length, decisions,
     nav: { documents: m.setDocuments, suppliers: m.setSuppliers, rfqs: m.setRfqs, quotes: m.setQuotes },
@@ -1532,7 +1529,7 @@ function TabOverview({ m }: MProps) {
           <div style={css('display:flex;flex-direction:column;gap:15px')}>
             {m.packages.map((p, i) => (
               <div key={i}>
-                <div style={css('display:flex;align-items:center;justify-content:space-between;font-size:13px;margin-bottom:7px')}><span style={css('font-weight:500')}>{p.name}</span><span style={css("font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.pct}%</span></div>
+                <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:7px')}><span style={css('font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{p.name}</span><span style={css('display:inline-flex;align-items:center;gap:8px;flex:none')}>{p.stage && <span style={css('font-size:11.5px;color:var(--text-3)')}>{p.stage}</span>}<span style={css("font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.pct}%</span></span></div>
                 <div style={css('height:8px;border-radius:999px;background:var(--panel-3);overflow:hidden')}><div style={p.barStyle}></div></div>
               </div>
             ))}
@@ -2745,9 +2742,6 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   const [saving, setSaving] = useState(false)
   const [savedNote, setSavedNote] = useState<string | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
-  // Second step before an actual send: the user sees who will receive it
-  // and that it cannot be recalled.
-  const [confirmSend, setConfirmSend] = useState(false)
   // The user chooses which project documents ride along on the email. Custom
   // BOMs and trade scopes have no file, so they're excluded automatically.
   const [attachIds, setAttachIds] = useState<string[]>((rfq.attachments || []).map((a) => a.documentId))
@@ -2827,10 +2821,13 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   // confirmation, not a failure to alarm the user with.
   const sendInFlight = useRef(false)
   const sentHere = useRef(false)
+  // Single step: this modal IS the review — the recipients, attachments and
+  // message are all on screen — so its primary button sends. One-shot via
+  // the synchronous flag above; a rapid double-click never sends twice.
   const send = async () => {
     if (sendInFlight.current) return
     sendInFlight.current = true
-    setBusy(true); setErr(null); setConfirmSend(false)
+    setBusy(true); setErr(null)
     try {
       // A 'Send failed' RFQ is no longer editable server-side — retry as-is.
       if (draft) await persist()
@@ -2988,18 +2985,11 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
           ) : null}
           {err && <div style={css('font-size:12.5px;color:var(--danger)')}>{err}</div>}
           {savedNote && !err && <div style={css('font-size:12.5px;color:var(--success)')}>{savedNote}</div>}
-          {confirmSend && (
-            <ConfirmBar tone="primary" busy={busy}
-              message={<>Send this {isSub ? 'bid request' : 'RFQ'} to <b>{(draft ? recipients : unsent).length}</b> {isSub ? 'subcontractor' : 'supplier'}{(draft ? recipients : unsent).length === 1 ? '' : 's'} now{liveAttachIds.length ? ` with ${liveAttachIds.length} attachment${liveAttachIds.length === 1 ? '' : 's'}` : ''}? Emails can’t be recalled once sent.</>}
-              confirmLabel={draft ? 'Send now' : 'Retry now'}
-              onConfirm={send}
-              onCancel={() => setConfirmSend(false)} />
-          )}
         </div>
         <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border);flex-wrap:wrap')}>
           <span style={css('flex:1;min-width:180px;font-size:11.5px;color:var(--text-3)')}>
             {draft
-              ? (recipients.length === 0 ? 'Nothing can be sent without a recipient.' : 'Sending delivers to all recipients via Gmail (or a logging mock if unconfigured).')
+              ? (recipients.length === 0 ? 'Nothing can be sent without a recipient.' : `Sends to every recipient${liveAttachIds.length ? ` with ${liveAttachIds.length} attachment${liveAttachIds.length === 1 ? '' : 's'}` : ''} via Gmail (or a logging mock if unconfigured). Emails can’t be recalled once sent.`)
               : sendFailed
                 ? `${unsent.length} recipient${unsent.length === 1 ? '' : 's'} still unsent — retry only re-attempts those; suppliers already emailed are never sent twice.`
                 : 'The conversation is read live from Gmail — use Check for replies to refresh.'}
@@ -3011,15 +3001,15 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
               hover="background:var(--panel-2)">{saving ? 'Saving…' : 'Save draft'}</Box>
           )}
           {draft && (
-            <Box as="button" onClick={() => { setErr(null); setConfirmSend(true) }} disabled={busy || confirmSend || recipients.length === 0}
+            <Box as="button" onClick={busy || recipients.length === 0 ? undefined : send} disabled={busy || recipients.length === 0}
               title={recipients.length === 0 ? 'Add a recipient first' : undefined}
-              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || confirmSend || recipients.length === 0 ? '.6' : '1'}`)}
-              hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send ${isSub ? 'bid request' : 'RFQ'} (${recipients.length})`}</Box>
+              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || recipients.length === 0 ? '.6' : '1'}`)}
+              hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send to ${recipients.length} ${isSub ? 'subcontractor' : 'supplier'}${recipients.length === 1 ? '' : 's'}`}</Box>
           )}
           {sendFailed && unsent.length > 0 && (
-            <Box as="button" onClick={() => { setErr(null); setConfirmSend(true) }} disabled={busy || confirmSend}
-              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || confirmSend ? '.6' : '1'}`)}
-              hover="background:var(--primary-2)"><IconHtml html={ic('refresh')} size={14} />{busy ? 'Retrying…' : `Retry send (${unsent.length})`}</Box>
+            <Box as="button" onClick={busy ? undefined : send} disabled={busy}
+              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy ? '.6' : '1'}`)}
+              hover="background:var(--primary-2)"><IconHtml html={ic('refresh')} size={14} />{busy ? 'Retrying…' : `Retry send to ${unsent.length} ${isSub ? 'subcontractor' : 'supplier'}${unsent.length === 1 ? '' : 's'}`}</Box>
           )}
         </div>
       </div>
@@ -3154,6 +3144,18 @@ function TabQuotes({ m }: MProps) {
   const projectId = m.activeProject.id
   const [ingesting, setIngesting] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  // Awards on record, so a package that was already awarded — and the
+  // winning quote(s) in it — say so in the table, not only on the
+  // comparison screen (BUG-23). Latest decision per package wins.
+  const [decisions, setDecisions] = useState<PurchaseDecision[]>([])
+  useEffect(() => {
+    let alive = true
+    if (!projectId || m.projectPending) { setDecisions([]); return }
+    listPurchaseDecisions(projectId).then((d) => { if (alive) setDecisions(d) }).catch(() => { if (alive) setDecisions([]) })
+    return () => { alive = false }
+  }, [projectId, m.projectPending, m.quotes.length])
+  const awardFor = (key: string, label: string) =>
+    decisions.find((d) => d.package === key || (d.packageLabel && d.packageLabel === label)) || null
 
   const checkReplies = async () => {
     setIngesting(true); setNote(null)
@@ -3210,12 +3212,20 @@ function TabQuotes({ m }: MProps) {
         </div>
       )}
       <div style={css('display:flex;flex-direction:column;gap:16px')}>
-        {groups.map((g) => (
+        {groups.map((g) => {
+          const award = awardFor(g.key, g.pkg)
+          const winners = new Set((award ? award.suppliers : []).map((n) => n.toLowerCase()))
+          return (
           <div key={g.pkg} style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:13px 16px;border-bottom:1px solid var(--border);background:var(--panel-2)')}>
-              <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}>
+              <div style={css('display:flex;align-items:center;gap:9px;min-width:0;flex-wrap:wrap')}>
                 <span style={css('font-size:13.5px;font-weight:700;letter-spacing:-.01em')}>{g.pkg}</span>
                 <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-3);padding:2px 8px;border-radius:999px')}>{g.rows.length} {g.rows.length === 1 ? 'quote' : 'quotes'}</span>
+                {award && (
+                  <span title={`Awarded for ${money(award.total)} to ${award.suppliers.join(', ')}`} style={css('display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 8px;border-radius:999px;white-space:nowrap')}>
+                    <Svg size={11} sw={3} d='m5 12 5 5L20 7' />Awarded · {money(award.total)}
+                  </span>
+                )}
               </div>
               <Box as="button" onClick={() => m.comparePackage(g.key)} style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;background:var(--primary);color:#fff;font-size:12.5px;font-weight:600;white-space:nowrap')} hover="background:var(--primary-2)"><Svg size={14} d='M3 6h18M3 12h18M3 18h18' />Compare</Box>
             </div>
@@ -3223,7 +3233,7 @@ function TabQuotes({ m }: MProps) {
               <div style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase') }}><span>Supplier</span><span style={css('text-align:right')}>Quote</span><span style={css('text-align:right')}>Freight</span><span style={css('text-align:right')}>Total</span><span style={css('text-align:right')}>Lead</span><span style={css('text-align:right')}>Received</span></div>
               {g.rows.map((q, i) => (
                 <Box key={i} onClick={q.onOpen} style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);align-items:center;cursor:pointer') }} hover="background:var(--panel-2)">
-                  <div style={css('display:flex;align-items:center;gap:10px;min-width:0')}><div style={q.logoStyle}>{q.logo}</div><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{q.sup}</span>{q.best && <span style={css('display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 7px;border-radius:999px;white-space:nowrap')}><Svg size={10} sw={3} d='m5 12 5 5L20 7' />Best</span>}</div>
+                  <div style={css('display:flex;align-items:center;gap:10px;min-width:0')}><div style={q.logoStyle}>{q.logo}</div><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{q.sup}</span>{winners.has(q.sup.toLowerCase()) ? <span data-awarded style={css('display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 7px;border-radius:999px;white-space:nowrap')}><Svg size={10} sw={3} d='m5 12 5 5L20 7' />Awarded</span> : q.best && <span style={css('display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--success);background:var(--success-soft);padding:2px 7px;border-radius:999px;white-space:nowrap')}><Svg size={10} sw={3} d='m5 12 5 5L20 7' />Best</span>}</div>
                   <span style={css("text-align:right;font-size:13px;font-family:'JetBrains Mono',monospace")}>{q.amount}</span>
                   <span style={css("text-align:right;font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--text-2)")}>{q.freight}</span>
                   <span style={css("text-align:right;font-size:13.5px;font-weight:700;font-family:'JetBrains Mono',monospace")}>{q.total}</span>
@@ -3233,7 +3243,8 @@ function TabQuotes({ m }: MProps) {
               ))}
             </div></div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </>
   )
@@ -3241,6 +3252,16 @@ function TabQuotes({ m }: MProps) {
 
 /* ------------------------------------------------------------- Compare tab */
 const money = (v: number | null | undefined) => (v == null ? '—' : '$' + Math.round(v).toLocaleString())
+
+// "150,000", "$150K", "1.2m" → a positive number of dollars, or null.
+export function parseBudget(text: string): number | null {
+  const t = text.trim().replace(/^\$/, '').replace(/,/g, '').trim()
+  const mm = /^(\d+(?:\.\d+)?)\s*([kKmMbB])?$/.exec(t)
+  if (!mm) return null
+  const mult = { k: 1e3, m: 1e6, b: 1e9 }[(mm[2] || '').toLowerCase() as 'k' | 'm' | 'b'] || 1
+  const n = parseFloat(mm[1]) * mult
+  return n > 0 && Number.isFinite(n) ? n : null
+}
 
 // Live cost/lead/logistics for the current {line: supplierId} basket. Mirrors the
 // backend's _cost_of so manual mix-and-match edits update instantly, while the
@@ -3282,6 +3303,12 @@ function TabCompare({ m }: MProps) {
   // `supersede` — the backend refuses it (409) otherwise.
   const [prior, setPrior] = useState<PurchaseDecision[]>([])
   const [confirming, setConfirming] = useState(false)
+  // Inline budget editor (the budget is the buyer's own, optional figure;
+  // there is no sample — see setPackageBudget).
+  const [editingBudget, setEditingBudget] = useState(false)
+  const [budgetDraft, setBudgetDraft] = useState('')
+  const [budgetBusy, setBudgetBusy] = useState(false)
+  const [budgetErr, setBudgetErr] = useState<string | null>(null)
   // Synchronous in-flight flag: state-driven `busy` only disables the button
   // after a re-render, which clicks dispatched in the same task can beat.
   const inFlight = useRef(false)
@@ -3289,6 +3316,7 @@ function TabCompare({ m }: MProps) {
   useEffect(() => {
     let alive = true
     setLoading(true); setErr(null); setMsg(null); setSubmitErr(null); setConfirming(false); setPrior([])
+    setEditingBudget(false); setBudgetDraft(''); setBudgetErr(null)
     getLineComparison(m.projectId, m.comparePkg)
       .then((data) => {
         if (!alive) return
@@ -3367,6 +3395,22 @@ function TabCompare({ m }: MProps) {
   const budgetPct = lc.budget ? Math.min(100, (sum.total / lc.budget) * 100) : null
   const overBudget = lc.budget != null && sum.total > lc.budget
   const nothingSelected = sum.deliveries === 0
+  const saveBudget = async (value: number | null) => {
+    setBudgetBusy(true); setBudgetErr(null)
+    try {
+      const out = await setPackageBudget(m.projectId, lc.package, value)
+      setLc((cur) => (cur ? { ...cur, budget: out.budget ?? null } : cur))
+      setEditingBudget(false); setBudgetDraft('')
+    } catch (e) {
+      setBudgetErr(hasDetail(e) ? e.message : 'Could not save the budget. Is the backend running?')
+    } finally { setBudgetBusy(false) }
+  }
+  const submitBudget = (e: FormEvent) => {
+    e.preventDefault()
+    const n = parseBudget(budgetDraft)
+    if (n == null) { setBudgetErr('Enter an amount, e.g. 150,000 or $150K'); return }
+    saveBudget(n)
+  }
   const supNames = lc.suppliers.filter((su) => Object.values(sel).includes(su.id)).map((su) => su.name)
   const declined = lc.suppliers.length - supNames.length
   const awardedOn = (d: PurchaseDecision) => (d.createdAt ? new Date(d.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '')
@@ -3470,11 +3514,28 @@ function TabCompare({ m }: MProps) {
             <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:14px')}><span style={css('width:28px;height:28px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={16} fill d={SPARKLE} /></span><span style={css('font-size:13px;font-weight:700;color:var(--primary)')}>Award plan</span></div>
             <div style={css("font-size:11px;color:var(--text-3)")}>Total committed</div>
             <div style={css("font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1.1")}>{money(sum.total)}</div>
-            {budgetPct != null && (
+            {editingBudget ? (
+              <form onSubmit={submitBudget} style={css('margin-top:8px;display:flex;flex-direction:column;gap:6px')}>
+                <label style={css('font-size:11px;color:var(--text-3)')} htmlFor="pkg-budget">Budget for {lc.pkg}</label>
+                <div style={css('display:flex;gap:6px')}>
+                  <input id="pkg-budget" autoFocus value={budgetDraft} onChange={(e) => { setBudgetDraft(e.target.value); setBudgetErr(null) }} placeholder="e.g. 150,000"
+                    style={css('flex:1;min-width:0;height:30px;padding:0 9px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;outline:none')} />
+                  <button type="submit" disabled={budgetBusy} style={css(`height:30px;padding:0 11px;border-radius:8px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;${budgetBusy ? 'opacity:.6' : ''}`)}>{budgetBusy ? 'Saving…' : 'Save'}</button>
+                  <button type="button" onClick={() => { setEditingBudget(false); setBudgetErr(null) }} style={css('height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600')}>Cancel</button>
+                </div>
+                {lc.budget != null && <button type="button" disabled={budgetBusy} onClick={() => saveBudget(null)} style={css('align-self:flex-start;font-size:11px;font-weight:600;color:var(--text-3)')}>Remove budget</button>}
+                {budgetErr && <div style={css('font-size:11.5px;color:var(--danger)')}>{budgetErr}</div>}
+              </form>
+            ) : lc.budget != null && budgetPct != null ? (
               <div style={css('margin-top:8px')}>
                 <div style={css('height:6px;border-radius:999px;background:var(--panel-3);overflow:hidden')}><div style={{ width: `${budgetPct}%`, height: '100%', background: overBudget ? 'var(--danger)' : 'var(--success)' }} /></div>
-                <div style={css(`font-size:11px;margin-top:3px;color:${overBudget ? 'var(--danger)' : 'var(--text-3)'}`)}>{overBudget ? `${money(sum.total - lc.budget!)} over` : `${money(lc.budget! - sum.total)} under`} budget</div>
+                <div style={css('display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:3px')}>
+                  <span style={css(`font-size:11px;color:${overBudget ? 'var(--danger)' : 'var(--text-3)'}`)}>{overBudget ? `${money(sum.total - lc.budget)} over` : `${money(lc.budget - sum.total)} under`} budget of {money(lc.budget)}</span>
+                  <button type="button" onClick={() => { setBudgetDraft(String(Math.round(lc.budget!))); setEditingBudget(true) }} style={css('font-size:11px;font-weight:600;color:var(--primary)')}>Edit</button>
+                </div>
               </div>
+            ) : (
+              <button type="button" onClick={() => { setBudgetDraft(''); setEditingBudget(true) }} style={css('margin-top:6px;font-size:11.5px;font-weight:600;color:var(--primary);text-align:left')}>Set a budget</button>
             )}
             <div style={css('display:flex;flex-direction:column;gap:7px;margin:14px 0;font-size:12.5px')}>
               <div style={css('display:flex;justify-content:space-between')}><span style={css('color:var(--text-2)')}>Materials</span><span style={css("font-family:'JetBrains Mono',monospace")}>{money(sum.material)}</span></div>

@@ -127,7 +127,7 @@ describe('subcontractor trade scopes', () => {
     // send button labeled for a bid request with the recipient count.
     await screen.findByText(/Review bid request/)
     expect(screen.getAllByText('Sub bid')).toHaveLength(2)
-    expect(screen.getByText('Send bid request (1)')).toBeTruthy()
+    expect(screen.getByText('Send to 1 subcontractor')).toBeTruthy()
 
     // Attachment picker: only the uploaded plan is attachable — the file-less
     // trade-scope document is filtered out (hasFile).
