@@ -65,9 +65,9 @@ def _norm(v: Optional[float], lo: float, hi: float) -> float:
 
 
 def build_comparison(
-    db, project_id: str, package: str, package_label: str
+    db, org_id: str, project_id: str, package: str, package_label: str
 ) -> Optional[dict]:
-    quotes = quotes_repo.list_quotes(db, project_id, package)
+    quotes = quotes_repo.list_quotes(db, org_id, project_id, package)
     if not quotes:
         return None
 

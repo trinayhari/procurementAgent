@@ -1,4 +1,10 @@
-"""Database accessors for the supplier directory + comms history."""
+"""Database accessors for the supplier directory + comms history.
+
+The directory is per-organization: each customer curates its own vendor list, so
+every read and write filters on `org_id`. Comms history is per-supplier (each
+row carries `supplier_id`) and is read only after the owning supplier has been
+resolved within the caller's org.
+"""
 import json
 import re
 from typing import List, Optional
@@ -16,20 +22,33 @@ _LOGO_PALETTE = [
 ]
 
 
-def list_suppliers(db: Session) -> List[dict]:
-    rows = db.scalars(select(Supplier).order_by(Supplier.seq)).all()
+def list_suppliers(db: Session, org_id: str) -> List[dict]:
+    rows = db.scalars(
+        select(Supplier)
+        .where(Supplier.organization_id == org_id)
+        .order_by(Supplier.seq)
+    ).all()
     return [s.to_dict() for s in rows]
 
 
-def get_supplier(db: Session, supplier_id: str) -> Optional[dict]:
+def _get_row(db: Session, org_id: str, supplier_id: str) -> Optional[Supplier]:
+    """The ORM row, or None when it doesn't exist *or* belongs to another org."""
     row = db.get(Supplier, supplier_id)
+    return row if row is not None and row.organization_id == org_id else None
+
+
+def get_supplier(db: Session, org_id: str, supplier_id: str) -> Optional[dict]:
+    row = _get_row(db, org_id, supplier_id)
     return row.to_dict() if row else None
 
 
-def find_by_name(db: Session, name: str) -> Optional[Supplier]:
-    """The directory row whose name matches (case-insensitive), if any."""
+def find_by_name(db: Session, org_id: str, name: str) -> Optional[Supplier]:
+    """This org's directory row whose name matches (case-insensitive), if any."""
     return db.scalars(
-        select(Supplier).where(func.lower(Supplier.name) == name.strip().lower())
+        select(Supplier).where(
+            Supplier.organization_id == org_id,
+            func.lower(Supplier.name) == name.strip().lower(),
+        )
     ).first()
 
 
@@ -43,6 +62,8 @@ def _initials(name: str) -> str:
 
 
 def _unique_id(db: Session, name: str) -> str:
+    # Deliberately unfiltered: `id` is the primary key, so it must be unique
+    # across every organization, not just the caller's.
     base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "supplier"
     sid, n = base, 2
     while db.get(Supplier, sid) is not None:
@@ -52,6 +73,7 @@ def _unique_id(db: Session, name: str) -> str:
 
 def create_supplier(
     db: Session,
+    org_id: str,
     *,
     name: str,
     contact: str = "",
@@ -60,14 +82,15 @@ def create_supplier(
     web: str = "",
     cats: Optional[List[str]] = None,
 ) -> dict:
-    """Add a supplier to the directory. Idempotent by name — returns the existing
-    row if this supplier is already in the network."""
-    existing = find_by_name(db, name)
+    """Add a supplier to this org's directory. Idempotent by name — returns the
+    existing row if this supplier is already in the org's network."""
+    existing = find_by_name(db, org_id, name)
     if existing is not None:
         return existing.to_dict()
 
     next_seq = (db.scalar(select(func.max(Supplier.seq))) or 0) + 1
     row = Supplier(
+        organization_id=org_id,
         seq=next_seq,
         id=_unique_id(db, name),
         name=name.strip(),
@@ -91,9 +114,32 @@ def create_supplier(
     return row.to_dict()
 
 
-def delete_supplier(db: Session, supplier_id: str) -> bool:
-    """Remove a supplier from the directory. Returns False if it didn't exist."""
-    row = db.get(Supplier, supplier_id)
+def update_supplier(
+    db: Session, org_id: str, supplier_id: str, fields: dict
+) -> Optional[dict]:
+    """Apply a partial edit to a directory supplier. `fields` holds only the keys
+    the caller sent (from SupplierUpdate). Returns the updated row, or None if no
+    supplier with that id exists in this org. The id is intentionally left
+    unchanged even when the name changes, so existing references stay valid; the
+    avatar initials track the new name."""
+    row = _get_row(db, org_id, supplier_id)
+    if row is None:
+        return None
+    if "name" in fields:
+        row.name = fields["name"]
+        row.logo = _initials(fields["name"])
+    for key in ("contact", "phone", "email", "web"):
+        if key in fields:
+            setattr(row, key, fields[key] or "")
+    if "cats" in fields:
+        row.cats = json.dumps(fields["cats"] or [])
+    db.commit()
+    return row.to_dict()
+
+
+def delete_supplier(db: Session, org_id: str, supplier_id: str) -> bool:
+    """Remove a supplier from the org's directory. False if it didn't exist."""
+    row = _get_row(db, org_id, supplier_id)
     if row is None:
         return False
     db.delete(row)
@@ -101,17 +147,25 @@ def delete_supplier(db: Session, supplier_id: str) -> bool:
     return True
 
 
-def list_comms(db: Session) -> List[dict]:
-    rows = db.scalars(select(SupplierComm).order_by(SupplierComm.seq)).all()
+def list_comms(db: Session, supplier_id: str) -> List[dict]:
+    """This supplier's communication history, oldest-slot-first by `seq`. Empty
+    when the supplier has never been contacted. Callers validate org ownership of
+    the supplier (via get_supplier) before reading its timeline."""
+    rows = db.scalars(
+        select(SupplierComm)
+        .where(SupplierComm.supplier_id == supplier_id)
+        .order_by(SupplierComm.seq)
+    ).all()
     return [c.to_dict() for c in rows]
 
 
-def seed_suppliers(db: Session) -> None:
+def seed_suppliers(db: Session, org_id: str) -> None:
     """Populate the supplier directory + comms history once, on empty tables."""
     if not db.scalar(select(func.count()).select_from(Supplier)):
         for i, s in enumerate(seed.SUPPLIERS, start=1):
             db.add(
                 Supplier(
+                    organization_id=org_id,
                     seq=i,
                     id=s["id"],
                     name=s["name"],
@@ -132,15 +186,17 @@ def seed_suppliers(db: Session) -> None:
                 )
             )
     if not db.scalar(select(func.count()).select_from(SupplierComm)):
-        for i, c in enumerate(seed.SUPPLIER_COMMS, start=1):
-            db.add(
-                SupplierComm(
-                    seq=i,
-                    tone=c.get("tone", "blue"),
-                    title=c["title"],
-                    body=c.get("body", ""),
-                    time=c.get("time", ""),
-                    icon=c.get("icon", "rfq"),
+        for supplier_id, comms in seed.SUPPLIER_COMMS.items():
+            for i, c in enumerate(comms, start=1):
+                db.add(
+                    SupplierComm(
+                        supplier_id=supplier_id,
+                        seq=i,
+                        tone=c.get("tone", "blue"),
+                        title=c["title"],
+                        body=c.get("body", ""),
+                        time=c.get("time", ""),
+                        icon=c.get("icon", "rfq"),
+                    )
                 )
-            )
     db.commit()

@@ -8,6 +8,11 @@ process-memory list that's lost on restart.
 
 Deeply-nested display structures (comparison rows, BOM items, RFQ threads) are
 stored as JSON text columns rather than over-normalised into many child tables.
+
+Deliberately NOT tenant-scoped: every row here comes from the seed.py literals
+(there is no user write path), so it is global display/lookup data identical for
+all organizations and carries no customer content. Adding `organization_id`
+would only duplicate the same demo rows per tenant.
 """
 import json
 

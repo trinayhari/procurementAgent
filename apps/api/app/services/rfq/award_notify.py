@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.repositories import quotes as quotes_repo
 from app.repositories import rfqs as rfqs_repo
 from app.services.quotes import gmail_reader
-from app.services.rfq.sender import EmailSender, sender_address
+from app.services.rfq.sender import EmailSender, from_header
 
 logger = logging.getLogger("procureai.rfq.award_notify")
 
@@ -90,7 +90,7 @@ def _decline_body(supplier: str, package_label: str, buyer) -> str:
     )
 
 
-def _thread_ref(db: Session, quote: dict, sender: EmailSender):
+def _thread_ref(db: Session, org_id: str, quote: dict, sender: EmailSender):
     """(thread_id, in_reply_to, subject) for replying in this supplier's RFQ thread.
 
     thread_id comes straight off the stored RFQ recipient; the RFC822 Message-ID
@@ -99,7 +99,7 @@ def _thread_ref(db: Session, quote: dict, sender: EmailSender):
     rfq_id = quote.get("rfqId")
     if not rfq_id:
         return None, None, None
-    rfq = rfqs_repo.get_rfq(db, rfq_id)
+    rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
     if not rfq:
         return None, None, None
     email = (quote.get("supplierEmail") or "").strip().lower()
@@ -123,6 +123,7 @@ def _thread_ref(db: Session, quote: dict, sender: EmailSender):
 def notify_award(
     db: Session,
     *,
+    org_id: str,
     project_id: str,
     package: str,
     package_label: str,
@@ -137,14 +138,17 @@ def notify_award(
     Never raises: a per-supplier send failure is recorded and the rest proceed, so
     a flaky email never fails an award that is already committed.
     """
-    quotes = quotes_repo.list_quotes(db, project_id, package)
+    quotes = quotes_repo.list_quotes(db, org_id, project_id, package)
     by_sid: Dict[str, dict] = {}
     for q in quotes:
         by_sid.setdefault(_sid(q), q)
 
     selections: Dict[str, str] = summary.get("selections") or {}
     winners = set(summary.get("supplierIds") or [])
-    from_addr = (getattr(buyer, "sender_email", None) or sender_address())
+    # Always the workspace mailbox, with the buyer's name/company as the display
+    # name; the buyer's own address rides along as a Cc.
+    from_addr = from_header(buyer)
+    cc = getattr(buyer, "cc_email", None)
 
     result = {"notified": [], "declined": [], "failed": [], "mock": bool(getattr(sender, "mocked", False))}
 
@@ -155,10 +159,10 @@ def notify_award(
             result["failed"].append({"supplier": supplier, "email": None, "kind": kind,
                                       "error": "no email on file"})
             return
-        thread_id, in_reply_to, rfq_subject = _thread_ref(db, quote, sender)
+        thread_id, in_reply_to, rfq_subject = _thread_ref(db, org_id, quote, sender)
         subj = f"Re: {rfq_subject}" if rfq_subject else subject
         try:
-            sender.send(email, subj, body, from_addr=from_addr,
+            sender.send(email, subj, body, from_addr=from_addr, cc=cc,
                         thread_id=thread_id, in_reply_to=in_reply_to)
         except Exception as exc:
             logger.warning("Award %s email to %s failed: %s", kind, email, exc)

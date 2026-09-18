@@ -75,3 +75,25 @@ class CustomBomSummary(BaseModel):
     name: str
     count: int
     reviewed: bool = False
+
+
+class TradeScopeSummary(BaseModel):
+    """A subcontractor trade scope, surfaced as a selectable package in the
+    supplier search. Searching on it finds trade contractors (installers) and
+    generating from it produces a scope-of-work bid request."""
+
+    id: str  # the underlying document id — used as the `package` in search/RFQ
+    name: str  # the trade, e.g. "Concrete flatwork"
+    scope: str = ""  # scope-of-work description (goes into the bid request)
+
+
+# Caps: the name feeds Places search keywords and the LLM relevance hint; the
+# scope is stored, embedded verbatim in the LLM prompt, and mailed in the bid
+# body — unbounded input would inflate all three.
+class TradeScopeCreate(BaseModel):
+    name: str = Field(max_length=120)
+    scope: str = Field(default="", max_length=20_000)
+
+
+class TradeScopeUpdate(BaseModel):
+    scope: str = Field(max_length=20_000)

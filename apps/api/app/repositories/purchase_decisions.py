@@ -12,6 +12,7 @@ from app.models.user import User
 
 def add_decision(
     db: Session,
+    org_id: str,
     project_id: str,
     package: str,
     package_label: str,
@@ -23,6 +24,7 @@ def add_decision(
     """Stage a decision row on the session WITHOUT committing — the caller
     commits it together with the quote status flips so the award is atomic."""
     row = PurchaseDecision(
+        organization_id=org_id,
         id=uuid.uuid4().hex,
         project_id=project_id,
         package=package,
@@ -43,10 +45,13 @@ def add_decision(
     return row
 
 
-def list_for_project(db: Session, project_id: str) -> List[dict]:
+def list_for_project(db: Session, org_id: str, project_id: str) -> List[dict]:
     rows = db.scalars(
         select(PurchaseDecision)
-        .where(PurchaseDecision.project_id == project_id)
+        .where(
+            PurchaseDecision.organization_id == org_id,
+            PurchaseDecision.project_id == project_id,
+        )
         .order_by(PurchaseDecision.created_at.desc())
     ).all()
     return [r.to_dict() for r in rows]

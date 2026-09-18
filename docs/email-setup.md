@@ -1,24 +1,41 @@
-# Email Setup — sending RFQs from your own address
+# Email Setup — connecting the workspace mailbox
 
-This guide takes you from zero to RFQs being emailed from the address you
-want, including the Google Cloud console steps, every `.env` variable, and
-how to verify it end to end.
+This guide takes you from zero to RFQs being emailed, including the Google
+Cloud console steps, every `.env` variable, and how to verify it end to end.
+
+> **No "Send mail as" alias needed any more.** Outbound mail now always comes
+> from the one connected Gmail account, so the fiddly per-user alias
+> verification this guide used to require is gone. If you set aliases up for
+> Proq previously, you can remove them (see
+> [Undoing the old alias setup](#undoing-the-old-alias-setup)).
 
 ## How it works (read this first)
 
 - The app sends all email through **one connected Gmail account**, using a
   Google OAuth *refresh token* you mint once. RFQ sends use the `gmail.send`
   scope; reading supplier quote replies uses `gmail.readonly`.
-- Each user can set their own **"RFQ sender address"** in **Settings** — it
-  becomes the `From:` header on RFQs they send.
-- **The Gmail catch:** Gmail silently rewrites the `From:` header back to the
-  connected account **unless** that address is a verified **"Send mail as"
-  alias** of the connected account (Step 5). If your test email arrives
-  "from" the wrong address, this is why.
+- **Every message is `From:` that account** — the address in
+  `PROCUREAI_GMAIL_SENDER_ADDRESS`. There is no per-user From address.
+- **The buyer stays visible** through the display name. A send by Jane Doe of
+  Acme Construction goes out as
+  `"Jane Doe — Acme Construction" <bids@yourcompany.com>`. Missing name or
+  company just shortens the label.
+- **Users are copied, not impersonated.** Each user can set a **"Copy me on
+  emails"** address in **Settings**; it is added as `Cc:` on the RFQs, award
+  notices and test emails they trigger, so they keep a record. It is dropped
+  when it would duplicate the recipient or the sending mailbox.
+- **Replies deliberately go to the connected mailbox** — there is no
+  `Reply-To:` pointing at the user. That inbox is what quote ingest reads and
+  what rebuilds each RFQ conversation, so redirecting replies would silently
+  break both.
+- **Why one mailbox:** Gmail rewrites the `From:` header back to the connected
+  account unless the address is a verified alias, which used to make sends
+  arrive from the "wrong" sender. Sending from the account itself removes that
+  failure mode entirely.
 - **No Gmail configured → mock mode.** Sends are logged, not delivered, and
-  the UI labels them as mock. Nothing real can go out until you finish this
-  guide, and the test suite force-blanks these variables so tests can never
-  send real email.
+  the UI says so explicitly (Settings → **Sent from** shows *Not configured*).
+  Nothing real can go out until you finish this guide, and the test suite
+  force-blanks these variables so tests can never send real email.
 
 ---
 
@@ -80,8 +97,8 @@ Edit `apps/api/.env` (create it from `apps/api/.env.example` if needed):
 PROCUREAI_GMAIL_CLIENT_ID=<from the script output>
 PROCUREAI_GMAIL_CLIENT_SECRET=<from the script output>
 PROCUREAI_GMAIL_REFRESH_TOKEN=<from the script output>
-# Workspace default From address — used when a user hasn't set their own.
-# Must be the connected account itself or one of its verified aliases (Step 5).
+# The one From address for ALL outbound mail. Set it to the address of the
+# account you authorized in Step 3 — anything else gets rewritten by Gmail.
 PROCUREAI_GMAIL_SENDER_ADDRESS=bids@yourcompany.com
 
 # Optional: how far back quote ingest scans for supplier replies (days).
@@ -91,47 +108,40 @@ PROCUREAI_QUOTE_INGEST_LOOKBACK_DAYS=30
 Restart the backend. `.env` is git-ignored — **never commit it**, and rotate
 any credential that leaks.
 
-## Step 5 — Send from a different address (the "Send mail as" alias)
+The three OAuth vars decide *whether* mail is delivered; the sender address
+decides *what it says*. Settings → **Sent from** reports both, and
+`GET /api/auth/email-config` returns them as
+`{configured, mocked, senderAddressSet, fromAddress, fromHeader, ccEmail}`.
 
-Skip this if everyone should send from the connected account's own address.
+## Step 5 — Get yourself copied (per user, optional)
 
-To send from any OTHER address (your personal work email, a shared
-`procurement@` box, etc.), that address must be a **verified alias of the
-connected Gmail account**:
+1. Log in → **Settings** → **"Copy me on emails"** → enter your own address →
+   **Save**. Clearing it stops the copies.
+2. That address is `Cc:`'d on the RFQs and award notices **you** send, so the
+   thread is in your mailbox too. It never changes who the email is from, and
+   it is skipped when it would just duplicate the recipient.
+3. Nothing to configure in Gmail — no alias, no verification.
 
-1. Open **Gmail** (the connected account) → ⚙️ **See all settings** →
-   **Accounts and Import** → **"Send mail as"** → **Add another email address**.
-2. Enter the name + address you want to send as. Leave "Treat as an alias"
-   checked. For a non-Gmail address Google asks for your mail server's SMTP
-   details, or (Workspace, same domain) verifies directly.
-3. Google emails a **verification code** to that address — enter it.
-4. Done. The Gmail API will now honor that address in the `From:` header.
+> Replying from your own mailbox is fine for one-off notes, but keep the
+> conversation on the workspace mailbox where you can: quote ingest only reads
+> that inbox.
 
-Without this step, Gmail **silently replaces** your chosen From with the
-connected account's address — the send succeeds, but suppliers see the wrong
-sender.
-
-> Google Workspace tip: an admin can pre-approve domain aliases under
-> Admin console → Apps → Google Workspace → Gmail → End User Access.
-
-## Step 6 — Set your per-user sender in the app
-
-1. Log in → **Settings** → **"RFQ sender address"** → enter the address from
-   Step 5 → **Save**. (Clearing it falls back to
-   `PROCUREAI_GMAIL_SENDER_ADDRESS`.)
-2. Each user has their own — RFQs they send use their address.
-
-## Step 7 — Verify
+## Step 6 — Verify
 
 In the app: **Settings → Email delivery → "Send test email"**. It sends a
-message **to your own login email** through exactly the RFQ path and tells
-you the From address used.
+message **to your own login email** through exactly the RFQ path and reports
+the From address and Cc it used.
 
-- ✅ Arrived, From is correct → you're done.
-- ✅ Arrived, but From shows the connected account → Step 5 (alias) is
-  missing or unverified for your address.
-- "Mock mode — no Gmail connected" → the three `PROCUREAI_GMAIL_*` creds
-  aren't all set where the backend runs (check Step 4 / Step 8).
+- ✅ Arrived from `Your Name — Your Company <PROCUREAI_GMAIL_SENDER_ADDRESS>`
+  → you're done. That is the expected sender for every user.
+- ✅ Arrived, but from the connected account with **no** display name → the
+  account has no name/company set (Settings shows what's on file).
+- Settings → **Sent from** shows *Not configured*, or the test says "Mock
+  mode" → the three `PROCUREAI_GMAIL_*` creds aren't all set where the backend
+  runs (check Step 4 / Step 7).
+- Sent from `rfq@procureai.local` → that is the placeholder used when
+  `PROCUREAI_GMAIL_SENDER_ADDRESS` is empty; it is not a real mailbox. Set the
+  variable.
 - Error mentioning `invalid_grant` → the refresh token was revoked or
   expired (Testing-status 7-day trap — see Step 2). Re-run Step 3.
 
@@ -141,17 +151,22 @@ Or from a terminal:
 TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"you@example.com","password":"..."}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["accessToken"])')
-curl -s -X POST http://localhost:8000/api/auth/test-email -H "Authorization: Bearer $TOKEN"
+curl -s -X GET  http://localhost:8000/api/auth/email-config -H "Authorization: Bearer $TOKEN"
+curl -s -X POST http://localhost:8000/api/auth/test-email  -H "Authorization: Bearer $TOKEN"
 ```
 
-Every test send is recorded in the audit log (`GET /api/audit?action=email.test_sent`).
+`email-config` answers "is this wired up?" without sending anything; the test
+send goes out for real when Gmail is configured. Every test send is recorded in
+the audit log (`GET /api/audit?action=email.test_sent`).
 
-## Step 8 — Production (Railway / Render)
+## Step 7 — Production (Railway / Render)
 
 Set the same four variables in the host's service environment — **not** in a
 committed file:
 
-- Railway: service → **Variables** tab.
+- Railway: service → **Variables** tab → **New Variable** for each (or
+  **Raw Editor** to paste all four at once). Railway restarts the service on
+  save.
 - Render: service → **Environment** tab (they're already declared as blank
   secrets in `render.yaml`).
 
@@ -162,19 +177,39 @@ PROCUREAI_GMAIL_REFRESH_TOKEN
 PROCUREAI_GMAIL_SENDER_ADDRESS
 ```
 
-Redeploy, then repeat Step 7 against the production URL.
+Environment variables override anything in `.env`, and the backend reads them
+at startup — so a value changed in the dashboard needs a redeploy/restart to
+take effect. Then repeat Step 6 against the production URL.
+
+## Undoing the old alias setup
+
+Earlier versions used each user's own address as the `From:` header, which
+required verifying it as a **"Send mail as"** alias on the connected Gmail
+account. Nothing reads those aliases now. To clean up:
+
+1. Gmail (the connected account) → ⚙️ **See all settings** → **Accounts and
+   Import** → **"Send mail as"** → **delete** the addresses you added for Proq.
+2. Leave the account's own address in place — that's the one Proq sends from.
+
+Addresses users had entered as their sender were carried over automatically as
+their **"Copy me on emails"** address by migration `0016_user_cc_email`; no one
+needs to re-enter anything.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 | --- | --- |
 | Test email says **mock mode** | One of client id / secret / refresh token is empty in the environment the backend actually runs in. Env vars override `.env`. |
-| From address rewritten to the connected account | The address isn't a verified **Send mail as** alias (Step 5). |
+| Mail arrives from `rfq@procureai.local` | `PROCUREAI_GMAIL_SENDER_ADDRESS` is empty — that string is the "unconfigured" placeholder, not a mailbox. Set it (Step 4/7) and restart. |
+| Suppliers see the connected account, not the user | Expected — that's the design. The user's name and company appear as the display name, and they're Cc'd (Step 5). |
+| Gmail rewrote my From address | Only happens if you point `PROCUREAI_GMAIL_SENDER_ADDRESS` at an address the token doesn't own. Use the account you authorized in Step 3. |
+| No Cc on outgoing mail | The user hasn't set **"Copy me on emails"**, or their Cc equals the recipient (a duplicate copy is dropped on purpose). |
+| Supplier replies never show up | Replies land in the connected mailbox by design (there is no `Reply-To`). If they're missing, check the token has `gmail.readonly` — see the row below. |
 | `invalid_grant` on send | Refresh token revoked, or consent screen still in **Testing** (7-day expiry) — publish the app and re-mint (Step 2/3). |
 | Works for a week, then stops | Same 7-day Testing expiry. Publish the app. |
 | Quote ingest finds nothing | The token was minted send-only. Re-run Step 3 — the script requests `gmail.send` **and** `gmail.readonly`. Also check `PROCUREAI_QUOTE_INGEST_LOOKBACK_DAYS`. |
 | `429 Too many attempts` on the test button | Rate-limited to 3 test sends/minute. |
-| Gmail daily sending limits | Consumer Gmail ≈ 500 recipients/day, Workspace ≈ 2 000/day. RFQ sends cap at 10 recipients each. |
+| Gmail daily sending limits | Consumer Gmail ≈ 500 recipients/day, Workspace ≈ 2 000/day. RFQ sends cap at 10 recipients each; a Cc counts toward the recipient total. |
 
 ## Security notes
 

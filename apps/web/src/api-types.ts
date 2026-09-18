@@ -30,7 +30,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register */
+        /**
+         * Register
+         * @description Create an account and, with it, the organization that owns its data.
+         *
+         *     Every signup here gets its own new tenant. Joining an EXISTING organization
+         *     goes through the invite flow instead (POST /api/invite/{token}/accept in
+         *     app/api/routes/team.py), which creates the user in the inviting org.
+         */
         post: operations["register_api_auth_register_post"];
         delete?: never;
         options?: never;
@@ -73,6 +80,31 @@ export interface paths {
         patch: operations["update_me_api_auth_me_patch"];
         trace?: never;
     };
+    "/api/auth/email-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Email Config
+         * @description The effective outbound-email setup: which mailbox mail leaves from,
+         *     whether Gmail is actually connected, and your Cc address.
+         *
+         *     Every field derives from the PROCUREAI_GMAIL_* environment variables (see
+         *     docs/email-setup.md) — nothing here is per-user except `ccEmail` and the
+         *     display name baked into `fromHeader`.
+         */
+        get: operations["email_config_api_auth_email_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/test-email": {
         parameters: {
             query?: never;
@@ -87,8 +119,8 @@ export interface paths {
          * @description Verify the email configuration by sending a test message to yourself.
          *
          *     Uses exactly the same path as an RFQ send: the configured provider (Gmail
-         *     or the logging mock) and your effective From address (your per-user sender
-         *     when set, else the workspace default). See docs/email-setup.md.
+         *     or the logging mock) and the workspace From address carrying your display
+         *     name. See docs/email-setup.md.
          */
         post: operations["send_test_email_api_auth_test_email_post"];
         delete?: never;
@@ -137,6 +169,50 @@ export interface paths {
         get: operations["get_document_file_api_documents__document_id__file_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invite/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Invite
+         * @description What the accept screen shows before the invitee commits. Never reveals
+         *     whether a token is real beyond valid/invalid + a coarse reason.
+         */
+        get: operations["preview_invite_api_invite__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invite/{token}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Invite
+         * @description Redeem an invite: create the user in the inviting org and log them in.
+         *
+         *     The email is taken from the invite (the invitee can't change who was
+         *     invited); only name + password come from the request.
+         */
+        post: operations["accept_invite_api_invite__token__accept_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -555,6 +631,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Trade Scopes
+         * @description The project's subcontractor trade scopes — the selectable trade packages
+         *     in the supplier search. Each scope's document id doubles as its package key.
+         */
+        get: operations["list_trade_scopes_api_projects__project_id__trades_get"];
+        put?: never;
+        /**
+         * Create Trade Scope
+         * @description Create a subcontractor trade scope — a free-text trade the user wants
+         *     bids for (e.g. "Concrete flatwork"), with a scope-of-work description.
+         *
+         *     Like a custom BOM there is no file and no extraction: the document id
+         *     becomes a package key, so the trade flows through the same search → select
+         *     → RFQ pipeline. The RFQ it generates is a bid request built from the scope
+         *     text rather than BOM line items.
+         */
+        post: operations["create_trade_scope_api_projects__project_id__trades_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/trades/{trade_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Trade Scope
+         * @description Update a trade scope's scope-of-work description.
+         */
+        put: operations["update_trade_scope_api_projects__project_id__trades__trade_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
         parameters: {
             query?: never;
@@ -669,7 +796,7 @@ export interface paths {
         /**
          * Create Supplier
          * @description Add a supplier to the customer's directory (manually or from a search
-         *     result). Idempotent by name.
+         *     result). Idempotent by name within the organization.
          */
         post: operations["create_supplier_api_suppliers_post"];
         delete?: never;
@@ -696,7 +823,12 @@ export interface paths {
         delete: operations["delete_supplier_api_suppliers__supplier_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Supplier
+         * @description Edit a supplier's details in the customer's directory. Only the fields
+         *     present in the request body are changed.
+         */
+        patch: operations["update_supplier_api_suppliers__supplier_id__patch"];
         trace?: never;
     };
     "/api/documents/plan-types": {
@@ -752,7 +884,9 @@ export interface paths {
          * @description Mint a signed, short-lived URL for previewing/downloading the original file.
          *
          *     The frontend loads files in an iframe (no Authorization header possible), so
-         *     access is granted via a scoped token bound to this one document.
+         *     access is granted via a scoped token bound to this one document. The org
+         *     check happens HERE — the token is only ever minted for a document the
+         *     caller's organization owns.
          */
         get: operations["get_document_file_url_api_documents__document_id__file_url_get"];
         put?: never;
@@ -1012,6 +1146,9 @@ export interface paths {
          *     actually happened from dates alone, so completion is confirmed (or undone)
          *     by the user. Applies to every same-named event in the project, and survives
          *     document re-analysis.
+         *
+         *     Timeline event ids are sequential integers, so another org's id is trivially
+         *     guessable — set_done filters on the org and this route 404s when it misses.
          */
         post: operations["set_event_done_api_timeline_events__event_id__done_post"];
         delete?: never;
@@ -1061,7 +1198,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Audit Events */
+        /**
+         * List Audit Events
+         * @description The caller's organization's audit trail.
+         *
+         *     `project_id` narrows within the org; it can't widen past it, so passing
+         *     another tenant's project id returns an empty list rather than their events.
+         */
         get: operations["list_audit_events_api_audit_get"];
         put?: never;
         post?: never;
@@ -1071,10 +1214,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Team
+         * @description The org's roster: current members plus still-open invitations.
+         */
+        get: operations["get_team_api_team_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/team/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Invite
+         * @description Invite a teammate by email to join the caller's organization.
+         */
+        post: operations["create_invite_api_team_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/team/invites/{invite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Invite
+         * @description Cancel a pending invitation. 404 for an unknown id or another org's.
+         */
+        delete: operations["revoke_invite_api_team_invites__invite_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AcceptInviteRequest */
+        AcceptInviteRequest: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Password */
+            password: string;
+        };
         /** Activity */
         Activity: {
             /** Icon */
@@ -1337,6 +1550,28 @@ export interface components {
             /** Expiresinminutes */
             expiresInMinutes: number;
         };
+        /**
+         * EmailConfig
+         * @description Effective outbound-email configuration, straight from the environment.
+         *
+         *     Lets the UI state the truth instead of implying mail is going out: when
+         *     `configured` is false nothing is delivered, and when `senderAddressSet` is
+         *     false `fromAddress` is only a placeholder.
+         */
+        EmailConfig: {
+            /** Configured */
+            configured: boolean;
+            /** Mocked */
+            mocked: boolean;
+            /** Senderaddressset */
+            senderAddressSet: boolean;
+            /** Fromaddress */
+            fromAddress: string;
+            /** Fromheader */
+            fromHeader: string;
+            /** Ccemail */
+            ccEmail?: string | null;
+        };
         /** FollowupDraft */
         FollowupDraft: {
             /** Body */
@@ -1404,6 +1639,53 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * Invite
+         * @description A pending/accepted/revoked invitation (never exposes the token).
+         */
+        Invite: {
+            /** Id */
+            id: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Status */
+            status: string;
+            /** Invitedbyuserid */
+            invitedByUserId: string;
+            /** Createdat */
+            createdAt?: string | null;
+            /** Expiresat */
+            expiresAt?: string | null;
+            /** Acceptedat */
+            acceptedAt?: string | null;
+        };
+        /** InviteCreateRequest */
+        InviteCreateRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
+        /**
+         * InvitePreview
+         * @description What the public accept screen shows before the invitee commits: which org
+         *     they're joining and at which email. `valid` is false for a revoked, accepted,
+         *     expired, or unknown token.
+         */
+        InvitePreview: {
+            /** Valid */
+            valid: boolean;
+            /** Organizationname */
+            organizationName?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Reason */
+            reason?: string | null;
         };
         /** Lender */
         Lender: {
@@ -1758,6 +2040,17 @@ export interface components {
              * @default []
              */
             recipients: components["schemas"]["RfqRecipient"][];
+            /**
+             * Kind
+             * @default materials
+             * @enum {string}
+             */
+            kind: "materials" | "subcontractor";
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: components["schemas"]["RfqAttachment"][];
         };
         /**
          * PlanType
@@ -1959,6 +2252,16 @@ export interface components {
             logoBg: string;
         };
         /**
+         * RfqAttachment
+         * @description A project document the user chose to attach to the outgoing email.
+         */
+        RfqAttachment: {
+            /** Documentid */
+            documentId: string;
+            /** Name */
+            name: string;
+        };
+        /**
          * RfqConversation
          * @description The full email thread for an RFQ, plus its (possibly updated) status.
          */
@@ -2011,6 +2314,8 @@ export interface components {
         RfqGenerateRequest: {
             /** Supplier Ids */
             supplier_ids: string[];
+            /** Scope */
+            scope?: string | null;
         };
         /** RfqLineItem */
         RfqLineItem: {
@@ -2052,6 +2357,8 @@ export interface components {
             body: string;
             /** Recipients */
             recipients: components["schemas"]["RfqRecipient"][];
+            /** Attachment Ids */
+            attachment_ids?: string[] | null;
         };
         /**
          * Risk
@@ -2248,6 +2555,32 @@ export interface components {
             suppliers: components["schemas"]["FoundSupplier"][];
         };
         /**
+         * SupplierUpdate
+         * @description Edit an existing directory supplier. Every field is optional — only the
+         *     fields that are sent are changed; anything omitted is left untouched.
+         */
+        SupplierUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Contact */
+            contact?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Web */
+            web?: string | null;
+            /** Cats */
+            cats?: string[] | null;
+        };
+        /** TeamMembers */
+        TeamMembers: {
+            /** Members */
+            members: components["schemas"]["User"][];
+            /** Invites */
+            invites: components["schemas"]["Invite"][];
+        };
+        /**
          * TestEmailResult
          * @description Outcome of POST /api/auth/test-email (config verification).
          */
@@ -2260,6 +2593,8 @@ export interface components {
             fromAddr: string;
             /** To */
             to: string;
+            /** Cc */
+            cc?: string | null;
         };
         /** ThreadMessage */
         ThreadMessage: {
@@ -2306,14 +2641,47 @@ export interface components {
          * @enum {string}
          */
         Tone: "blue" | "violet" | "gray" | "success" | "warn" | "danger" | "ai";
+        /** TradeScopeCreate */
+        TradeScopeCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Scope
+             * @default
+             */
+            scope: string;
+        };
+        /**
+         * TradeScopeSummary
+         * @description A subcontractor trade scope, surfaced as a selectable package in the
+         *     supplier search. Searching on it finds trade contractors (installers) and
+         *     generating from it produces a scope-of-work bid request.
+         */
+        TradeScopeSummary: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Scope
+             * @default
+             */
+            scope: string;
+        };
+        /** TradeScopeUpdate */
+        TradeScopeUpdate: {
+            /** Scope */
+            scope: string;
+        };
         /**
          * UpdateMeRequest
-         * @description Editable account settings. `senderEmail: null` clears the custom From
-         *     address (outgoing RFQs revert to the workspace default).
+         * @description Editable account settings. `ccEmail` is the address copied on outgoing
+         *     mail you trigger; `null` clears it. It is never a From address — everything
+         *     is sent from the workspace mailbox (see services/rfq/sender.py).
          */
         UpdateMeRequest: {
-            /** Senderemail */
-            senderEmail?: string | null;
+            /** Ccemail */
+            ccEmail?: string | null;
         };
         /**
          * User
@@ -2331,8 +2699,10 @@ export interface components {
             name: string;
             /** Company */
             company: string;
-            /** Senderemail */
-            senderEmail?: string | null;
+            /** Organizationid */
+            organizationId: string;
+            /** Ccemail */
+            ccEmail?: string | null;
             /** Createdat */
             createdAt?: string | null;
         };
@@ -2493,6 +2863,26 @@ export interface operations {
             };
         };
     };
+    email_config_api_auth_email_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailConfig"];
+                };
+            };
+        };
+    };
     send_test_email_api_auth_test_email_post: {
         parameters: {
             query?: never;
@@ -2567,6 +2957,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_invite_api_invite__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_invite_api_invite__token__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3351,6 +3807,108 @@ export interface operations {
             };
         };
     };
+    list_trade_scopes_api_projects__project_id__trades_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeScopeSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trade_scope_api_projects__project_id__trades_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeScopeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeScopeSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_trade_scope_api_projects__project_id__trades__trade_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                trade_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeScopeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeScopeSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generate_rfq_api_projects__project_id__packages__package__rfqs_generate_post: {
         parameters: {
             query?: never;
@@ -3681,6 +4239,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_supplier_api_suppliers__supplier_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplier_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Supplier"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -4307,6 +4900,88 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_api_team_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembers"];
+                };
+            };
+        };
+    };
+    create_invite_api_team_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_invite_api_team_invites__invite_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

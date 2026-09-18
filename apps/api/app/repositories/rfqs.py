@@ -1,4 +1,8 @@
-"""Database accessors for persisted RFQs."""
+"""Database accessors for persisted RFQs.
+
+RFQ ids are uuids, but the org filter is still applied on every lookup so a
+leaked or guessed id from another tenant resolves to None (route 404s).
+"""
 import json
 import uuid
 from datetime import datetime, timezone
@@ -11,8 +15,15 @@ from app.models.rfq import Rfq
 from app.services.rfq import state as rfq_state
 
 
+def _get_row(db: Session, org_id: str, rfq_id: str) -> Optional[Rfq]:
+    """The ORM row, or None when it doesn't exist *or* belongs to another org."""
+    row = db.get(Rfq, rfq_id)
+    return row if row is not None and row.organization_id == org_id else None
+
+
 def create_rfq_draft(
     db: Session,
+    org_id: str,
     project_id: str,
     package: str,
     package_label: str,
@@ -20,8 +31,10 @@ def create_rfq_draft(
     body: str,
     line_items: List[dict],
     recipients: List[dict],
+    kind: str = "materials",
 ) -> dict:
     row = Rfq(
+        organization_id=org_id,
         id=uuid.uuid4().hex,
         project_id=project_id,
         package=package,
@@ -31,6 +44,7 @@ def create_rfq_draft(
         body=body,
         line_items=json.dumps(line_items),
         recipients=json.dumps(recipients),
+        kind=kind,
     )
     db.add(row)
     db.commit()
@@ -38,43 +52,61 @@ def create_rfq_draft(
     return row.to_dict()
 
 
-def get_rfq(db: Session, rfq_id: str) -> Optional[dict]:
-    row = db.get(Rfq, rfq_id)
+def get_rfq(db: Session, org_id: str, rfq_id: str) -> Optional[dict]:
+    row = _get_row(db, org_id, rfq_id)
     return row.to_dict() if row else None
 
 
-def list_rfqs(db: Session, project_id: str) -> List[dict]:
+def list_rfqs(db: Session, org_id: str, project_id: str) -> List[dict]:
     rows = db.scalars(
-        select(Rfq).where(Rfq.project_id == project_id).order_by(Rfq.created_at.desc())
+        select(Rfq)
+        .where(Rfq.organization_id == org_id, Rfq.project_id == project_id)
+        .order_by(Rfq.created_at.desc())
     ).all()
     return [r.to_dict() for r in rows]
 
 
 def update_rfq(
     db: Session,
+    org_id: str,
     rfq_id: str,
     subject: str,
     body: str,
     recipients: List[dict],
+    attachments: Optional[List[dict]] = None,
 ) -> Optional[dict]:
-    row = db.get(Rfq, rfq_id)
+    row = _get_row(db, org_id, rfq_id)
     if row is None:
         return None
     row.subject = subject
     row.body = body
     row.recipients = json.dumps(recipients)
+    if attachments is not None:
+        row.attachments = json.dumps(attachments)
     db.commit()
     db.refresh(row)
     return row.to_dict()
 
 
+def set_attachments(
+    db: Session, org_id: str, rfq_id: str, attachments: List[dict]
+) -> None:
+    """Overwrite the stored attachment list (send-time reconciliation when a
+    chosen document disappeared between save and send)."""
+    row = _get_row(db, org_id, rfq_id)
+    if row is None:
+        return
+    row.attachments = json.dumps(attachments)
+    db.commit()
+
+
 def mark_rfq_sent(
-    db: Session, rfq_id: str, recipients: List[dict], status: str = "Awaiting"
+    db: Session, org_id: str, rfq_id: str, recipients: List[dict], status: str = "Awaiting"
 ) -> Optional[dict]:
     """Persist send results (recipients now carry send state) and flip status.
 
     Raises rfq_state.IllegalTransition when the flip isn't a legal move."""
-    row = db.get(Rfq, rfq_id)
+    row = _get_row(db, org_id, rfq_id)
     if row is None:
         return None
     rfq_state.assert_transition(row.status, status)
@@ -86,9 +118,9 @@ def mark_rfq_sent(
     return row.to_dict()
 
 
-def delete_rfq(db: Session, rfq_id: str) -> bool:
+def delete_rfq(db: Session, org_id: str, rfq_id: str) -> bool:
     """Delete an RFQ. Returns True if a row was removed."""
-    row = db.get(Rfq, rfq_id)
+    row = _get_row(db, org_id, rfq_id)
     if row is None:
         return False
     db.delete(row)
@@ -96,10 +128,11 @@ def delete_rfq(db: Session, rfq_id: str) -> bool:
     return True
 
 
-def list_awaiting_rfqs(db: Session, project_id: str) -> List[dict]:
+def list_awaiting_rfqs(db: Session, org_id: str, project_id: str) -> List[dict]:
     """RFQs that have been sent (fully or partially) and may have replies to ingest."""
     rows = db.scalars(
         select(Rfq).where(
+            Rfq.organization_id == org_id,
             Rfq.project_id == project_id,
             Rfq.status.in_(["Sent", "Awaiting", "Send failed", "Quoted"]),
         )
@@ -107,8 +140,8 @@ def list_awaiting_rfqs(db: Session, project_id: str) -> List[dict]:
     return [r.to_dict() for r in rows]
 
 
-def mark_rfq_quoted(db: Session, rfq_id: str) -> Optional[dict]:
-    row = db.get(Rfq, rfq_id)
+def mark_rfq_quoted(db: Session, org_id: str, rfq_id: str) -> Optional[dict]:
+    row = _get_row(db, org_id, rfq_id)
     if row is None:
         return None
     rfq_state.assert_transition(row.status, "Quoted")

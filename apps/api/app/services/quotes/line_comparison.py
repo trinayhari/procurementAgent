@@ -61,9 +61,9 @@ def _cost_of(selection: Dict[str, str], lines: List[str], by_sup: Dict[str, dict
 
 
 def build_line_comparison(
-    db, project_id: str, package: str, package_label: str
+    db, org_id: str, project_id: str, package: str, package_label: str
 ) -> Optional[dict]:
-    quotes = quotes_repo.list_quotes(db, project_id, package)
+    quotes = quotes_repo.list_quotes(db, org_id, project_id, package)
     if not quotes:
         return None
 
@@ -242,7 +242,7 @@ def build_line_comparison(
 
 
 def compute_award(
-    db, project_id: str, package: str, selections: Dict[str, str]
+    db, org_id: str, project_id: str, package: str, selections: Dict[str, str]
 ) -> Optional[dict]:
     """Cost/lead/supplier summary for a submitted {line: supplierId} selection.
 
@@ -252,7 +252,7 @@ def compute_award(
     available supplier, so a strategy or partial submission still produces a
     complete, awardable basket.
     """
-    quotes = quotes_repo.list_quotes(db, project_id, package)
+    quotes = quotes_repo.list_quotes(db, org_id, project_id, package)
     if not quotes:
         return None
 

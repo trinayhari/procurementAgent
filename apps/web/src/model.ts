@@ -1,7 +1,8 @@
 import type { CSSProperties } from 'react'
 import { tone, badge, chip, bar, ic, lb } from './lib'
-import { post, deleteProject as apiDeleteProject, deleteSupplier as apiDeleteSupplier } from './api'
-import type { ModelData, PlanType, LineItemGroup, AuthUser } from './api'
+import { post, deleteProject as apiDeleteProject, deleteSupplier as apiDeleteSupplier, updateSupplier as apiUpdateSupplier } from './api'
+import type { SupplierUpdate } from './api'
+import type { ModelData, PlanType, LineItemGroup, AuthUser, SupplierComm } from './api'
 
 // ---- App state threaded through buildModel (held in App.tsx's useState) ----
 export interface State {
@@ -11,6 +12,9 @@ export interface State {
   docIdx: number
   rfqIdx: number
   supplierId: string | null
+  // Communication history for the open supplier, fetched on drawer open.
+  // null = not loaded yet (loading); [] = loaded, supplier has no history.
+  activeSupplierComms: SupplierComm[] | null
   vw: number
   mnav: boolean
   data: ModelData | null
@@ -46,7 +50,7 @@ export interface ModelProps {
   user?: AuthUser | null
   onLogout?: () => void
   onUserUpdated?: (u: AuthUser) => void
-  reload?: (pid?: string) => Promise<void> | void
+  reload?: (pid?: string) => Promise<unknown> | void
   planTypes?: PlanType[] | null
   planType?: string
   uploading?: boolean
@@ -55,6 +59,7 @@ export interface ModelProps {
   onUpload?: (file: File, planType?: string) => void
   onDeleteDoc?: (id: string) => void
   onCreateBom?: () => void
+  onCreateTradeScope?: () => void
   editBom?: boolean
   bomDraft?: LineItemGroup[] | null
   bomBusy?: boolean
@@ -195,7 +200,10 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const suppliers = supRaw.map((x) => ({ ...x, onOpen: () => set({ supplierId: x.id }), rfqBadge: badge(x.rfqTone), logoStyle: lb(x.logoBg, 42) }))
   const supplierOpen = !!s.supplierId
   const activeSupplier = suppliers.find((x) => x.id === s.supplierId) || suppliers[0]
-  const supComms = (D.supplierComms || []).map((c) => ({ ...c, chipStyle: chip(c.tone), iconHtml: ic(c.icon) }))
+  // Per-supplier timeline: comms are fetched for whichever supplier is open
+  // (see the supplierId effect in App.tsx). null while that fetch is in flight.
+  const supCommsLoading = !!s.supplierId && s.activeSupplierComms === null
+  const supComms = (s.activeSupplierComms || []).map((c) => ({ ...c, chipStyle: chip(c.tone), iconHtml: ic(c.icon) }))
 
   const docRaw: DocInput[] = D.docs || []
   const docs = docRaw.map((d, i) => ({
@@ -229,10 +237,18 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   // They render in their own section and are selectable as packages in sourcing.
   const CUSTOM_BOM_TYPE = 'custom_bom'
   const customBoms = docs.filter((d) => d.planType === CUSTOM_BOM_TYPE)
-  // Everything not occupying a plan slot and not a custom BOM (planType 'other',
-  // or legacy/seed docs with no planType) is an additional reference document.
+  // Subcontractor trade scopes (also hand-built, no file) — their own Documents
+  // section, and selectable as trade "packages" in the supplier search.
+  const TRADE_SCOPE_TYPE = 'trade_scope'
+  const tradeScopes = docs.filter((d) => d.planType === TRADE_SCOPE_TYPE)
+  // Everything not occupying a plan slot and not a custom BOM or trade scope
+  // (planType 'other', or legacy/seed docs with no planType) is an additional
+  // reference document.
   const additionalDocs = docs.filter(
-    (d) => !SLOT_KEYS.includes((d.planType as string) || '') && d.planType !== CUSTOM_BOM_TYPE,
+    (d) =>
+      !SLOT_KEYS.includes((d.planType as string) || '') &&
+      d.planType !== CUSTOM_BOM_TYPE &&
+      d.planType !== TRADE_SCOPE_TYPE,
   )
   const additionalSpec = specFor('other')
 
@@ -340,7 +356,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     desktop, mobile: !desktop, navStyle,
     // Signed-in user identity + sign-out (see App.tsx Sidebar/Settings/Dashboard).
     userName, userCompany, userEmail, userInitials, firstName, greeting,
-    userSenderEmail: (authUser && authUser.senderEmail) || '',
+    userCcEmail: (authUser && authUser.ccEmail) || '',
     logout: (props && props.onLogout) || (() => {}),
     onUserUpdated: (props && props.onUserUpdated) || (() => {}),
     isDashboard: s.nav === 'dashboard', isProjects: s.nav === 'projects', isSuppliers: s.nav === 'suppliers',
@@ -410,14 +426,16 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     tabOverview: s.tab === 'overview', tabDocuments: s.tab === 'documents', tabSuppliers: s.tab === 'suppliers',
     tabRfqs: s.tab === 'rfqs', tabQuotesTable: s.tab === 'quotes' && !s.compare, tabCompare: s.tab === 'quotes' && s.compare, tabTimeline: s.tab === 'timeline',
     overviewCards, packages,
-    suppliers, supplierOpen, activeSupplier, supComms,
+    suppliers, supplierOpen, activeSupplier, supComms, supCommsLoading,
     docs, doc, extracted,
     // Plan slots + additional documents (see App.tsx + TabDocuments).
-    docSlots, additionalDocs, customBoms,
+    docSlots, additionalDocs, customBoms, tradeScopes,
     additionalLabel: (additionalSpec && additionalSpec.label) || 'Additional Document',
     additionalKey: 'other',
     customBomType: CUSTOM_BOM_TYPE,
+    tradeScopeType: TRADE_SCOPE_TYPE,
     createBom: (props && props.onCreateBom) || (() => {}),
+    createTradeScope: (props && props.onCreateTradeScope) || (() => {}),
     // Upload / extraction wiring (see App.tsx + TabDocuments).
     planTypes: (props && props.planTypes) || null,
     planType: (props && props.planType) || 'site_plan',
@@ -455,6 +473,13 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       } catch {
         set({ projError: 'Couldn’t remove the supplier — is the backend running?' })
       }
+    },
+    // Save edits to a supplier already in the network, then refresh the
+    // directory so the card and open drawer reflect the new details. Throws on
+    // failure so the edit form can surface the error and stay open.
+    updateSupplier: async (id: string, payload: SupplierUpdate) => {
+      await apiUpdateSupplier(id, payload)
+      if (props && props.reload) await props.reload()
     },
     badgeBlue: badge('blue'), badgeSuccess: badge('success'), badgeWarn: badge('warn'),
     badgeDanger: badge('danger'), badgeViolet: badge('violet'), badgeGray: badge('gray'),

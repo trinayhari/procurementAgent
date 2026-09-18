@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -17,6 +17,11 @@ class BackgroundJob(Base):
     """
 
     __tablename__ = "background_jobs"
+
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)  # uuid
     kind: Mapped[str] = mapped_column(String, nullable=False, index=True)

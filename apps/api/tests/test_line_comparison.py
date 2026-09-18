@@ -33,7 +33,7 @@ PENDING = _line("Special (TBD)", None, None, None)  # no supplier can price this
 
 
 def _patch_quotes(monkeypatch, quotes):
-    monkeypatch.setattr(lc.quotes_repo, "list_quotes", lambda db, pid, pkg: quotes)
+    monkeypatch.setattr(lc.quotes_repo, "list_quotes", lambda db, org_id, pid, pkg: quotes)
 
 
 def test_universally_unpriced_line_does_not_block_strategies(monkeypatch):
@@ -43,7 +43,7 @@ def test_universally_unpriced_line_does_not_block_strategies(monkeypatch):
     ]
     _patch_quotes(monkeypatch, quotes)
 
-    res = lc.build_line_comparison(db=None, project_id="p", package="water", package_label="Water")
+    res = lc.build_line_comparison(db=None, org_id="org", project_id="p", package="water", package_label="Water")
     assert res is not None
     keys = {o["key"] for o in res["options"]}
     assert {"mix", "fastest", "single"} <= keys, keys
@@ -78,7 +78,7 @@ def test_priceable_line_only_one_supplier_offers_still_awards(monkeypatch):
     ]
     _patch_quotes(monkeypatch, quotes)
 
-    res = lc.build_line_comparison(db=None, project_id="p", package="water", package_label="Water")
+    res = lc.build_line_comparison(db=None, org_id="org", project_id="p", package="water", package_label="Water")
     keys = {o["key"] for o in res["options"]}
     assert {"mix", "fastest", "single"} <= keys, keys
 
@@ -104,7 +104,7 @@ def test_compute_award_ignores_pending_lines(monkeypatch):
     _patch_quotes(monkeypatch, quotes)
 
     # Empty selection → cheapest per priceable line (Pipe→Alpha 1000, Valve→Beta 450).
-    award = lc.compute_award(db=None, project_id="p", package="water", selections={})
+    award = lc.compute_award(db=None, org_id="org", project_id="p", package="water", selections={})
     assert award is not None
     assert "Special (TBD)" not in award["selections"]
     assert award["material"] == 1450.0
@@ -120,7 +120,7 @@ def test_compute_award_drops_explicitly_unselected_line(monkeypatch):
     _patch_quotes(monkeypatch, quotes)
 
     # Pipe explicitly cleared ("" — the panel's unselect); Valve → Beta.
-    award = lc.compute_award(db=None, project_id="p", package="water", selections={"Pipe": "", "Valve": "b"})
+    award = lc.compute_award(db=None, org_id="org", project_id="p", package="water", selections={"Pipe": "", "Valve": "b"})
     assert award is not None
     assert "Pipe" not in award["selections"] and award["selections"]["Valve"] == "b"
     assert award["material"] == 450.0
@@ -129,7 +129,7 @@ def test_compute_award_drops_explicitly_unselected_line(monkeypatch):
     assert award["poCount"] == 1
 
     # A *missing* Pipe key still auto-fills cheapest — strategy/partial path unchanged.
-    keep = lc.compute_award(db=None, project_id="p", package="water", selections={"Valve": "b"})
+    keep = lc.compute_award(db=None, org_id="org", project_id="p", package="water", selections={"Valve": "b"})
     assert keep["selections"]["Pipe"] == "a"  # cheapest
     assert keep["material"] == 1450.0 and keep["poCount"] == 2
 
@@ -141,7 +141,7 @@ def test_compute_award_all_lines_unselected_costs_nothing(monkeypatch):
     ]
     _patch_quotes(monkeypatch, quotes)
 
-    award = lc.compute_award(db=None, project_id="p", package="water", selections={"Pipe": "", "Valve": ""})
+    award = lc.compute_award(db=None, org_id="org", project_id="p", package="water", selections={"Pipe": "", "Valve": ""})
     assert award is not None
     assert award["selections"] == {} and award["poCount"] == 0 and award["total"] == 0
 
@@ -153,8 +153,8 @@ def test_all_lines_pending_yields_no_award(monkeypatch):
     ]
     _patch_quotes(monkeypatch, quotes)
 
-    res = lc.build_line_comparison(db=None, project_id="p", package="water", package_label="Water")
+    res = lc.build_line_comparison(db=None, org_id="org", project_id="p", package="water", package_label="Water")
     assert res is not None
     assert res["options"] == []  # nothing priceable → no strategies, but grid still returned
     assert res["lines"][0]["pending"] is True
-    assert lc.compute_award(db=None, project_id="p", package="water", selections={}) is None
+    assert lc.compute_award(db=None, org_id="org", project_id="p", package="water", selections={}) is None

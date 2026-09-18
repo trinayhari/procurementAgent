@@ -8,7 +8,7 @@ render a relative "12m / 2d" label rather than a frozen seed string.
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -16,6 +16,11 @@ from app.db import Base
 
 class ProjectEvent(Base):
     __tablename__ = "project_events"
+
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Scopes the event to a project; indexed for the newest-first list query.

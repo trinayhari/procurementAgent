@@ -13,6 +13,11 @@ class Rfq(Base):
 
     __tablename__ = "rfqs"
 
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
+
     id: Mapped[str] = mapped_column(String, primary_key=True)  # uuid
     project_id: Mapped[str] = mapped_column(
         String, ForeignKey("projects.id"), index=True, nullable=False
@@ -24,6 +29,13 @@ class Rfq(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     line_items: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON
     recipients: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON
+    # "materials" (BOM-driven quote request) or "subcontractor" (scope-of-work
+    # bid request). Set by the server at generate time — never inferred from the
+    # package key, which may point at a since-deleted document.
+    kind: Mapped[str] = mapped_column(String, nullable=False, default="materials")
+    # JSON list of {"documentId", "name"} — project documents the user chose to
+    # attach to the outgoing email. Stored denormalized like `recipients`.
+    attachments: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
@@ -61,4 +73,6 @@ class Rfq(Base):
             "body": self.body,
             "lineItems": json.loads(self.line_items or "[]"),
             "recipients": recipients,
+            "kind": self.kind or "materials",
+            "attachments": json.loads(self.attachments or "[]"),
         }

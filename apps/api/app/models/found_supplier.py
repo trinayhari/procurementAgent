@@ -17,6 +17,11 @@ class FoundSupplier(Base):
 
     __tablename__ = "found_suppliers"
 
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
+
     id: Mapped[str] = mapped_column(String, primary_key=True)  # uuid
     project_id: Mapped[str] = mapped_column(
         String, ForeignKey("projects.id"), index=True, nullable=False

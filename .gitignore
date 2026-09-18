@@ -26,3 +26,6 @@ bench-corpus/docs/
 
 # Claude Code session data & agent worktrees
 .claude/
+
+# OpenUI session data
+.openui/

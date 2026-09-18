@@ -6,7 +6,7 @@ re-analysis or deletion of one document replaces/removes only its own events).
 Dates are ISO YYYY-MM-DD strings — SQLite-friendly and directly comparable; an
 event with no calendar date keeps the document's own wording in `date_text`.
 """
-from sqlalchemy import Boolean, Float, Integer, String
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -14,6 +14,11 @@ from app.db import Base
 
 class TimelineEvent(Base):
     __tablename__ = "timeline_events"
+
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[str] = mapped_column(String, nullable=False, index=True)

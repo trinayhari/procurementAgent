@@ -36,16 +36,18 @@ export type SupplierTier = Schemas['SupplierTier']
 export type SupplierSearchResult = Schemas['SupplierSearchResult']
 export type PackageBom = Schemas['PackageBom']
 export type CustomBomSummary = Schemas['CustomBomSummary']
+export type TradeScopeSummary = Schemas['TradeScopeSummary']
 export type PersistedRfq = Schemas['PersistedRfq']
 export type RfqRecipient = Schemas['RfqRecipient']
 export type RfqLineItem = Schemas['RfqLineItem']
+export type RfqAttachment = Schemas['RfqAttachment']
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 // ----------------------------------------------------------------- auth token
 // The JWT minted by /api/auth/login is kept in localStorage and attached as a
 // Bearer header to every request. Components subscribe to changes via onAuthChange.
-const TOKEN_KEY = 'procureai_token'
+export const TOKEN_KEY = 'procureai_token'
 const authListeners = new Set<() => void>()
 
 export function getToken(): string | null {
@@ -152,9 +154,9 @@ export function getMe(): Promise<AuthUser> {
   return get<AuthUser>('/api/auth/me')
 }
 
-// Update account settings; `senderEmail: null` clears the custom RFQ From
-// address (outgoing RFQs revert to the workspace default).
-export async function updateMe(input: { senderEmail: string | null }): Promise<AuthUser> {
+// Update account settings; `ccEmail: null` stops copying you on outgoing mail.
+// It is never a From address — everything is sent from the workspace mailbox.
+export async function updateMe(input: { ccEmail: string | null }): Promise<AuthUser> {
   const res = await fetch(`${BASE}/api/auth/me`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -174,8 +176,63 @@ export function sendTestEmail(): Promise<TestEmailResult> {
   return post<TestEmailResult>('/api/auth/test-email')
 }
 
+// The workspace's effective outbound-email setup, derived from the backend's
+// PROCUREAI_GMAIL_* environment variables. `configured: false` means nothing is
+// actually delivered, and `senderAddressSet: false` means `fromAddress` is only
+// a placeholder — surface both rather than implying mail is going out.
+export type EmailConfig = Schemas['EmailConfig']
+export function getEmailConfig(): Promise<EmailConfig> {
+  return get<EmailConfig>('/api/auth/email-config')
+}
+
 export function logout(): void {
   setToken(null)
+}
+
+// ------------------------------------------------------------------ team API
+export type TeamMembers = Schemas['TeamMembers']
+export type Invite = Schemas['Invite']
+export type InvitePreview = Schemas['InvitePreview']
+
+// The caller's org roster: current members + still-open invitations.
+export function getTeam(): Promise<TeamMembers> {
+  return get<TeamMembers>('/api/team')
+}
+
+// Invite a teammate by email. Throws with the backend's reason (e.g. already a
+// member / already invited).
+export function createInvite(email: string): Promise<Invite> {
+  return post<Invite>('/api/team/invites', { email })
+}
+
+// Cancel a pending invitation.
+export async function revokeInvite(inviteId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/team/invites/${inviteId}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  })
+  if (!res.ok) {
+    onUnauthorized(res.status)
+    throw new Error(`Revoke failed (${res.status})`)
+  }
+}
+
+// Public: what the accept screen shows before the invitee commits (no auth).
+export async function previewInvite(token: string): Promise<InvitePreview> {
+  const res = await fetch(`${BASE}/api/invite/${encodeURIComponent(token)}`)
+  if (!res.ok) throw new Error(`Invite preview failed (${res.status})`)
+  return res.json() as Promise<InvitePreview>
+}
+
+// Public: redeem an invite — creates the user in the inviting org and logs them
+// in (persists the token), like register/login.
+export async function acceptInvite(
+  token: string,
+  input: { name?: string; password: string },
+): Promise<AuthUser> {
+  const data = await authRequest(`/api/invite/${encodeURIComponent(token)}/accept`, input)
+  setToken(data.accessToken)
+  return data.user
 }
 
 // ------------------------------------------------------- document extraction
@@ -326,9 +383,34 @@ export function getPackageBom(
 // supplier manually there, or from a project's search results. Idempotent by
 // name server-side, so saving the same supplier twice is a no-op.
 export type SupplierCreate = Schemas['SupplierCreate']
+export type SupplierUpdate = Schemas['SupplierUpdate']
 
 export function createSupplier(payload: SupplierCreate): Promise<Supplier> {
   return post<Supplier>('/api/suppliers', payload)
+}
+
+// Edit a supplier already in the network. Only the fields present in `payload`
+// are changed; the supplier id is stable even when the name changes.
+export async function updateSupplier(
+  supplierId: string,
+  payload: SupplierUpdate,
+): Promise<Supplier> {
+  const res = await fetch(`${BASE}/api/suppliers/${supplierId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    if (res.status === 409) throw new Error('Another supplier already has that name')
+    throw new Error(`update supplier -> ${res.status}`)
+  }
+  return res.json() as Promise<Supplier>
+}
+
+// One supplier's full detail, including its own communication history. Fetched
+// on demand when the supplier drawer opens (the timeline is per-supplier).
+export function getSupplierDetail(supplierId: string): Promise<SupplierDetail> {
+  return get<SupplierDetail>(`/api/suppliers/${supplierId}`)
 }
 
 // Remove a supplier from the customer's network.
@@ -343,13 +425,17 @@ export function deleteSupplier(supplierId: string): Promise<void> {
 
 // ------------------------------------------------------------- generated RFQs
 // Generate a draft RFQ for a package from the chosen found-supplier ids.
+// `scope` is the scope-of-work text for a subcontractor trade package — it
+// drives the bid-request body (materials packages ignore it).
 export function generateRfq(
   projectId: string,
   pkg: string,
   supplierIds: string[],
+  scope?: string,
 ): Promise<PersistedRfq> {
   return post<PersistedRfq>(`/api/projects/${projectId}/packages/${pkg}/rfqs/generate`, {
     supplier_ids: supplierIds,
+    ...(scope !== undefined ? { scope } : {}),
   })
 }
 
@@ -373,17 +459,68 @@ export function listProjectBoms(projectId: string): Promise<CustomBomSummary[]> 
   return get<CustomBomSummary[]>(`/api/projects/${projectId}/boms`)
 }
 
+// ------------------------------------------------------------- trade scopes
+// A trade scope is a subcontractor trade the user wants bids for (e.g.
+// "Concrete flatwork"), created in the Documents panel with a scope-of-work
+// description. Like a custom BOM, its document id doubles as a package key so
+// the same search → select → generate flow finds trade contractors and sends
+// them a bid request instead of a materials quote.
+
+export function listTradeScopes(projectId: string): Promise<TradeScopeSummary[]> {
+  return get<TradeScopeSummary[]>(`/api/projects/${projectId}/trades`)
+}
+
+export function createTradeScope(
+  projectId: string,
+  name: string,
+  scope = '',
+): Promise<TradeScopeSummary> {
+  return post<TradeScopeSummary>(`/api/projects/${projectId}/trades`, { name, scope })
+}
+
+export function updateTradeScope(
+  projectId: string,
+  tradeId: string,
+  scope: string,
+): Promise<TradeScopeSummary> {
+  return fetch(`${BASE}/api/projects/${projectId}/trades/${tradeId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ scope }),
+  }).then((r) => {
+    if (!r.ok) throw new Error(`update trade scope -> ${r.status}`)
+    return r.json() as Promise<TradeScopeSummary>
+  })
+}
+
 export function saveRfq(
   projectId: string,
   rfqId: string,
-  patch: { subject: string; body: string; recipients: RfqRecipient[] },
+  patch: {
+    subject: string
+    body: string
+    recipients: RfqRecipient[]
+    // Document ids to attach to the outgoing email; omit to leave unchanged.
+    attachmentIds?: string[]
+  },
 ): Promise<PersistedRfq> {
+  const { attachmentIds, ...rest } = patch
+  const body = {
+    ...rest,
+    ...(attachmentIds !== undefined ? { attachment_ids: attachmentIds } : {}),
+  }
   return fetch(`${BASE}/api/projects/${projectId}/rfqs/${rfqId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(patch),
-  }).then((r) => {
-    if (!r.ok) throw new Error(`save rfq -> ${r.status}`)
+    body: JSON.stringify(body),
+  }).then(async (r) => {
+    if (!r.ok) {
+      // Surface the backend's reason (e.g. "Attachments exceed the 15 MB email
+      // limit") instead of a bare status code.
+      const data = await r.json().catch(() => null)
+      const detail = data && typeof data.detail === 'string' ? data.detail : null
+      throw new Error(detail || `save rfq -> ${r.status}`)
+    }
     return r.json() as Promise<PersistedRfq>
   })
 }
@@ -407,8 +544,8 @@ export function deleteRfq(projectId: string, rfqId: string): Promise<void> {
 }
 
 // User-approved send: delivers the RFQ to every recipient via Gmail (or the
-// logging mock when Gmail is unconfigured). Attaches a line-item PDF and flips
-// the RFQ to 'Awaiting' (awaiting supplier quotes).
+// logging mock when Gmail is unconfigured). Attaches the documents chosen on
+// the RFQ and flips it to 'Awaiting' (awaiting supplier quotes).
 export function sendRfq(projectId: string, rfqId: string): Promise<PersistedRfq> {
   return post<PersistedRfq>(`/api/projects/${projectId}/rfqs/${rfqId}/send`)
 }
@@ -472,7 +609,6 @@ export type ModelData = {
   overviewCards: OverviewCard[]
   packages: Package[]
   suppliers: Supplier[]
-  supplierComms: SupplierComm[]
   docs: Document[]
   lineItems: LineItemGroup[]
   quotes: Quote[]
@@ -489,6 +625,21 @@ export type ModelData = {
   milestones: Milestone[]
   gantt: GanttBar[]
   ganttCols: string[]
+}
+
+// The per-project slices of the bundle, in their empty state. App.tsx spreads
+// this over `data` when switching projects so the previous project's
+// documents/quotes never flash under the new project's route. A function (not a
+// shared constant) so callers never share mutable array references. Keep the key
+// list in sync with the per-project fields of ModelData above.
+export function emptyProjectSlices(): Pick<ModelData,
+  'projectActivity' | 'overviewCards' | 'packages' | 'docs' | 'lineItems' | 'quotes' |
+  'comparison' | 'rfqs' | 'rfqFolders' | 'milestones' | 'gantt' | 'ganttCols'> {
+  return {
+    projectActivity: [], overviewCards: [], packages: [], docs: [], lineItems: [], quotes: [],
+    comparison: { suppliers: [], rows: [], recommendation: '', reasons: [], savings: '', savingsNote: '' },
+    rfqs: [], rfqFolders: [], milestones: [], gantt: [], ganttCols: [],
+  }
 }
 
 // Fetches everything the current workspace renders, in parallel, and reshapes it
@@ -514,17 +665,15 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
   const pid =
     (projectId && projects.some((p) => p.id === projectId) ? projectId : null) ||
     (projects[0] ? projects[0].id : null)
-  const supId = suppliers[0] ? suppliers[0].id : null
 
   // Per-project fetch that short-circuits to its fallback when there's no project.
   const proj = <T>(path: string, fb: T): Promise<T> => (pid ? safe(get<T>(path), fb) : Promise.resolve(fb))
   const emptyComparison = { suppliers: [], rows: [], recommendation: '', reasons: [], savings: '', savingsNote: '' } as unknown as Comparison
   const emptyTimeline = { milestones: [], gantt: [], ganttCols: [] } as unknown as Timeline
 
-  const [detail, supplierDetail, docs, lineItems, quotes, comparison, rfqs, rfqFolders, timeline] =
+  const [detail, docs, lineItems, quotes, comparison, rfqs, rfqFolders, timeline] =
     await Promise.all([
       proj(`/api/projects/${pid}`, { overviewCards: [], packages: [], activity: [] } as unknown as ProjectDetail),
-      supId ? safe(get<SupplierDetail>(`/api/suppliers/${supId}`), { comms: [] } as unknown as SupplierDetail) : Promise.resolve({ comms: [] } as unknown as SupplierDetail),
       proj(`/api/projects/${pid}/documents`, [] as Document[]),
       proj(`/api/projects/${pid}/line-items`, [] as LineItemGroup[]),
       proj(`/api/projects/${pid}/quotes`, [] as Quote[]),
@@ -542,7 +691,6 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
     overviewCards: detail.overviewCards,
     packages: detail.packages,
     suppliers,
-    supplierComms: supplierDetail.comms,
     docs,
     lineItems,
     quotes,

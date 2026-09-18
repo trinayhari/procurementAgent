@@ -27,6 +27,7 @@ from app.models.user import User
 from app.repositories import audit as audit_repo
 from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
+from app.repositories import projects as projects_repo
 from app.repositories import timeline as timeline_repo
 from app.schemas.document import (
     Document,
@@ -71,22 +72,33 @@ def list_plan_types():
 
 
 @router.get("/{document_id}", response_model=Document)
-def get_document(document_id: str, db: Session = Depends(get_db)):
-    doc = documents_repo.get(db, document_id)
+def get_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    doc = documents_repo.get(db, org_id, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     payload = doc.to_dict()
-    payload["timelineEvents"] = timeline_repo.count_for_document(db, document_id)
+    payload["timelineEvents"] = timeline_repo.count_for_document(db, org_id, document_id)
     return payload
 
 
 @router.get("/{document_id}/file-url")
-def get_document_file_url(document_id: str, db: Session = Depends(get_db)):
+def get_document_file_url(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Mint a signed, short-lived URL for previewing/downloading the original file.
 
     The frontend loads files in an iframe (no Authorization header possible), so
-    access is granted via a scoped token bound to this one document."""
-    doc = documents_repo.get(db, document_id)
+    access is granted via a scoped token bound to this one document. The org
+    check happens HERE — the token is only ever minted for a document the
+    caller's organization owns."""
+    doc = documents_repo.get(db, current_user.organization_id, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     if not storage.exists(doc.source_path):
@@ -96,7 +108,11 @@ def get_document_file_url(document_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{document_id}/preview", response_model=DocumentPreview)
-def get_document_preview(document_id: str, db: Session = Depends(get_db)):
+def get_document_preview(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Page count + signed URLs for previewing a document.
 
     The panel renders server-side page images rather than embedding the original
@@ -104,7 +120,8 @@ def get_document_preview(document_id: str, db: Session = Depends(get_db)):
     webviews don't have one — see services/preview.py). `pageUrl` carries a
     `{page}` placeholder the client fills in per page.
     """
-    doc = documents_repo.get(db, document_id)
+    org_id = current_user.organization_id
+    doc = documents_repo.get(db, org_id, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     locator = doc.source_path
@@ -118,7 +135,7 @@ def get_document_preview(document_id: str, db: Session = Depends(get_db)):
     # Probing costs a subprocess; persist what we learn so older rows (uploaded
     # before the count was recorded) only pay it once.
     if pages and pages != doc.pages:
-        documents_repo.update_status(db, document_id, pages=pages)
+        documents_repo.update_status(db, org_id, document_id, pages=pages)
     return {
         "pages": pages,
         "pageUrl": f"/api/documents/{document_id}/page/{{page}}?token={token}" if pages else None,
@@ -136,7 +153,10 @@ def get_document_page(document_id: str, page: int, token: str = "", db: Session 
     PDF can't take down the API and a page is only rasterised once."""
     if not token or verify_scoped_token(token, f"file:{document_id}") is None:
         raise HTTPException(status_code=401, detail="Invalid or expired file token")
-    doc = documents_repo.get(db, document_id)
+    # No current user here (this router is mounted outside the auth dependency),
+    # so the org check can't happen at this point — the token is the authority,
+    # and it is only minted by GET /{id}/preview after an org check.
+    doc = documents_repo.get_unscoped(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     locator = doc.source_path
@@ -171,7 +191,9 @@ def get_document_file(document_id: str, token: str = "", db: Session = Depends(g
     short-lived presigned URL. Seed/demo docs have no stored file and 404."""
     if not token or verify_scoped_token(token, f"file:{document_id}") is None:
         raise HTTPException(status_code=401, detail="Invalid or expired file token")
-    doc = documents_repo.get(db, document_id)
+    # See get_document_page: the scoped token, minted only by an org-checked
+    # endpoint, is what authorizes this request.
+    doc = documents_repo.get_unscoped(db, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     locator = doc.source_path
@@ -183,11 +205,16 @@ def get_document_file(document_id: str, token: str = "", db: Session = Depends(g
 
 
 @router.get("/{document_id}/line-items", response_model=List[LineItemGroup])
-def get_document_line_items(document_id: str, db: Session = Depends(get_db)):
+def get_document_line_items(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """BOM groups extracted from one document."""
-    if documents_repo.get(db, document_id) is None:
+    org_id = current_user.organization_id
+    if documents_repo.get(db, org_id, document_id) is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    groups = documents_repo.get_line_items(db, document_id)
+    groups = documents_repo.get_line_items(db, org_id, document_id)
     return groups or []
 
 
@@ -202,13 +229,14 @@ def save_document_line_items(
 
     Recomputes group counts and the document's item total, and flags it as edited.
     """
-    doc = documents_repo.get(db, document_id)
+    org_id = current_user.organization_id
+    doc = documents_repo.get(db, org_id, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     groups = [g.model_dump() for g in payload.groups]
-    saved = documents_repo.save_line_items(db, document_id, groups)
+    saved = documents_repo.save_line_items(db, org_id, document_id, groups)
     audit_repo.log(
-        db, current_user, "bom.edited", "document", document_id,
+        db, org_id, current_user, "bom.edited", "document", document_id,
         project_id=doc.project_id,
         detail={"groups": len(groups), "items": sum(len(g.get("items", [])) for g in groups)},
     )
@@ -222,11 +250,14 @@ def confirm_document(
     current_user: User = Depends(get_current_user),
 ):
     """Human-in-the-loop: mark a document's BOM as reviewed and approved."""
-    doc = documents_repo.confirm(db, document_id, datetime.now().strftime("%b %d, %Y"))
+    org_id = current_user.organization_id
+    doc = documents_repo.confirm(
+        db, org_id, document_id, datetime.now().strftime("%b %d, %Y")
+    )
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     audit_repo.log(
-        db, current_user, "bom.confirmed", "document", document_id,
+        db, org_id, current_user, "bom.confirmed", "document", document_id,
         project_id=doc.project_id, detail={"name": doc.name},
     )
     return doc.to_dict()
@@ -246,9 +277,12 @@ def create_manual_bom(
     (its document id is used as the package key), replacing the old free-text
     ad-hoc RFQ flow with a saved, viewable bill of materials.
     """
+    org_id = current_user.organization_id
+    _require_project(db, org_id, payload.projectId)
     name = payload.name.strip() or "Custom BOM"
     doc = documents_repo.add(
         db,
+        org_id=org_id,
         name=name,
         doc_type="Custom BOM",
         pages=0,
@@ -261,22 +295,23 @@ def create_manual_bom(
     )
     # Seed one empty group so the editor opens with a place to add items.
     documents_repo.set_line_items(
-        db, doc.id, [{"group": name, "count": 0, "tone": "blue", "items": []}]
+        db, org_id, doc.id, [{"group": name, "count": 0, "tone": "blue", "items": []}]
     )
-    documents_repo.update_status(db, doc.id, items="0")
+    documents_repo.update_status(db, org_id, doc.id, items="0")
     audit_repo.log(
-        db, current_user, "bom.created_manual", "document", doc.id,
+        db, org_id, current_user, "bom.created_manual", "document", doc.id,
         project_id=payload.projectId, detail={"name": name},
     )
     events_repo.log(
         db,
+        org_id,
         payload.projectId,
         title=f"Custom BOM created — {name}",
         icon="file",
         tone="blue",
         meta="Manual bill of materials",
     )
-    return documents_repo.get(db, doc.id).to_dict()
+    return documents_repo.get(db, org_id, doc.id).to_dict()
 
 
 @router.delete("/{document_id}", status_code=204)
@@ -286,11 +321,12 @@ def delete_document(
     current_user: User = Depends(get_current_user),
 ):
     """Delete a document, its extracted BOM, and any uploaded source file."""
-    deleted = documents_repo.delete(db, document_id)
+    org_id = current_user.organization_id
+    deleted = documents_repo.delete(db, org_id, document_id)
     if deleted is None:
         raise HTTPException(status_code=404, detail="Document not found")
     audit_repo.log(
-        db, current_user, "document.deleted", "document", document_id,
+        db, org_id, current_user, "document.deleted", "document", document_id,
         project_id=getattr(deleted, "project_id", None) or None,
         detail={"name": getattr(deleted, "name", "")},
     )
@@ -308,6 +344,8 @@ async def upload_document(
 ):
     """Upload a plan set and kick off background AI extraction. The document is
     attached to `project_id` so each project keeps its own document list."""
+    org_id = current_user.organization_id
+    _require_project(db, org_id, project_id)
     plan_type = plan_type or extraction.registry.default_key()
     spec = extraction.registry.get(plan_type)
     if spec is None or not spec.enabled:
@@ -341,7 +379,7 @@ async def upload_document(
     # Single-document slots (site / building / electrical plan) hold one document
     # each — re-uploading that plan type replaces the prior one ("update a slot").
     if spec.singleton:
-        documents_repo.delete_for_plan_type(db, project_id, plan_type)
+        documents_repo.delete_for_plan_type(db, org_id, project_id, plan_type)
 
     # "Additional Document" slots have no BOM categories, so there's no BOM to
     # extract — but every renderable document still goes through TIMELINE
@@ -351,6 +389,7 @@ async def upload_document(
 
     doc = documents_repo.add(
         db,
+        org_id=org_id,
         name=os.path.splitext(safe_name)[0],
         doc_type=spec.label,
         pages=pages,
@@ -365,7 +404,7 @@ async def upload_document(
     )
     payload = doc.to_dict()
     audit_repo.log(
-        db, current_user, "document.uploaded", "document", doc.id,
+        db, org_id, current_user, "document.uploaded", "document", doc.id,
         project_id=project_id,
         detail={
             "name": payload["name"], "planType": plan_type, "pages": pages,
@@ -375,6 +414,7 @@ async def upload_document(
     )
     events_repo.log(
         db,
+        org_id,
         project_id,
         title=f"{'Plans' if extractable else 'Document'} uploaded — {payload['name']}",
         icon="file",
@@ -382,7 +422,7 @@ async def upload_document(
         meta=f"{spec.label}{f' · {pages} pages' if pages else ''}",
     )
     if analyzable:
-        background.add_task(_run_pipeline, doc.id, stored.locator, plan_type)
+        background.add_task(_run_pipeline, org_id, doc.id, stored.locator, plan_type)
     return payload
 
 
@@ -394,11 +434,12 @@ def analyze_document(
     current_user: User = Depends(get_current_user),
 ):
     """Re-run extraction (BOM and timeline) for an already-uploaded document."""
-    doc = documents_repo.get(db, document_id)
+    org_id = current_user.organization_id
+    doc = documents_repo.get(db, org_id, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     audit_repo.log(
-        db, current_user, "document.reanalyzed", "document", document_id,
+        db, org_id, current_user, "document.reanalyzed", "document", document_id,
         project_id=doc.project_id, detail={"name": doc.name},
     )
     plan_type = doc.plan_type
@@ -408,12 +449,14 @@ def analyze_document(
     spec = extraction.registry.get(plan_type)
     if spec is None:
         raise HTTPException(status_code=409, detail="This document type cannot be analyzed")
-    documents_repo.update_status(db, document_id, status="Processing", status_tone="blue", processing=True)
-    background.add_task(_run_pipeline, document_id, path, plan_type)
-    return documents_repo.get(db, document_id).to_dict()
+    documents_repo.update_status(
+        db, org_id, document_id, status="Processing", status_tone="blue", processing=True
+    )
+    background.add_task(_run_pipeline, org_id, document_id, path, plan_type)
+    return documents_repo.get(db, org_id, document_id).to_dict()
 
 
-def _run_pipeline(document_id: str, locator: str, plan_type: str) -> None:
+def _run_pipeline(org_id: str, document_id: str, locator: str, plan_type: str) -> None:
     """Background worker: run timeline extraction, then BOM extraction.
 
     Timeline runs FIRST (it's one cheap text call) so that when the BOM pass
@@ -425,31 +468,35 @@ def _run_pipeline(document_id: str, locator: str, plan_type: str) -> None:
     Extraction (PyMuPDF in a subprocess) needs a filesystem path, so the
     stored file is materialised locally for the duration — a no-op on the
     local backend, a temp download for S3.
+
+    `org_id` is captured from the request that scheduled this task: the worker
+    opens its own session and must scope every write to the same tenant the
+    upload was authorized against.
     """
     try:
         with storage.local_copy(locator) as path:
-            _run_timeline_extraction(document_id, path)
+            _run_timeline_extraction(org_id, document_id, path)
             spec = extraction.registry.get(plan_type)
             if spec is not None and spec.categories:
-                _run_extraction(document_id, path, plan_type)
+                _run_extraction(org_id, document_id, path, plan_type)
                 return
     except Exception as exc:  # e.g. the S3 download failed
         logger.exception("Could not materialise stored file: doc=%s", document_id)
         with SessionLocal() as db:
             documents_repo.update_status(
-                db, document_id,
+                db, org_id, document_id,
                 status="Failed", status_tone="danger", processing=False,
                 items="—", error=f"Could not read the stored file: {exc}",
             )
         return
     with SessionLocal() as db:
         documents_repo.update_status(
-            db, document_id,
+            db, org_id, document_id,
             status="Analyzed", status_tone="success", processing=False,
         )
 
 
-def _run_timeline_extraction(document_id: str, path: str) -> None:
+def _run_timeline_extraction(org_id: str, document_id: str, path: str) -> None:
     """Extract schedule events from one document into the project timeline.
 
     Best-effort: the timeline is an enrichment, so a failure here never fails
@@ -467,20 +514,22 @@ def _run_timeline_extraction(document_id: str, path: str) -> None:
         logger.warning("Timeline extraction failed: doc=%s error=%s", document_id, result.error)
         return
     with SessionLocal() as db:
-        doc = documents_repo.get(db, document_id)
+        doc = documents_repo.get(db, org_id, document_id)
         if doc is None:
             return
-        n = timeline_repo.replace_for_document(db, doc.project_id, document_id, doc.name, result.events)
+        n = timeline_repo.replace_for_document(
+            db, org_id, doc.project_id, document_id, doc.name, result.events
+        )
         logger.info("Timeline extraction complete: doc=%s events=%s", document_id, n)
         if n:
             events_repo.log(
-                db, doc.project_id,
+                db, org_id, doc.project_id,
                 title=f"Timeline extracted — {n} schedule event{'s' if n != 1 else ''}",
                 icon="sparkles", tone="ai", meta=doc.name,
             )
 
 
-def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
+def _run_extraction(org_id: str, document_id: str, path: str, plan_type: str) -> None:
     """Background worker: extract BOMs and update the document record.
 
     Runs after the response is sent, so it opens its own DB session rather than
@@ -500,41 +549,41 @@ def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
     except Exception as exc:  # noqa: BLE001 — last-resort guard for the background task
         logger.exception("Extraction crashed: doc=%s", document_id)
         with SessionLocal() as db:
-            doc = documents_repo.get(db, document_id)
+            doc = documents_repo.get(db, org_id, document_id)
             if doc is None:
                 return
             documents_repo.update_status(
-                db, document_id,
+                db, org_id, document_id,
                 status="Failed", status_tone="danger", processing=False,
                 items="—", error=f"Extraction failed: {exc}",
             )
             events_repo.log(
-                db, doc.project_id,
+                db, org_id, doc.project_id,
                 title=f"Extraction failed — {doc.name}",
                 icon="alert", tone="danger", meta=str(exc)[:80],
             )
         return
 
     with SessionLocal() as db:
-        doc = documents_repo.get(db, document_id)
+        doc = documents_repo.get(db, org_id, document_id)
         if doc is None:
             return
-        documents_repo.set_line_items(db, document_id, result.groups)
+        documents_repo.set_line_items(db, org_id, document_id, result.groups)
         if result.error:
             logger.warning("Extraction failed: doc=%s error=%s", document_id, result.error)
             documents_repo.update_status(
-                db, document_id,
+                db, org_id, document_id,
                 status="Failed", status_tone="danger", processing=False,
                 items="—", error=result.error,
             )
             events_repo.log(
-                db, doc.project_id,
+                db, org_id, doc.project_id,
                 title=f"Extraction failed — {doc.name}",
                 icon="alert", tone="danger", meta=result.error[:80],
             )
         else:
             documents_repo.update_status(
-                db, document_id,
+                db, org_id, document_id,
                 status="Analyzed", status_tone="success", processing=False,
                 items=str(result.total_items), summary=result.summary, mocked=result.mocked,
             )
@@ -543,7 +592,18 @@ def _run_extraction(document_id: str, path: str, plan_type: str) -> None:
                 document_id, result.total_items, result.mocked,
             )
             events_repo.log(
-                db, doc.project_id,
+                db, org_id, doc.project_id,
                 title=f"BOM extracted — {result.total_items} line items",
                 icon="sparkles", tone="ai", meta=doc.name,
             )
+
+
+def _require_project(db: Session, org_id: str, project_id: str) -> None:
+    """404 unless the caller's organization owns `project_id`.
+
+    Attaching a document to a project id is a write into that project, so the
+    id has to be checked here as well — otherwise an upload could be planted in
+    another tenant's project.
+    """
+    if projects_repo.get_project(db, org_id, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")

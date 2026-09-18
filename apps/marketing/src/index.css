@@ -37,6 +37,28 @@ a:hover { color: var(--color-accent); }
   .pq-split { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* Beyond the design: the "plan set to purchase order" steps are a fixed
+   number / title / body 3-column grid. On a phone the title and body tracks
+   can't shrink below their longest word, so each row overflows the viewport
+   (and the page picks up horizontal scroll). Stack to one column below the
+   tablet breakpoint; the leading rule between rows moves to an adjacency
+   selector so the stacked layout keeps its dividers. */
+.pq-step {
+  display: grid;
+  grid-template-columns: minmax(64px, 120px) minmax(0, 380px) minmax(0, 1fr);
+  gap: 28px clamp(24px, 4vw, 72px);
+  align-items: baseline;
+  padding: 42px 0;
+}
+.pq-step + .pq-step { border-top: 2px solid var(--color-divider); }
+@media (max-width: 720px) {
+  .pq-step {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 28px 0;
+  }
+}
+
 /* ── Product mock ──────────────────────────────────────────────────────────
    The embedded screenshots are a recreation of the Proq app, so they run on the
    *product's* palette and faces rather than the Modernist ones — the contrast

@@ -30,6 +30,7 @@
           "auth"
         ],
         "summary": "Register",
+        "description": "Create an account and, with it, the organization that owns its data.\n\nEvery signup here gets its own new tenant. Joining an EXISTING organization\ngoes through the invite flow instead (POST /api/invite/{token}/accept in\napp/api/routes/team.py), which creates the user in the inviting org.",
         "operationId": "register_api_auth_register_post",
         "requestBody": {
           "content": {
@@ -176,13 +177,40 @@
         ]
       }
     },
+    "/api/auth/email-config": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Email Config",
+        "description": "The effective outbound-email setup: which mailbox mail leaves from,\nwhether Gmail is actually connected, and your Cc address.\n\nEvery field derives from the PROCUREAI_GMAIL_* environment variables (see\ndocs/email-setup.md) \u2014 nothing here is per-user except `ccEmail` and the\ndisplay name baked into `fromHeader`.",
+        "operationId": "email_config_api_auth_email_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailConfig"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
     "/api/auth/test-email": {
       "post": {
         "tags": [
           "auth"
         ],
         "summary": "Send Test Email",
-        "description": "Verify the email configuration by sending a test message to yourself.\n\nUses exactly the same path as an RFQ send: the configured provider (Gmail\nor the logging mock) and your effective From address (your per-user sender\nwhen set, else the workspace default). See docs/email-setup.md.",
+        "description": "Verify the email configuration by sending a test message to yourself.\n\nUses exactly the same path as an RFQ send: the configured provider (Gmail\nor the logging mock) and the workspace From address carrying your display\nname. See docs/email-setup.md.",
         "operationId": "send_test_email_api_auth_test_email_post",
         "responses": {
           "200": {
@@ -298,6 +326,102 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invite/{token}": {
+      "get": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Preview Invite",
+        "description": "What the accept screen shows before the invitee commits. Never reveals\nwhether a token is real beyond valid/invalid + a coarse reason.",
+        "operationId": "preview_invite_api_invite__token__get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitePreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invite/{token}/accept": {
+      "post": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Accept Invite",
+        "description": "Redeem an invite: create the user in the inviting org and log them in.\n\nThe email is taken from the invite (the invitee can't change who was\ninvited); only name + password come from the request.",
+        "operationId": "accept_invite_api_invite__token__accept_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
               }
             }
           },
@@ -1561,6 +1685,181 @@
         }
       }
     },
+    "/api/projects/{project_id}/trades": {
+      "get": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "List Trade Scopes",
+        "description": "The project's subcontractor trade scopes \u2014 the selectable trade packages\nin the supplier search. Each scope's document id doubles as its package key.",
+        "operationId": "list_trade_scopes_api_projects__project_id__trades_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TradeScopeSummary"
+                  },
+                  "title": "Response List Trade Scopes Api Projects  Project Id  Trades Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Create Trade Scope",
+        "description": "Create a subcontractor trade scope \u2014 a free-text trade the user wants\nbids for (e.g. \"Concrete flatwork\"), with a scope-of-work description.\n\nLike a custom BOM there is no file and no extraction: the document id\nbecomes a package key, so the trade flows through the same search \u2192 select\n\u2192 RFQ pipeline. The RFQ it generates is a bid request built from the scope\ntext rather than BOM line items.",
+        "operationId": "create_trade_scope_api_projects__project_id__trades_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeScopeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeScopeSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/trades/{trade_id}": {
+      "put": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Update Trade Scope",
+        "description": "Update a trade scope's scope-of-work description.",
+        "operationId": "update_trade_scope_api_projects__project_id__trades__trade_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "trade_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trade Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeScopeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeScopeSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/packages/{package}/rfqs/generate": {
       "post": {
         "tags": [
@@ -1993,7 +2292,7 @@
           "suppliers"
         ],
         "summary": "Create Supplier",
-        "description": "Add a supplier to the customer's directory (manually or from a search\nresult). Idempotent by name.",
+        "description": "Add a supplier to the customer's directory (manually or from a search\nresult). Idempotent by name within the organization.",
         "operationId": "create_supplier_api_suppliers_post",
         "requestBody": {
           "content": {
@@ -2064,6 +2363,62 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SupplierDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "suppliers"
+        ],
+        "summary": "Update Supplier",
+        "description": "Edit a supplier's details in the customer's directory. Only the fields\npresent in the request body are changed.",
+        "operationId": "update_supplier_api_suppliers__supplier_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "supplier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Supplier Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Supplier"
                 }
               }
             }
@@ -2243,7 +2598,7 @@
           "documents"
         ],
         "summary": "Get Document File Url",
-        "description": "Mint a signed, short-lived URL for previewing/downloading the original file.\n\nThe frontend loads files in an iframe (no Authorization header possible), so\naccess is granted via a scoped token bound to this one document.",
+        "description": "Mint a signed, short-lived URL for previewing/downloading the original file.\n\nThe frontend loads files in an iframe (no Authorization header possible), so\naccess is granted via a scoped token bound to this one document. The org\ncheck happens HERE \u2014 the token is only ever minted for a document the\ncaller's organization owns.",
         "operationId": "get_document_file_url_api_documents__document_id__file_url_get",
         "security": [
           {
@@ -2885,7 +3240,7 @@
           "timeline"
         ],
         "summary": "Set Event Done",
-        "description": "Human check-off for a milestone: the schedule can't know a milestone\nactually happened from dates alone, so completion is confirmed (or undone)\nby the user. Applies to every same-named event in the project, and survives\ndocument re-analysis.",
+        "description": "Human check-off for a milestone: the schedule can't know a milestone\nactually happened from dates alone, so completion is confirmed (or undone)\nby the user. Applies to every same-named event in the project, and survives\ndocument re-analysis.\n\nTimeline event ids are sequential integers, so another org's id is trivially\nguessable \u2014 set_done filters on the org and this route 404s when it misses.",
         "operationId": "set_event_done_api_timeline_events__event_id__done_post",
         "security": [
           {
@@ -3044,6 +3399,7 @@
           "audit"
         ],
         "summary": "List Audit Events",
+        "description": "The caller's organization's audit trail.\n\n`project_id` narrows within the org; it can't widen past it, so passing\nanother tenant's project id returns an empty list rather than their events.",
         "operationId": "list_audit_events_api_audit_get",
         "security": [
           {
@@ -3090,6 +3446,121 @@
                 "schema": {}
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/team": {
+      "get": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Get Team",
+        "description": "The org's roster: current members plus still-open invitations.",
+        "operationId": "get_team_api_team_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMembers"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/team/invites": {
+      "post": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Create Invite",
+        "description": "Invite a teammate by email to join the caller's organization.",
+        "operationId": "create_invite_api_team_invites_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invite"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/team/invites/{invite_id}": {
+      "delete": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Revoke Invite",
+        "description": "Cancel a pending invitation. 404 for an unknown id or another org's.",
+        "operationId": "revoke_invite_api_team_invites__invite_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "invite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Invite Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -3471,6 +3942,26 @@
   },
   "components": {
     "schemas": {
+      "AcceptInviteRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "AcceptInviteRequest"
+      },
       "Activity": {
         "properties": {
           "icon": {
@@ -4485,6 +4976,52 @@
         "title": "DocumentPreview",
         "description": "Everything the preview panel needs to page through a document.\n\nPages are rendered server-side to images, so `pageUrl` is a template with a\n`{page}` placeholder the client substitutes (0-based) \u2014 one signed token\ncovers every page of this document for the life of the preview session."
       },
+      "EmailConfig": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked"
+          },
+          "senderAddressSet": {
+            "type": "boolean",
+            "title": "Senderaddressset"
+          },
+          "fromAddress": {
+            "type": "string",
+            "title": "Fromaddress"
+          },
+          "fromHeader": {
+            "type": "string",
+            "title": "Fromheader"
+          },
+          "ccEmail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ccemail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "mocked",
+          "senderAddressSet",
+          "fromAddress",
+          "fromHeader"
+        ],
+        "title": "EmailConfig",
+        "description": "Effective outbound-email configuration, straight from the environment.\n\nLets the UI state the truth instead of implying mail is going out: when\n`configured` is false nothing is delivered, and when `senderAddressSet` is\nfalse `fromAddress` is only a placeholder."
+      },
       "FollowupDraft": {
         "properties": {
           "body": {
@@ -4647,6 +5184,131 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "Invite": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "invitedByUserId": {
+            "type": "string",
+            "title": "Invitedbyuserid"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "acceptedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acceptedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "status",
+          "invitedByUserId"
+        ],
+        "title": "Invite",
+        "description": "A pending/accepted/revoked invitation (never exposes the token)."
+      },
+      "InviteCreateRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "InviteCreateRequest"
+      },
+      "InvitePreview": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "organizationName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organizationname"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid"
+        ],
+        "title": "InvitePreview",
+        "description": "What the public accept screen shows before the invitee commits: which org\nthey're joining and at which email. `valid` is false for a revoked, accepted,\nexpired, or unknown token."
       },
       "Lender": {
         "properties": {
@@ -5785,6 +6447,23 @@
             "type": "array",
             "title": "Recipients",
             "default": []
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "materials",
+              "subcontractor"
+            ],
+            "title": "Kind",
+            "default": "materials"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/RfqAttachment"
+            },
+            "type": "array",
+            "title": "Attachments",
+            "default": []
           }
         },
         "type": "object",
@@ -6298,6 +6977,25 @@
         ],
         "title": "Rfq"
       },
+      "RfqAttachment": {
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "title": "Documentid"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "documentId",
+          "name"
+        ],
+        "title": "RfqAttachment",
+        "description": "A project document the user chose to attach to the outgoing email."
+      },
       "RfqConversation": {
         "properties": {
           "rfqId": {
@@ -6428,6 +7126,18 @@
             },
             "type": "array",
             "title": "Supplier Ids"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
           }
         },
         "type": "object",
@@ -6554,6 +7264,21 @@
             },
             "type": "array",
             "title": "Recipients"
+          },
+          "attachment_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachment Ids"
           }
         },
         "type": "object",
@@ -7420,6 +8145,106 @@
         ],
         "title": "SupplierTier"
       },
+      "SupplierUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "contact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "web": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web"
+          },
+          "cats": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cats"
+          }
+        },
+        "type": "object",
+        "title": "SupplierUpdate",
+        "description": "Edit an existing directory supplier. Every field is optional \u2014 only the\nfields that are sent are changed; anything omitted is left untouched."
+      },
+      "TeamMembers": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/User"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "invites": {
+            "items": {
+              "$ref": "#/components/schemas/Invite"
+            },
+            "type": "array",
+            "title": "Invites"
+          }
+        },
+        "type": "object",
+        "required": [
+          "members",
+          "invites"
+        ],
+        "title": "TeamMembers"
+      },
       "TestEmailResult": {
         "properties": {
           "mocked": {
@@ -7437,6 +8262,17 @@
           "to": {
             "type": "string",
             "title": "To"
+          },
+          "cc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cc"
           }
         },
         "type": "object",
@@ -7583,6 +8419,64 @@
         "title": "Tone",
         "description": "Semantic color token consumed by the frontend (maps to a CSS variable)."
       },
+      "TradeScopeCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Name"
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 20000,
+            "title": "Scope",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TradeScopeCreate"
+      },
+      "TradeScopeSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "TradeScopeSummary",
+        "description": "A subcontractor trade scope, surfaced as a selectable package in the\nsupplier search. Searching on it finds trade contractors (installers) and\ngenerating from it produces a scope-of-work bid request."
+      },
+      "TradeScopeUpdate": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "maxLength": 20000,
+            "title": "Scope"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scope"
+        ],
+        "title": "TradeScopeUpdate"
+      },
       "TrialOut": {
         "properties": {
           "id": {
@@ -7707,7 +8601,7 @@
       },
       "UpdateMeRequest": {
         "properties": {
-          "senderEmail": {
+          "ccEmail": {
             "anyOf": [
               {
                 "type": "string",
@@ -7717,12 +8611,12 @@
                 "type": "null"
               }
             ],
-            "title": "Senderemail"
+            "title": "Ccemail"
           }
         },
         "type": "object",
         "title": "UpdateMeRequest",
-        "description": "Editable account settings. `senderEmail: null` clears the custom From\naddress (outgoing RFQs revert to the workspace default)."
+        "description": "Editable account settings. `ccEmail` is the address copied on outgoing\nmail you trigger; `null` clears it. It is never a From address \u2014 everything\nis sent from the workspace mailbox (see services/rfq/sender.py)."
       },
       "User": {
         "properties": {
@@ -7743,7 +8637,11 @@
             "type": "string",
             "title": "Company"
           },
-          "senderEmail": {
+          "organizationId": {
+            "type": "string",
+            "title": "Organizationid"
+          },
+          "ccEmail": {
             "anyOf": [
               {
                 "type": "string",
@@ -7753,7 +8651,7 @@
                 "type": "null"
               }
             ],
-            "title": "Senderemail"
+            "title": "Ccemail"
           },
           "createdAt": {
             "anyOf": [
@@ -7772,7 +8670,8 @@
           "id",
           "email",
           "name",
-          "company"
+          "company",
+          "organizationId"
         ],
         "title": "User",
         "description": "Public-safe user shape (never includes the password hash)."

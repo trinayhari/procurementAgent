@@ -18,6 +18,11 @@ class Document(Base):
 
     __tablename__ = "documents"
 
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
+
     # Monotonic insertion-order key (assigned by the repo); the UI lists
     # newest-first via ORDER BY seq DESC.
     seq: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)

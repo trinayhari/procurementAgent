@@ -23,6 +23,12 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5185",
     ]
 
+    # Public base URL of the web app, used to build links in outgoing emails
+    # (e.g. a team invite's accept link). Empty → fall back to the first CORS
+    # origin, then to a relative path. Set PROCUREAI_APP_BASE_URL in production
+    # (e.g. https://app.proq.com).
+    app_base_url: str = ""
+
     # ------------------------------------------------------------- persistence
     # SQLAlchemy connection URL. Defaults to a SQLite file in the backend dir;
     # override with PROCUREAI_DATABASE_URL (e.g. a Postgres DSN) in production.
@@ -124,13 +130,24 @@ class Settings(BaseSettings):
     # discovery). Leave empty to run a clearly-flagged mock supplier search.
     google_maps_api_key: str = ""
 
-    # ------------------------------------------- Gmail (single-user OAuth2 send)
-    # Mint the refresh token once out-of-band (InstalledAppFlow, scope
-    # gmail.send) and paste it here. Empty creds → mock sender (logs only).
+    # ------------------------------------------- Gmail (single-mailbox OAuth2)
+    # Every outbound email leaves ONE connected Gmail account (see
+    # services/rfq/sender.py) — users are Cc'd, never used as the From address.
+    # Env vars, all PROCUREAI_-prefixed; docs/email-setup.md has the full guide:
+    #   PROCUREAI_GMAIL_CLIENT_ID / _CLIENT_SECRET  OAuth desktop client
+    #   PROCUREAI_GMAIL_REFRESH_TOKEN               minted once out-of-band by
+    #                                               scripts/mint_gmail_token.py
+    #                                               (gmail.send + gmail.readonly)
+    #   PROCUREAI_GMAIL_SENDER_ADDRESS              that account's own address
+    # All three OAuth vars empty → mock sender (logs only, nothing delivered).
     gmail_client_id: str = ""
     gmail_client_secret: str = ""
     gmail_refresh_token: str = ""
-    gmail_sender_address: str = ""  # the "From" address, e.g. you@gmail.com
+    # The single "From" address for all outbound mail, e.g. bids@yourcompany.com.
+    # Must be the mailbox the refresh token belongs to — Gmail rewrites anything
+    # else. Empty → sender.UNCONFIGURED_SENDER_ADDRESS, flagged as unconfigured
+    # by GET /api/auth/email-config rather than shown as a working address.
+    gmail_sender_address: str = ""
     # How far back the quote-ingest poller looks for supplier replies.
     quote_ingest_lookback_days: int = 30
 

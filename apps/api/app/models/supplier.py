@@ -1,6 +1,6 @@
 import json
 
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -11,6 +11,11 @@ class Supplier(Base):
     geocoded `found_suppliers` discovered via Places search)."""
 
     __tablename__ = "suppliers"
+
+    # Tenant boundary — every read/write filters on this explicitly.
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id"), index=True, nullable=False
+    )
 
     seq: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -54,13 +59,19 @@ class Supplier(Base):
 class SupplierComm(Base):
     """A comms-history entry shown on the supplier detail page.
 
-    Seeded as a shared list (the prototype shows the same history for every
-    supplier); ordered by `seq`.
+    Scoped to one supplier via `supplier_id`; the drawer's timeline lists a
+    supplier's own entries ordered by `seq` (a supplier with none shows the
+    empty state). Tenant-scoped transitively through that supplier, which
+    carries the `organization_id` boundary — the rows themselves only ever come
+    from the seed.py literals (there is no create/update path).
     """
 
     __tablename__ = "supplier_comms"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    supplier_id: Mapped[str] = mapped_column(
+        String, ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     tone: Mapped[str] = mapped_column(String, nullable=False, default="blue")
     title: Mapped[str] = mapped_column(String, nullable=False)

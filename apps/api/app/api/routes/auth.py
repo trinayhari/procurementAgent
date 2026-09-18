@@ -7,8 +7,10 @@ from app.core.security import create_access_token, get_current_user, verify_pass
 from app.db import get_db
 from app.models.user import User
 from app.repositories import audit as audit_repo
+from app.repositories import organizations as organizations_repo
 from app.repositories import users as users_repo
 from app.schemas.auth import (
+    EmailConfig,
     LoginRequest,
     RegisterRequest,
     TestEmailResult,
@@ -34,12 +36,29 @@ _test_email_limit = rate_limit("test-email", limit=3, window_s=60)
     dependencies=[Depends(_register_limit)],
 )
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
+    """Create an account and, with it, the organization that owns its data.
+
+    Every signup here gets its own new tenant. Joining an EXISTING organization
+    goes through the invite flow instead (POST /api/invite/{token}/accept in
+    app/api/routes/team.py), which creates the user in the inviting org.
+    """
     if users_repo.get_by_email(db, body.email) is not None:
         raise HTTPException(status_code=409, detail="Email already registered")
-    user = users_repo.create_user(
-        db, email=body.email, password=body.password, name=body.name, company=body.company
+    org = organizations_repo.create_organization(
+        db,
+        organizations_repo.org_name_for_signup(
+            company=body.company, email=body.email, name=body.name
+        ),
     )
-    audit_repo.log(db, user, "auth.registered", "user", user.id)
+    user = users_repo.create_user(
+        db,
+        org.id,
+        email=body.email,
+        password=body.password,
+        name=body.name,
+        company=body.company,
+    )
+    audit_repo.log(db, org.id, user, "auth.registered", "user", user.id)
     token = create_access_token(user.id)
     return {"accessToken": token, "tokenType": "bearer", "user": user.to_dict()}
 
@@ -49,7 +68,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = users_repo.get_by_email(db, body.email)
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    audit_repo.log(db, user, "auth.logged_in", "user", user.id)
+    audit_repo.log(db, user.organization_id, user, "auth.logged_in", "user", user.id)
     token = create_access_token(user.id)
     return {"accessToken": token, "tokenType": "bearer", "user": user.to_dict()}
 
@@ -65,8 +84,23 @@ def update_me(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    user = users_repo.set_sender_email(db, current_user, body.senderEmail)
+    user = users_repo.set_cc_email(db, current_user, body.ccEmail)
     return user.to_dict()
+
+
+@router.get("/email-config", response_model=EmailConfig)
+def email_config(current_user: User = Depends(get_current_user)):
+    """The effective outbound-email setup: which mailbox mail leaves from,
+    whether Gmail is actually connected, and your Cc address.
+
+    Every field derives from the PROCUREAI_GMAIL_* environment variables (see
+    docs/email-setup.md) — nothing here is per-user except `ccEmail` and the
+    display name baked into `fromHeader`.
+    """
+    cfg = rfq_sender.email_config()
+    cfg["fromHeader"] = rfq_sender.from_display(current_user)
+    cfg["ccEmail"] = current_user.cc_email
+    return cfg
 
 
 @router.post(
@@ -81,32 +115,38 @@ def send_test_email(
     """Verify the email configuration by sending a test message to yourself.
 
     Uses exactly the same path as an RFQ send: the configured provider (Gmail
-    or the logging mock) and your effective From address (your per-user sender
-    when set, else the workspace default). See docs/email-setup.md.
+    or the logging mock) and the workspace From address carrying your display
+    name. See docs/email-setup.md.
     """
     sender = rfq_sender.get_sender()
-    from_addr = current_user.sender_email or rfq_sender.sender_address()
+    from_addr = rfq_sender.from_header(current_user)
+    shown_from = rfq_sender.from_display(current_user)  # same identity, readable
+    cc = rfq_sender.resolve_cc(current_user.cc_email, current_user.email, from_addr)
     body = (
         f"This is a test email from Proq.\n\n"
-        f"From address: {from_addr}\n"
-        f"Requested by: {current_user.email}\n\n"
-        "If the From address above is not what your recipients see, add it as a "
-        "verified 'Send mail as' alias on the connected Gmail account — "
-        "see docs/email-setup.md in the repo.\n\n— Proq"
+        f"From: {shown_from}\n"
+        f"Requested by: {current_user.email}\n"
+        + (f"Copied to: {cc}\n" if cc else "")
+        + "\nAll Proq email is sent from the workspace's connected Gmail account; "
+        "your own address is only ever copied (Cc) so you keep a record. Supplier "
+        "replies come back to the workspace mailbox, which is what feeds quote "
+        "ingest — see docs/email-setup.md in the repo.\n\n— Proq"
     )
     try:
         sent = sender.send(
-            current_user.email, "Proq test email", body, from_addr=from_addr
+            current_user.email, "Proq test email", body, from_addr=from_addr, cc=cc
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Test send failed: {exc}")
     audit_repo.log(
-        db, current_user, "email.test_sent", "user", current_user.id,
-        detail={"from": from_addr, "to": current_user.email, "mocked": sender.mocked},
+        db, current_user.organization_id, current_user, "email.test_sent", "user", current_user.id,
+        detail={"from": shown_from, "to": current_user.email, "cc": cc,
+                "mocked": sender.mocked},
     )
     return {
         "mocked": sender.mocked,
         "messageId": sent.message_id,
-        "fromAddr": from_addr,
+        "fromAddr": shown_from,
         "to": current_user.email,
+        "cc": cc,
     }

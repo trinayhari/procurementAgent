@@ -11,7 +11,6 @@ const DEMO_URL = import.meta.env.VITE_DEMO_URL
 const KICKER = 'display:block;font-size:13px;line-height:14px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 14px'
 const H2 = 'font-family:var(--font-heading);font-weight:800;font-size:32px;line-height:42px;letter-spacing:-0.015em;text-box:trim-both cap alphabetic'
 const BODY = 'font-size:15.5px;line-height:28px;color:color-mix(in srgb,var(--color-text) 78%,transparent)'
-const STEP = 'display:grid;grid-template-columns:minmax(64px,120px) minmax(0,380px) minmax(0,1fr);gap:28px clamp(24px,4vw,72px);align-items:baseline;padding:42px 0'
 
 // Until a scheduling link is configured the design's inert buttons stand in —
 // better a dead control than a guessed address. Set VITE_DEMO_URL to wire them.
@@ -175,7 +174,7 @@ export default function Landing({
         <section id="platform" style={css('padding:70px 0 56px')}>
           <span style={css(KICKER)}>Plan set to purchase order</span>
           {STEPS.map((step, i) => (
-            <div key={step.title} style={css(i === 0 ? STEP : `${STEP};border-top:2px solid var(--color-divider)`)}>
+            <div key={step.title} className="pq-step">
               <p style={css("font-family:var(--font-heading);font-weight:800;font-size:15px;line-height:28px;font-feature-settings:'tnum' 1;margin:0")}>
                 {String(i + 1).padStart(2, '0')}
               </p>

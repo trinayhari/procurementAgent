@@ -49,13 +49,17 @@ services:
         sync: false
       - key: PROCUREAI_GOOGLE_MAPS_API_KEY # supplier search; empty = mock
         sync: false
+      # Gmail (docs/email-setup.md). All three OAuth vars must be set or email
+      # falls back to the log-only mock. The sender address is the single From
+      # for every outbound message — users are Cc'd, never used as the sender —
+      # so it must be the account the refresh token was minted for.
       - key: PROCUREAI_GMAIL_CLIENT_ID # RFQ email send; empty = log-only
         sync: false
       - key: PROCUREAI_GMAIL_CLIENT_SECRET
         sync: false
       - key: PROCUREAI_GMAIL_REFRESH_TOKEN
         sync: false
-      - key: PROCUREAI_GMAIL_SENDER_ADDRESS
+      - key: PROCUREAI_GMAIL_SENDER_ADDRESS # e.g. bids@yourcompany.com
         sync: false
 
     # ---- Persistent uploads (optional, requires a paid instance) -------------

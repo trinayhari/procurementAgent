@@ -11,6 +11,11 @@ from app.config import settings
 
 _MAX_RECIPIENTS = 10
 
+_ASK = (
+    "Please provide unit pricing, current lead times, freight charges, "
+    "available substitution options, and quote validity for the following items:"
+)
+
 
 @dataclass
 class RfqDraft:
@@ -39,37 +44,80 @@ def _clean_location(project: dict) -> str:
     return "" if loc in ("", "—") else loc
 
 
-def _opening_sentence(location: str) -> str:
-    """Lead sentence for the RFQ body, naming the city of installation when known.
+def _buyer_intro(buyer) -> str:
+    """"My name is … with …" — the supplier has to know who is asking.
 
-    Suppliers ask for the install location to quote the correct specs, so we state
-    it up front rather than making them reply to ask.
+    Name and company are both optional on a user, so each clause drops out on its
+    own; we never introduce the buyer with a blank or an invented company.
     """
-    if location:
-        return (
-            f"We are requesting a quote for material to be installed in {location}. "
-            "Please provide unit pricing, current lead times, freight charges, "
-            "available substitution options, and quote validity for the following items:"
-        )
-    return (
-        "We are requesting a quote. Please provide unit pricing, current lead times, "
-        "freight charges, available substitution options, and quote validity for the "
-        "following items:"
+    name = (getattr(buyer, "name", "") or "").strip()
+    company = (getattr(buyer, "company", "") or "").strip()
+    if name and company:
+        return f"My name is {name} with {company}."
+    if name:
+        return f"My name is {name}."
+    if company:
+        return f"I am writing on behalf of {company}."
+    return ""
+
+
+def _material_phrase(package_label: str) -> str:
+    """The package label as it reads mid-sentence — "water utilities".
+
+    Labels are title-cased for the UI ("Water Utilities") but a custom BOM is
+    often named after an acronym ("PVC Pipe"), so all-caps words keep their case.
+    """
+    return " ".join(
+        w if w.isupper() else w.lower() for w in (package_label or "").split()
     )
 
 
-def _template_body(items_text: str, location: str) -> str:
+def _request_sentence(package_label: str, project_name: str, location: str) -> str:
+    """Names the material and the job it is for — a supplier's first two questions.
+
+    Material, project name, and city are each optional; a missing one drops its
+    clause instead of leaving a hole ("our  project in ."), so the sentence stays
+    grammatical however little we know.
+    """
+    material = _material_phrase(package_label)
+    sentence = "We are looking for a supplier"
+    if material:
+        sentence += f" of {material}"
+    if project_name and location:
+        sentence += f" for our {project_name} project in {location}"
+    elif project_name:
+        sentence += f" for our {project_name} project"
+    elif location:
+        sentence += f" for our project in {location}"
+    return f"{sentence}."
+
+
+def _opening_paragraph(
+    buyer, package_label: str, project_name: str, location: str
+) -> str:
+    """Who is writing, what they need, and the ask.
+
+    Both body paths are built from this one string, so the LLM and the fallback
+    template can't drift apart in what they tell the supplier.
+    """
+    parts = (
+        _buyer_intro(buyer),
+        _request_sentence(package_label, project_name, location),
+        _ASK,
+    )
+    return " ".join(p for p in parts if p)
+
+
+def _template_body(opening: str, items_text: str) -> str:
     return (
-        f"{_opening_sentence(location)}\n\n"
+        f"{opening}\n\n"
         f"{items_text}\n\n"
         "Your prompt response is appreciated. Please let us know if you need "
         "additional information to complete your quote."
     )
 
 
-def _llm_body(
-    project_name: str, package_label: str, items_text: str, location: str
-) -> Optional[str]:
+def _llm_body(package_label: str, items_text: str, opening: str) -> Optional[str]:
     if not settings.openai_api_key:
         return None
     try:
@@ -79,24 +127,16 @@ def _llm_body(
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url or None,
         )
-        location_instruction = (
-            f"The material will be installed in {location}; state this city of "
-            "installation in the opening sentence so the supplier can quote the "
-            "correct specs. "
-            if location
-            else ""
-        )
         prompt = (
             "Write a concise, professional construction Request-for-Quote email body "
-            f"for the '{package_label}' package on project '{project_name}'. "
-            f"{location_instruction}"
-            "Open with a single sentence requesting a quote and asking for unit "
-            "pricing, current lead times, freight charges, available substitution "
-            "options, and quote validity. Then list the line items exactly as a "
-            "bullet list (one item per line, '- <description> — <quantity>'). Close "
-            "with a brief sentence inviting follow-up if more information is needed. "
-            "Do not add a greeting, project header, or signature. Match this style:\n\n"
-            f"{_opening_sentence(location)}\n\n"
+            f"for the '{package_label}' package. Open with the paragraph below "
+            "verbatim — it names the buyer, the material, and the project, so do not "
+            "reword it or add details it leaves out. Then list the line items exactly "
+            "as a bullet list (one item per line, '- <description> — <quantity>'). "
+            "Close with a brief sentence inviting follow-up if more information is "
+            "needed. Do not add a greeting, project header, or signature. Match this "
+            "style:\n\n"
+            f"{opening}\n\n"
             "- <item> — <qty>\n\n"
             "Your prompt response is appreciated. Please let us know if you need "
             "additional information to complete your quote.\n\n"
@@ -120,18 +160,35 @@ def generate_rfq_draft(
     package_label: str,
     line_items: List[dict],
     suppliers: List[dict],
+    buyer=None,
 ) -> RfqDraft:
-    """Build subject/body/recipients for an RFQ. Never raises."""
-    project_name = project.get("name", "Project")
+    """Build subject/body/recipients for an RFQ. Never raises.
+
+    `buyer` is the requesting user (anything carrying `.name` / `.company`); the
+    body introduces them so the supplier isn't quoting an anonymous stranger.
+    """
+    project_name = (project.get("name") or "").strip()
     location = _clean_location(project)
     items_text = _format_items(line_items)
-    subject = f"RFQ: {package_label} — {project_name}"
+    subject = f"RFQ: {package_label} — {project_name or 'Project'}"
 
-    body = _llm_body(project_name, package_label, items_text, location) or _template_body(
-        items_text, location
+    opening = _opening_paragraph(buyer, package_label, project_name, location)
+    body = _llm_body(package_label, items_text, opening) or _template_body(
+        opening, items_text
     )
 
-    recipients = [
+    recipients = _recipients(suppliers)
+
+    return RfqDraft(
+        subject=subject,
+        body=body,
+        line_items=line_items,
+        recipients=recipients,
+    )
+
+
+def _recipients(suppliers: List[dict]) -> List[dict]:
+    return [
         {
             "supplierId": s.get("id"),
             "name": s.get("name"),
@@ -141,9 +198,110 @@ def generate_rfq_draft(
         if s.get("email")
     ][:_MAX_RECIPIENTS]
 
+
+# ------------------------------------------------------------- subcontractor
+
+_SUB_ASK = (
+    "Please provide your lump-sum bid price, current schedule availability, "
+    "inclusions and exclusions, and how long your bid remains valid."
+)
+
+
+def _sub_request_sentence(trade_label: str, project_name: str, location: str) -> str:
+    """Names the trade and the job it is for — a sub's first two questions."""
+    trade = _material_phrase(trade_label)
+    sentence = "We are seeking bids"
+    if trade:
+        sentence += f" from qualified {trade} subcontractors"
+    if project_name and location:
+        sentence += f" for our {project_name} project in {location}"
+    elif project_name:
+        sentence += f" for our {project_name} project"
+    elif location:
+        sentence += f" for our project in {location}"
+    return f"{sentence}."
+
+
+def _sub_template_body(opening: str, scope: str) -> str:
+    # Attachments are chosen later in the review modal and may be absent at
+    # send, so the body must not promise them — "any attached" stays truthful
+    # either way.
+    return (
+        f"{opening}\n\n"
+        "Scope of work:\n"
+        f"{scope}\n\n"
+        "Please review any attached project documents for additional detail. "
+        "Your prompt response is appreciated. Please let us know if "
+        "you need additional information to prepare your bid."
+    )
+
+
+def _sub_llm_body(trade_label: str, scope: str, opening: str) -> Optional[str]:
+    if not settings.openai_api_key:
+        return None
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url or None,
+        )
+        prompt = (
+            "Write a concise, professional construction bid-request (RFQ) email "
+            f"body inviting a {trade_label} subcontractor to bid. Open with the "
+            "paragraph below verbatim — it names the buyer, the trade, and the "
+            "project, so do not reword it or add details it leaves out. Then "
+            "include the scope of work below verbatim under a 'Scope of work:' "
+            "heading. Mention that any attached project documents provide "
+            "additional detail (do not assert that documents are attached). "
+            "Close with a brief sentence inviting follow-up if more information "
+            "is needed. Do not add a greeting, project header, or signature.\n\n"
+            f"{opening}\n\n"
+            "Scope of work:\n"
+            f"{scope}\n\n"
+            "Return only the email body (no subject line)."
+        )
+        resp = client.chat.completions.create(
+            model=settings.openai_vision_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=600,
+        )
+        return (resp.choices[0].message.content or "").strip() or None
+    except Exception:
+        return None
+
+
+def generate_sub_rfq_draft(
+    project: dict,
+    trade_label: str,
+    scope: str,
+    suppliers: List[dict],
+    buyer=None,
+) -> RfqDraft:
+    """Build subject/body/recipients for a subcontractor bid request. Never raises.
+
+    Unlike a materials RFQ there are no line items: the user-written scope of
+    work (plus any attached documents) carries the detail.
+    """
+    project_name = (project.get("name") or "").strip()
+    location = _clean_location(project)
+    scope = (scope or "").strip()
+    subject = f"Bid Request: {trade_label} — {project_name or 'Project'}"
+
+    parts = (
+        _buyer_intro(buyer),
+        _sub_request_sentence(trade_label, project_name, location),
+        _SUB_ASK,
+    )
+    opening = " ".join(p for p in parts if p)
+    body = _sub_llm_body(trade_label, scope, opening) or _sub_template_body(
+        opening, scope
+    )
+
     return RfqDraft(
         subject=subject,
         body=body,
-        line_items=line_items,
-        recipients=recipients,
+        line_items=[],
+        recipients=_recipients(suppliers),
     )

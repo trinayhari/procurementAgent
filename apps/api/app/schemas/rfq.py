@@ -1,6 +1,6 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import RfqStatus, Tone
 
@@ -63,6 +63,13 @@ class RfqLineItem(BaseModel):
     q: str = ""
 
 
+class RfqAttachment(BaseModel):
+    """A project document the user chose to attach to the outgoing email."""
+
+    documentId: str
+    name: str
+
+
 class PersistedRfq(Rfq):
     """An RFQ generated from a buy-package, stored per project."""
 
@@ -72,6 +79,9 @@ class PersistedRfq(Rfq):
     body: str
     lineItems: List[RfqLineItem] = []
     recipients: List[RfqRecipient] = []
+    # "materials" (BOM quote request) or "subcontractor" (scope-of-work bid).
+    kind: Literal["materials", "subcontractor"] = "materials"
+    attachments: List[RfqAttachment] = []
 
 
 class ConversationMessage(BaseModel):
@@ -97,9 +107,17 @@ class RfqConversation(BaseModel):
 
 class RfqGenerateRequest(BaseModel):
     supplier_ids: List[str]
+    # Scope-of-work text for a subcontractor bid request (trade-scope packages
+    # only). When set it is also persisted back onto the trade scope document.
+    scope: Optional[str] = Field(default=None, max_length=20_000)
 
 
 class RfqUpdate(BaseModel):
     subject: str
     body: str
     recipients: List[RfqRecipient]
+    # Document ids to attach to the outgoing email. None = leave unchanged
+    # (an older client that doesn't send the field won't clear attachments).
+    # Count-capped: the byte budget alone doesn't bound N tiny files, each of
+    # which costs storage round-trips at save and a MIME part per recipient.
+    attachment_ids: Optional[List[str]] = Field(default=None, max_length=20)

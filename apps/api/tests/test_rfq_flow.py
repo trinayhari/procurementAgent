@@ -44,20 +44,47 @@ def test_unapproved_bom_blocks_rfq(project):
     assert len(r.json()["lineItems"]) == 1
 
 
-def test_rfq_body_names_city_of_installation(project):
-    """Suppliers ask for the install location to quote the right specs, so the
-    generated RFQ body states the project's city up front."""
+def test_rfq_body_introduces_the_requesting_user(project):
+    """The RFQ goes out under the requesting user's name, so the body opens by
+    introducing them — the supplier is being asked to quote by a person."""
     client, headers, pid = project
     bom_id = make_confirmed_bom(client, headers, pid)
     sids = run_supplier_search(client, headers, pid, bom_id)
     rfq = generate_rfq(client, headers, pid, bom_id, sids[:2])
-    # "Austin, TX" is the project fixture's `loc`.
-    assert "installed in Austin, TX" in rfq["body"]
+    # The auth fixture registers "PM" with no company; the project is
+    # "Test Project" in "Austin, TX" and the BOM is the "Hydrants Package".
+    assert rfq["body"].startswith(
+        "My name is PM. We are looking for a supplier of hydrants package for "
+        "our Test Project project in Austin, TX. Please provide unit pricing,"
+    )
 
 
-def test_rfq_body_omits_city_when_location_unknown():
-    """When a project has no real location we fall back to the original wording
-    rather than emailing suppliers a placeholder city."""
+def test_rfq_body_names_buyer_material_and_project():
+    """The opening tells the supplier who is asking, for what, and for which job."""
+    from app.services.rfq.generator import generate_rfq_draft
+
+    class Buyer:
+        name = "Jane Doe"
+        company = "Acme Construction"
+
+    draft = generate_rfq_draft(
+        {"name": "North BB Creek", "loc": "Taylor, Texas"},
+        "Hydrated Lime",
+        [{"n": "Hydrated lime, bulk", "q": "40 TON"}],
+        [{"id": "s1", "name": "Acme", "email": "acme@example.com"}],
+        buyer=Buyer(),
+    )
+    assert draft.body.startswith(
+        "My name is Jane Doe with Acme Construction. We are looking for a supplier "
+        "of hydrated lime for our North BB Creek project in Taylor, Texas. "
+        "Please provide unit pricing,"
+    )
+
+
+def test_rfq_body_drops_clauses_it_has_no_data_for():
+    """Nothing we don't know reaches the supplier: with no buyer and no real
+    location the opening drops those clauses instead of emailing a blank or the
+    placeholder city."""
     from app.services.rfq.generator import generate_rfq_draft
 
     draft = generate_rfq_draft(
@@ -66,8 +93,14 @@ def test_rfq_body_omits_city_when_location_unknown():
         [{"n": '12" DI Pipe', "q": "100 LF"}],
         [{"id": "s1", "name": "Acme", "email": "acme@example.com"}],
     )
-    assert "installed in" not in draft.body
-    assert draft.body.startswith("We are requesting a quote.")
+    opening = draft.body.split("\n\n")[0]
+    assert opening.startswith(
+        "We are looking for a supplier of water utilities for our Untitled project. "
+        "Please provide unit pricing,"
+    )
+    assert "My name is" not in opening
+    assert "project in" not in opening
+    assert "—" not in opening
 
 
 def test_send_is_duplicate_safe(project):
@@ -105,10 +138,13 @@ def test_partial_failure_and_retry_only_failed(project, monkeypatch):
     mock = rfq_sender.MockSender()
 
     class Flaky:
-        def send(self, to, subject, body, from_addr=""):
+        # Signature mirrors the EmailSender protocol (see services/rfq/sender.py).
+        def send(self, to, subject, body, *, from_addr, cc=None, thread_id=None,
+                 in_reply_to=None):
             if to == fail_email:
                 raise RuntimeError("smtp boom")
-            return mock.send(to, subject, body, from_addr=from_addr)
+            return mock.send(to, subject, body, from_addr=from_addr, cc=cc,
+                             thread_id=thread_id, in_reply_to=in_reply_to)
 
     monkeypatch.setattr(rfq_sender, "get_sender", lambda: Flaky())
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
@@ -125,9 +161,11 @@ def test_partial_failure_and_retry_only_failed(project, monkeypatch):
     sent_to = []
 
     class Counting:
-        def send(self, to, subject, body, from_addr=""):
+        def send(self, to, subject, body, *, from_addr, cc=None, thread_id=None,
+                 in_reply_to=None):
             sent_to.append(to)
-            return mock.send(to, subject, body, from_addr=from_addr)
+            return mock.send(to, subject, body, from_addr=from_addr, cc=cc,
+                             thread_id=thread_id, in_reply_to=in_reply_to)
 
     monkeypatch.setattr(rfq_sender, "get_sender", lambda: Counting())
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)

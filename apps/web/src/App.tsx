@@ -4,20 +4,24 @@ import { Box, DcIcon, css, ic, lb } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
+import AcceptInvite from './AcceptInvite'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  getDocumentPreview, sendTestEmail,
-  listProjectBoms, createSupplier,
+  getDocumentPreview, sendTestEmail, getEmailConfig,
+  listProjectBoms, createSupplier, getSupplierDetail,
+  listTradeScopes, createTradeScope, updateTradeScope,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage,
   getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
+  getTeam, createInvite, revokeInvite,
+  TOKEN_KEY, emptyProjectSlices,
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
-  CustomBomSummary, LineComparison, AwardOption, AuthUser, Lender,
+  CustomBomSummary, TradeScopeSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers, EmailConfig,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -94,6 +98,15 @@ function hashFor(s: Pick<State, 'nav' | 'projectId' | 'tab' | 'compare' | 'compa
   return `#/${s.nav}`
 }
 
+// The last signed-in account id, persisted so an account switch is detected
+// even across a full page reload (a stale #/project/<id> hash must never carry
+// one account's route into another account's session).
+const LAST_UID_KEY = 'procureai_last_uid'
+// Hard cap on how long the post-login splash may hold the app. If the backend
+// hangs (requests that never settle), the gate drops anyway and the app renders
+// with whatever arrived — a spinner that can never wedge beats a complete bundle.
+const HYDRATE_SPLASH_MAX_MS = 8000
+
 function parseHash(): Partial<State> {
   const raw = (typeof window !== 'undefined' ? window.location.hash : '').replace(/^#\/?/, '')
   const seg = raw.split('/').filter(Boolean)
@@ -115,7 +128,7 @@ function parseHash(): Partial<State> {
 export default function App() {
   const [s, setS] = useState<State>({
     nav: 'dashboard', tab: 'overview', compare: false, docIdx: 0, rfqIdx: 0,
-    supplierId: null, vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
+    supplierId: null, activeSupplierComms: null, vw: typeof window !== 'undefined' ? window.innerWidth : 1280, mnav: false,
     data: null,
     planTypes: null, planType: 'site_plan', uploading: false, uploadError: null, docLineItems: null,
     editBom: false, bomDraft: null, bomBusy: false,
@@ -129,6 +142,32 @@ export default function App() {
   // whether an existing token still resolves to a valid session.
   const [user, setUser] = useState<AuthUser | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  // Which account the current workspace bundle was hydrated for. The app holds
+  // a loading splash until it matches the signed-in user, so a login can never
+  // paint data left over from a previous session (and screens mount once, with
+  // real data, instead of animating in and swapping content mid-flight).
+  const [hydratedFor, setHydratedFor] = useState<string | null>(null)
+  // Mirrors `user` so async work can check, on resolve, whether the account it
+  // was started for is still the one signed in.
+  const userRef = useRef<AuthUser | null>(null)
+  userRef.current = user
+  // Monotonic id per workspace load: only the newest response may be applied,
+  // so an out-of-order or post-logout response can't resurrect old data.
+  const loadSeqRef = useRef(0)
+  // The (account, project) the current `s.data` bundle actually belongs to.
+  const bundleForRef = useRef<{ uid: string | null; pid: string }>({ uid: null, pid: '' })
+  // Mirrors s.projectId so async work can check, on resolve, whether the
+  // project it fetched for is still the one on screen.
+  const projectIdRef = useRef<string | undefined>(s.projectId)
+  projectIdRef.current = s.projectId
+  // Capture a team-invite token (#/invite/<token>) ONCE at mount, before the
+  // hash-mirror effect can rewrite the URL. Cleared when the invitee dismisses
+  // an invalid invite.
+  const [inviteToken, setInviteToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    const m = window.location.hash.match(/^#\/invite\/(.+)$/)
+    return m ? decodeURIComponent(m[1]) : null
+  })
 
   // On load, restore the session from a stored token (if any). A 401 clears it.
   useEffect(() => {
@@ -144,6 +183,20 @@ export default function App() {
   // Keep React state in sync if the token is cleared elsewhere (e.g. a 401 mid-session).
   useEffect(() => onAuthChange(() => { if (!getToken()) setUser(null) }), [])
 
+  // Another tab of this origin signing in/out rewrites the shared token.
+  // Without this listener the tab keeps rendering the OLD account's identity
+  // while its background fetches carry the NEW account's token — mixed-identity
+  // requests. Re-resolve the session whenever the token changes underneath us.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== TOKEN_KEY) return
+      if (!getToken()) { setUser(null); return }
+      getMe().then((u) => { if (getToken()) setUser(u) }).catch(() => setUser(null))
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
   const handleLogout = () => { apiLogout(); setUser(null) }
 
   useEffect(() => {
@@ -152,16 +205,124 @@ export default function App() {
     return () => window.removeEventListener('resize', f)
   }, [])
 
-  // Hydrate the backend bundle for one project; on failure the model falls back
-  // to its literals. Pass an explicit id (e.g. right after creating a project) to
-  // avoid the stale-closure value of s.projectId.
-  const reload = (pid = s.projectId) =>
-    loadModelData(pid || undefined).then((data) => set({ data })).catch(() => {})
-  useEffect(() => { reload() }, [])
+  // Hydrate the backend bundle for one project. On failure the previous bundle
+  // (or the empty state) is left in place. Pass an explicit id (e.g. right
+  // after creating a project) to avoid the stale-closure value of s.projectId.
+  // Resolves to whether the response was APPLIED: it is dropped unless it is
+  // still the newest load, fetched for the account AND credentials still signed
+  // in, and for the project still on screen — a late response must never
+  // repaint another session's or another project's workspace.
+  const reload = (pid = s.projectId): Promise<boolean> => {
+    const uid = user ? user.id : null
+    if (!uid) return Promise.resolve(false)
+    // A stale closure (the 3s processing poll, a leftover callback) may still
+    // ask for a project the user already left — don't let it claim a slot.
+    if (pid && projectIdRef.current && pid !== projectIdRef.current) return Promise.resolve(false)
+    const seq = ++loadSeqRef.current
+    const tok = getToken()
+    return loadModelData(pid || undefined)
+      .then((data) => {
+        if (seq !== loadSeqRef.current) return false
+        if (!userRef.current || userRef.current.id !== uid) return false
+        if (getToken() !== tok) return false
+        // Which project is this bundle actually for? loadModelData falls back
+        // to the first project when the requested id doesn't exist (e.g. an
+        // optimistic not-yet-saved id, or a stale hash) — never paint that
+        // fallback under a different project's route.
+        const eff = pid && data.projects.some((p) => p.id === pid) ? pid : data.projects[0] ? data.projects[0].id : ''
+        if (projectIdRef.current && eff !== projectIdRef.current) return false
+        bundleForRef.current = { uid, pid: eff }
+        set({ data })
+        return true
+      })
+      .catch(() => false)
+  }
+  // React to the signed-in account changing. Keyed on `user?.id` (not the
+  // object) so a profile edit that returns a new user object doesn't refetch
+  // everything. Three cases:
+  //  - signed out (manual logout or a 401 dropping the token): purge every
+  //    account-scoped slice immediately so nothing can leak into the next
+  //    session; nav/hash is kept so the same user can resume after
+  //    re-authenticating.
+  //  - a *different* account signed in in the same tab: also leave the previous
+  //    account's route — its project ids mean nothing to this account.
+  //  - signed in (fresh login or restored token): hydrate, then mark the
+  //    bundle as belonging to this account, which drops the loading splash.
+  const lastUidRef = useRef<string | null>(null)
+  useEffect(() => {
+    const uid = user ? user.id : null
+    if (!uid) {
+      if (lastUidRef.current !== null) {
+        setHydratedFor(null)
+        bundleForRef.current = { uid: null, pid: '' }
+        loadSeqRef.current++ // invalidate any in-flight load
+        set({
+          data: null, docLineItems: null, customProjects: [], bomDraft: null,
+          editBom: false, bomBusy: false, uploadError: null, projError: null,
+        })
+      }
+      return
+    }
+    // Detect the switch across page reloads too (lastUidRef dies with the tab):
+    // the last signed-in uid is persisted so a stale #/project/<id> hash can't
+    // carry a previous account's route into a different account's session.
+    let storedUid: string | null = null
+    try { storedUid = localStorage.getItem(LAST_UID_KEY) } catch { /* storage unavailable */ }
+    const switched =
+      (lastUidRef.current !== null && lastUidRef.current !== uid) ||
+      (storedUid !== null && storedUid !== uid)
+    lastUidRef.current = uid
+    try { localStorage.setItem(LAST_UID_KEY, uid) } catch { /* storage unavailable */ }
+    if (switched) {
+      set({
+        nav: 'dashboard', projectId: undefined, tab: 'overview', compare: false,
+        comparePkg: undefined, supplierId: null, docIdx: 0, rfqIdx: 0, mnav: false,
+      })
+    }
+    // Hydrate, then drop the splash. The gate opens when this account's bundle
+    // was APPLIED (not merely settled — a response discarded as stale must not
+    // paint an empty workspace), or after a hard cap so a hung backend can
+    // never wedge the app on the spinner. A dropped-because-superseded load
+    // leaves the gate to the newer load's own effect run.
+    const hydrate = reload(switched ? undefined : s.projectId)
+    const cap = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), HYDRATE_SPLASH_MAX_MS))
+    Promise.race([hydrate, cap]).then((result) => {
+      if (result === false) return
+      if (userRef.current && userRef.current.id === uid) setHydratedFor(uid)
+    })
+  }, [user?.id])
 
   // Refetch the workspace bundle whenever the open project changes, so each
   // project shows its own documents/quotes/etc. instead of the last one's.
-  useEffect(() => { if (s.projectId) reload(s.projectId) }, [s.projectId])
+  // When the bundle in state belongs to a different project, blank the
+  // per-project slices first so the workspace never flashes another project's
+  // documents/quotes while its own are being fetched.
+  useEffect(() => {
+    const pid = s.projectId
+    if (!pid) return
+    // Functional update: the blank must be built on the latest state, not this
+    // render's closure, so it can't clobber a bundle applied in between.
+    setS((prev) =>
+      prev.data && bundleForRef.current.pid !== pid
+        ? { ...prev, data: { ...prev.data, ...emptyProjectSlices() }, docLineItems: null, docIdx: 0, rfqIdx: 0 }
+        : prev,
+    )
+    reload(pid)
+  }, [s.projectId])
+
+  // Load the open supplier's own communication history (the timeline is
+  // per-supplier). Clears to null first so the drawer shows its loading state
+  // rather than the previous supplier's entries; a stale response is ignored.
+  useEffect(() => {
+    const id = s.supplierId
+    if (!id) { set({ activeSupplierComms: null }); return }
+    let cancelled = false
+    set({ activeSupplierComms: null })
+    getSupplierDetail(id)
+      .then((d) => { if (!cancelled) set({ activeSupplierComms: d.comms }) })
+      .catch(() => { if (!cancelled) set({ activeSupplierComms: [] }) })
+    return () => { cancelled = true }
+  }, [s.supplierId])
 
   // Mirror the active page into the URL hash. In-app navigations push a real
   // history entry so browser Back/Forward walk through them instead of leaving
@@ -188,10 +349,12 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  // Plan types the extractor supports (drives the upload selector).
+  // Plan types the extractor supports (drives the upload selector). Auth-gated,
+  // so key it on the signed-in account too — see the hydration effect above.
   useEffect(() => {
+    if (!user) return
     getPlanTypes().then((planTypes) => set({ planTypes })).catch(() => {})
-  }, [])
+  }, [user?.id])
 
   // Upload a plan into a slot (or an additional document), then refresh so it
   // appears in the documents list. `planType` selects the slot; uploading a
@@ -229,10 +392,14 @@ export default function App() {
     if (!pid) { set({ uploadError: 'Open a project before creating a BOM.' }); return }
     const name = window.prompt('Name this bill of materials', 'Custom BOM')
     if (name === null) return
+    const uid = user && user.id
     try {
       const doc = await createManualBom(pid, name.trim() || 'Custom BOM')
       await reload()
       const groups = await getDocumentLineItems(doc.id)
+      // Don't write another session's BOM into state if the account changed
+      // while the requests were in flight.
+      if (!userRef.current || userRef.current.id !== uid) return
       set({
         tab: 'documents', docIdx: 0, uploadError: null,
         docLineItems: { id: doc.id, groups },
@@ -241,6 +408,23 @@ export default function App() {
       })
     } catch (e) {
       set({ uploadError: 'Could not create the BOM.' })
+    }
+  }
+
+  // Create a subcontractor trade scope (no file). We name the trade, create the
+  // document, then select it so the user can write the scope of work in its
+  // editor. It sorts newest-first, so it lands at docIdx 0.
+  const createTrade = async () => {
+    const pid = activePid()
+    if (!pid) { set({ uploadError: 'Open a project before creating a trade scope.' }); return }
+    const name = window.prompt('Which trade do you need bids for?', 'Concrete flatwork')
+    if (name === null) return
+    try {
+      await createTradeScope(pid, name.trim() || 'Trade')
+      await reload()
+      set({ tab: 'documents', docIdx: 0, uploadError: null })
+    } catch (e) {
+      set({ uploadError: 'Could not create the trade scope.' })
     }
   }
 
@@ -256,7 +440,9 @@ export default function App() {
   useEffect(() => {
     const docs = s.data && s.data.docs
     const doc = docs && docs[s.docIdx]
-    if (!doc || !doc.id) { set({ docLineItems: null }); return }
+    // Skip the no-op write when already null (the purge/blank paths set it),
+    // so those paths don't trigger a second identical render commit.
+    if (!doc || !doc.id) { if (s.docLineItems !== null) set({ docLineItems: null }); return }
     let alive = true
     getDocumentLineItems(doc.id)
       .then((groups) => { if (alive) set({ docLineItems: { id: doc.id, groups } }) })
@@ -283,10 +469,14 @@ export default function App() {
   const saveBom = async () => {
     const doc = currentDoc()
     if (!doc) return
+    const uid = user && user.id
     set({ bomBusy: true })
     try {
       await saveDocumentLineItems(doc.id, s.bomDraft ?? [])
       const groups = await getDocumentLineItems(doc.id)
+      // Same guard as reload: never write a previous session's data back into
+      // state after the account changed mid-flight.
+      if (!userRef.current || userRef.current.id !== uid) return
       set({ editBom: false, bomDraft: null, docLineItems: { id: doc.id, groups } })
       await reload()
     } catch (e) {
@@ -302,24 +492,47 @@ export default function App() {
     try { await confirmDocument(doc.id); await reload() } finally { set({ bomBusy: false }) }
   }
 
+  // Until the stored token is validated, render nothing (avoids a login flash).
+  if (!authReady) {
+    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  }
+  // A public team-invite link (#/invite/<token>) takes precedence over the login
+  // gate: the invitee has no account yet. Accepting reloads into the app.
+  if (inviteToken && !user) {
+    return (
+      <AcceptInvite
+        token={inviteToken}
+        onDismiss={() => { setInviteToken(null); window.location.hash = '#/dashboard' }}
+      />
+    )
+  }
+  // Gate the whole app behind authentication.
+  if (!user) {
+    return <Login onAuthed={(u) => setUser(u)} />
+  }
+  // Hold a splash until this account's workspace bundle has loaded: the screens
+  // then mount once with real data (one clean entrance animation), instead of
+  // rendering stale or empty content and swapping it mid-animation.
+  if (hydratedFor !== user.id) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={css('width:22px;height:22px;border:2.5px solid var(--border-strong);border-top-color:var(--primary);border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')} />
+      </div>
+    )
+  }
+
+  // Below the gates deliberately: splash/login renders skip the whole
+  // view-model computation.
   const m = buildModel(s, set, {
     accent: 'blue', data: s.data, reload,
     user, onLogout: handleLogout, onUserUpdated: setUser,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
     docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onCreateBom: createBom,
+    onCreateTradeScope: createTrade,
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
   })
-
-  // Until the stored token is validated, render nothing (avoids a login flash).
-  if (!authReady) {
-    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
-  }
-  // Gate the whole app behind authentication.
-  if (!user) {
-    return <Login onAuthed={(u) => setUser(u)} />
-  }
 
   return (
     <div
@@ -679,14 +892,79 @@ function AddSupplierModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   )
 }
 
+// Edit a supplier already in the network. Prefilled from the current row; only
+// the name is required. Saves via PATCH /api/suppliers/{id} through the model.
+function EditSupplierModal({ m, onClose }: { m: Model; onClose: () => void }) {
+  const a = m.activeSupplier
+  const [name, setName] = useState(a.name)
+  const [contact, setContact] = useState(a.contact)
+  const [phone, setPhone] = useState(a.phone)
+  const [email, setEmail] = useState(a.email)
+  const [web, setWeb] = useState(a.web)
+  const [cats, setCats] = useState(a.cats.join(', '))
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) { setErr('A supplier name is required.'); return }
+    setSaving(true); setErr(null)
+    try {
+      await m.updateSupplier(a.id, {
+        name: name.trim(), contact, phone, email, web,
+        cats: cats.split(',').map((c) => c.trim()).filter(Boolean),
+      })
+      onClose()
+    } catch (e) {
+      setErr(e instanceof Error && e.message.includes('name') ? e.message : 'Could not save changes — is the backend running?')
+      setSaving(false)
+    }
+  }
+
+  const field = css("width:100%;height:36px;padding:0 11px;border-radius:9px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:13px;box-sizing:border-box")
+  const label = css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:5px')
+  return (
+    <div onClick={onClose} style={css('position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:70')}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);width:460px;max-width:100%;max-height:90vh;overflow:auto;padding:22px')}>
+        <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:16px')}>
+          <span style={css('width:26px;height:26px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} sw={2} d='M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z' /></span>
+          <h2 style={css('margin:0;font-size:15px;font-weight:600;flex:1')}>Edit supplier details</h2>
+        </div>
+        <div style={css('display:flex;flex-direction:column;gap:13px')}>
+          <div><div style={label}>Name *</div><input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ferguson Waterworks" style={field} /></div>
+          <div style={css('display:flex;gap:11px')}>
+            <div style={css('flex:1')}><div style={label}>Contact</div><input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Contact name" style={field} /></div>
+            <div style={css('flex:1')}><div style={label}>Phone</div><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-0100" style={field} /></div>
+          </div>
+          <div><div style={label}>Email</div><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="sales@example.com" style={field} /></div>
+          <div><div style={label}>Website</div><input value={web} onChange={(e) => setWeb(e.target.value)} placeholder="example.com" style={field} /></div>
+          <div><div style={label}>Categories</div><input value={cats} onChange={(e) => setCats(e.target.value)} placeholder="Water, Sewer (comma-separated)" style={field} /></div>
+        </div>
+        {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:12px')}>{err}</div>}
+        <div style={css('display:flex;justify-content:flex-end;gap:9px;margin-top:20px')}>
+          <Box as="button" type="button" onClick={onClose} style={css('height:36px;padding:0 15px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">Cancel</Box>
+          <Box as="button" type="submit" disabled={saving} style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${saving ? '.6' : '1'}`)} hover="background:var(--primary-2)">
+            {saving ? 'Saving…' : 'Save changes'}
+          </Box>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 /* ----------------------------------------------------------------- Settings */
 function Settings({ m }: MProps) {
   const toggleOn = css('width:38px;height:22px;border-radius:999px;background:var(--primary);position:relative;flex:none')
-  // RFQ sender address — the one writable setting; saves via PATCH /api/auth/me.
-  const [senderEmail, setSenderEmail] = useState(m.userSenderEmail)
+  // Your CC address — the one writable setting; saves via PATCH /api/auth/me.
+  // It is never a From address: all mail leaves the workspace mailbox below.
+  const [ccEmail, setCcEmail] = useState(m.userCcEmail)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // The workspace's real outbound setup (GET /api/auth/email-config), so this
+  // panel states what will actually happen instead of implying mail goes out.
+  const [emailCfg, setEmailCfg] = useState<EmailConfig | null>(null)
+  useEffect(() => { getEmailConfig().then(setEmailCfg).catch(() => setEmailCfg(null)) }, [])
   // Email-config verification (POST /api/auth/test-email).
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<string | null>(null)
@@ -697,8 +975,8 @@ function Settings({ m }: MProps) {
       const r = await sendTestEmail()
       setTestResult(
         r.mocked
-          ? 'Mock mode — no Gmail connected, the send was only logged. See docs/email-setup.md.'
-          : `Sent to ${r.to} from ${r.fromAddr} — check your inbox (and the From address).`,
+          ? 'Mock mode — no Gmail connected, so nothing was delivered; the send was only logged. See docs/email-setup.md.'
+          : `Sent to ${r.to} from ${r.fromAddr}${r.cc ? `, copied to ${r.cc}` : ''} — check your inbox.`,
       )
     } catch (ex) {
       setTestErr(ex instanceof Error ? ex.message : 'Test send failed')
@@ -706,14 +984,14 @@ function Settings({ m }: MProps) {
       setTesting(false)
     }
   }
-  const dirty = senderEmail.trim() !== m.userSenderEmail
+  const dirty = ccEmail.trim() !== m.userCcEmail
   const saveSender = async (e: FormEvent) => {
     e.preventDefault()
     setSaving(true); setErr(null); setSaved(false)
     try {
-      const u = await updateMe({ senderEmail: senderEmail.trim() || null })
+      const u = await updateMe({ ccEmail: ccEmail.trim() || null })
       m.onUserUpdated(u)
-      setSenderEmail((u.senderEmail as string) || '')
+      setCcEmail((u.ccEmail as string) || '')
       setSaved(true)
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Could not save')
@@ -732,18 +1010,31 @@ function Settings({ m }: MProps) {
           <Box as="button" onClick={m.logout} style={css('height:34px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600')} hover="background:var(--panel-2)">Sign out</Box>
         </div>
         <div style={css('padding:8px 0')}>
-          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px')}>
+          <div style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px')}>
             <div style={{ flex: 1 }}>
-              <div style={css('font-size:13.5px;font-weight:600')}>RFQ sender address</div>
-              <div style={css('font-size:12px;color:var(--text-3)')}>Outgoing RFQs are sent from this address. Must be a verified send-as alias on the connected Gmail account, or Gmail rewrites it.</div>
+              <div style={css('font-size:13.5px;font-weight:600')}>Sent from</div>
+              <div style={css('font-size:12px;color:var(--text-3)')}>
+                Every RFQ, award notice and update leaves the workspace's connected Gmail account, showing your name and company. Supplier replies come back to it, which is how quotes are ingested.
+              </div>
+              {emailCfg && !emailCfg.configured && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>No Gmail account connected — nothing is delivered, sends are only logged. See docs/email-setup.md.</div>}
+              {emailCfg && emailCfg.configured && !emailCfg.senderAddressSet && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>PROCUREAI_GMAIL_SENDER_ADDRESS is not set — set it to the connected account's address. See docs/email-setup.md.</div>}
+            </div>
+            <span style={css(`font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border);flex:none;${emailCfg && emailCfg.configured && emailCfg.senderAddressSet ? '' : 'color:var(--warn)'}`)}>
+              {!emailCfg ? '…' : emailCfg.configured && emailCfg.senderAddressSet ? emailCfg.fromAddress : 'Not configured'}
+            </span>
+          </div>
+          <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
+            <div style={{ flex: 1 }}>
+              <div style={css('font-size:13.5px;font-weight:600')}>Copy me on emails</div>
+              <div style={css('font-size:12px;color:var(--text-3)')}>Your address is CC'd on outgoing RFQs and award notices so you keep a record. It is never used as the From address.</div>
               {err && <div style={css('font-size:12px;color:var(--danger);margin-top:4px')}>{err}</div>}
             </div>
             <div style={css('display:flex;align-items:center;gap:8px;flex:none')}>
               <input
                 type="email"
-                value={senderEmail}
-                onChange={(e) => { setSenderEmail(e.target.value); setSaved(false); setErr(null) }}
-                placeholder="Workspace default"
+                value={ccEmail}
+                onChange={(e) => { setCcEmail(e.target.value); setSaved(false); setErr(null) }}
+                placeholder="you@company.com"
                 style={css('height:32px;width:210px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:12.5px;outline:none')}
               />
               <Box as="button" type="submit" disabled={saving || !dirty} style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;${saving || !dirty ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
@@ -776,6 +1067,97 @@ function Settings({ m }: MProps) {
           </div>
         </div>
       </div>
+      <TeamPanel currentEmail={m.userEmail} />
+    </div>
+  )
+}
+
+/* --------------------------------------------------------------------- Team */
+function TeamPanel({ currentEmail }: { currentEmail: string }) {
+  const [team, setTeam] = useState<TeamMembers | null>(null)
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+
+  const load = () => { getTeam().then(setTeam).catch(() => setTeam({ members: [], invites: [] })) }
+  useEffect(load, [])
+
+  const invite = async (e: FormEvent) => {
+    e.preventDefault()
+    const target = email.trim()
+    if (!target || busy) return
+    setBusy(true); setErr(null); setNote(null)
+    try {
+      await createInvite(target)
+      setEmail('')
+      setNote(`Invitation sent to ${target}.`)
+      load()
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Could not send the invite')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revoke = async (id: string) => {
+    setErr(null); setNote(null)
+    try { await revokeInvite(id); load() }
+    catch (ex) { setErr(ex instanceof Error ? ex.message : 'Could not revoke') }
+  }
+
+  const rowStyle = css('display:flex;align-items:center;gap:12px;padding:12px 18px;border-top:1px solid var(--border)')
+
+  return (
+    <div style={css('margin-top:22px;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
+      <div style={css('padding:16px 18px;border-bottom:1px solid var(--border)')}>
+        <div style={css('font-size:15px;font-weight:700;letter-spacing:-.01em')}>Team</div>
+        <div style={css('font-size:12.5px;color:var(--text-3);margin-top:2px')}>People with access to this workspace. Everyone here shares its projects, suppliers and quotes.</div>
+      </div>
+
+      {/* Members */}
+      {(team?.members || []).map((u) => (
+        <div key={u.id} style={rowStyle}>
+          <span style={css('width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;flex:none')}>
+            {(u.name || u.email).slice(0, 1).toUpperCase()}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={css('font-size:13.5px;font-weight:600')}>{u.name || u.email.split('@')[0]}{u.email === currentEmail ? ' (you)' : ''}</div>
+            <div style={css('font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{u.email}</div>
+          </div>
+          <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-2);border:1px solid var(--border);border-radius:999px;padding:3px 10px;flex:none')}>Member</span>
+        </div>
+      ))}
+
+      {/* Pending invites */}
+      {(team?.invites || []).map((inv) => (
+        <div key={inv.id} style={rowStyle}>
+          <span style={css('width:30px;height:30px;border-radius:50%;background:var(--panel-2);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:var(--text-3);flex:none')}>
+            {inv.email.slice(0, 1).toUpperCase()}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{inv.email}</div>
+            <div style={css('font-size:12px;color:var(--text-3)')}>Invitation pending</div>
+          </div>
+          <Box as="button" onClick={() => revoke(inv.id)} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);flex:none')} hover="background:var(--panel-2)">Revoke</Box>
+        </div>
+      ))}
+
+      {/* Invite form */}
+      <form onSubmit={invite} style={css('display:flex;align-items:center;gap:8px;padding:14px 18px;border-top:1px solid var(--border)')}>
+        <input
+          type="email" value={email} required
+          onChange={(e) => { setEmail(e.target.value); setErr(null); setNote(null) }}
+          placeholder="teammate@company.com"
+          style={css('flex:1;height:34px;padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-size:13px;outline:none')}
+        />
+        <Box as="button" type="submit" disabled={busy} style={css(`height:34px;padding:0 15px;border-radius:8px;background:var(--primary);color:var(--on-primary,#fff);font-size:12.5px;font-weight:600;flex:none;${busy ? 'opacity:.6' : ''}`)} hover="background:var(--primary-2)">
+          {busy ? 'Sending…' : 'Invite'}
+        </Box>
+      </form>
+      {(err || note) && (
+        <div style={css(`font-size:12px;padding:0 18px 14px;${err ? 'color:var(--danger)' : 'color:var(--success,#16a34a)'}`)}>{err || note}</div>
+      )}
     </div>
   )
 }
@@ -1009,6 +1391,108 @@ function CustomBomsCard({ m }: MProps) {
   )
 }
 
+// Subcontractor trade scopes: name a trade (e.g. "Concrete flatwork"), write a
+// scope of work, then find trade contractors and request bids from the
+// Suppliers tab — the same search → select → RFQ flow custom BOMs use, but the
+// RFQ is a bid request built from the scope instead of line items.
+const TRADE_ICON = 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'
+const PAPERCLIP = 'M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8'
+
+function TradeScopesCard({ m }: MProps) {
+  return (
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
+      <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
+        <div style={css('display:flex;align-items:center;gap:8px')}>
+          <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Subcontractor trades</h2>
+          <span style={css('font-size:12px;color:var(--text-3)')}>{m.tradeScopes.length}</span>
+        </div>
+        <Box as="button" onClick={m.createTradeScope}
+          style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
+          hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New trade</Box>
+      </div>
+      {m.tradeScopes.length === 0 ? (
+        <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No trades yet — name a trade you need bids for (e.g. concrete flatwork), write its scope of work, then find subcontractors from the Suppliers tab.</div>
+      ) : (
+        m.tradeScopes.map((d, i) => (
+          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+            <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--violet-soft);color:var(--violet);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={TRADE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
+            <span style={css('font-size:12px;color:var(--text-2)')}>{(d.summary || '').trim() ? 'Scope written' : 'No scope yet'}</span>
+            <span><span style={d.statusBadge}>{d.status}</span></span>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
+// Scope-of-work editor for a selected trade scope (Documents tab). The scope is
+// what the bid-request email asks subcontractors to price, so it saves back to
+// the trade scope document (and the Suppliers tab shows the same text).
+function TradeScopeEditor({ m }: MProps) {
+  const doc = m.doc
+  const projectId = m.activeProject.id
+  const [scope, setScope] = useState((doc && doc.summary) || '')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  // Last text successfully persisted. `doc.summary` alone goes stale after a
+  // blur-save (which skips the workspace reload), so both the dirty check and
+  // the re-seed compare against this ref, not the prop.
+  const savedRef = useRef((doc && doc.summary) || '')
+  // Re-seed when the user switches to a different trade scope.
+  useEffect(() => {
+    savedRef.current = (doc && doc.summary) || ''
+    setScope(savedRef.current)
+    setNote(null)
+  }, [doc && doc.id])
+  if (!doc || !doc.id) return null
+  const save = async () => {
+    setBusy(true); setNote(null)
+    try {
+      await updateTradeScope(projectId, doc.id!, scope)
+      savedRef.current = scope
+      setNote('Scope saved.')
+      await m.reload()
+    } catch { setNote('Could not save the scope — is the backend running?') }
+    finally { setBusy(false) }
+  }
+  // Same contract as the Suppliers-tab scope panel: leaving the field saves,
+  // the button stays as the explicit affordance. Only fires when the text
+  // actually changed, then refreshes so doc.summary can't go stale.
+  const saveOnBlur = async () => {
+    if (scope === savedRef.current) return
+    try {
+      await updateTradeScope(projectId, doc.id!, scope)
+      savedRef.current = scope
+      setNote('Scope saved.')
+      await m.reload()
+    } catch { setNote('Could not save the scope — is the backend running?') }
+  }
+  return (
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
+      <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
+        <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{doc.name}</span></div>
+        <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--violet);background:var(--violet-soft);padding:3px 9px;border-radius:999px')}>Trade scope</span>
+      </div>
+      <div style={css('padding:16px;display:flex;flex-direction:column;gap:10px')}>
+        <div style={css('font-size:12.5px;color:var(--text-3)')}>Describe the scope of work you want bids on — it becomes the body of the bid request. Attach plans and specs when you review the RFQ.</div>
+        <textarea value={scope} onChange={(e) => { setScope(e.target.value); setNote(null) }} onBlur={saveOnBlur} rows={10}
+          placeholder={'e.g. Furnish and install all cast-in-place concrete flatwork: 12,400 SF of 5" sidewalk, 3,200 SF of 8" dock apron, curb & gutter per C-401. Include forming, reinforcement, finishing, and curing.'}
+          style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
+        <div style={css('display:flex;align-items:center;gap:10px')}>
+          <span style={css('flex:1;font-size:12px;color:var(--text-3)')}>{note}</span>
+          <Box as="button" onClick={save} disabled={busy}
+            style={css(`display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 15px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:12.5px;font-weight:600;opacity:${busy ? '.6' : '1'}`)}
+            hover="background:var(--primary-2)">{busy ? 'Saving…' : 'Save scope'}</Box>
+          <Box as="button" onClick={m.setSuppliers}
+            style={css('display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 15px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
+            hover="background:var(--panel-2)">Find subcontractors →</Box>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Derive the preview filename shown on the plan-sheet placeholder from the
 // selected document's name, so the preview reflects the clicked document.
 function previewFileName(name: string): string {
@@ -1026,6 +1510,9 @@ function TabDocuments({ m }: MProps) {
   // Custom BOMs have no source file — skip the plan-sheet / PDF preview and show
   // a simple card; the line items are edited in the panel on the right.
   const isCustomBom = !!(m.doc && m.doc.planType === m.customBomType)
+  // Trade scopes have no file either — their "document" is the scope-of-work
+  // text, edited in place of the preview.
+  const isTradeScope = !!(m.doc && m.doc.planType === m.tradeScopeType)
   return (
     <>
       <div style={css('margin-bottom:6px;font-size:12.5px;color:var(--text-3)')}>
@@ -1039,6 +1526,7 @@ function TabDocuments({ m }: MProps) {
         {m.docSlots.map((slot) => <PlanSlotCard key={slot.key} m={m} slot={slot} />)}
       </div>
       <CustomBomsCard m={m} />
+      <TradeScopesCard m={m} />
       <AdditionalDocsCard m={m} />
       {m.doc && !m.doc.processing && (m.doc.timelineEvents || 0) > 0 && (
         <div style={css('display:flex;align-items:center;gap:10px;background:var(--primary-soft);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:16px')}>
@@ -1047,9 +1535,11 @@ function TabDocuments({ m }: MProps) {
           <Box as="button" onClick={m.setTimeline} style={css('font-size:12px;font-weight:600;color:var(--primary);padding:5px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);white-space:nowrap')} hover="background:var(--primary-softer)">View timeline →</Box>
         </div>
       )}
-      <div style={css('display:grid;grid-template-columns:minmax(0,1.7fr) 330px;gap:16px;align-items:start')}>
+      <div style={css(`display:grid;grid-template-columns:${isTradeScope ? 'minmax(0,1fr)' : 'minmax(0,1.7fr) 330px'};gap:16px;align-items:start`)}>
         <div style={css('display:flex;flex-direction:column;gap:16px;min-width:0')}>
-          {m.doc && isCustomBom ? (
+          {m.doc && isTradeScope ? (
+          <TradeScopeEditor m={m} />
+          ) : m.doc && isCustomBom ? (
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
               <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.items === '—' ? '0' : m.doc.items} line items</span></div>
@@ -1082,7 +1572,8 @@ function TabDocuments({ m }: MProps) {
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:40px 16px;text-align:center;font-size:12.5px;color:var(--text-3)')}>No document selected — upload a plan set or pick a file above to see its AI analysis.</div>
           )}
         </div>
-        <ExtractedPanel m={m} />
+        {/* A trade scope has no BOM — the extracted-items panel doesn't apply. */}
+        {!isTradeScope && <ExtractedPanel m={m} />}
       </div>
     </>
   )
@@ -1295,10 +1786,11 @@ function pkgLabel(key: string): string {
 // created in the Documents panel and selected here by their document id — they
 // quote exactly like a package (replacing the old free-text ad-hoc flow).
 // Manages its own state + polling.
-function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<void> }) {
+function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<unknown>; docs?: AttachableDoc[] }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
   const [boms, setBoms] = useState<CustomBomSummary[]>([])     // custom BOMs on this project
+  const [trades, setTrades] = useState<TradeScopeSummary[]>([])  // subcontractor trade scopes
   const [result, setResult] = useState<SupplierSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<Record<string, boolean>>({})
@@ -1308,19 +1800,43 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
   const [bom, setBom] = useState<PackageBom | null>(null)   // what we're asking suppliers to quote
   const [bomLoading, setBomLoading] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)   // found supplier currently being added
+  const [scope, setScope] = useState('')       // scope of work for the selected trade
+  const [scopeNote, setScopeNote] = useState<string | null>(null)
 
-  // Resolve a package key — a preset key or a custom BOM's document id — to its
-  // display label. Custom BOMs show their own name.
-  const labelFor = (key: string) => boms.find((b) => b.id === key)?.name || pkgLabel(key)
+  // Resolve a package key — a preset key, a custom BOM's document id, or a trade
+  // scope's document id — to its display label.
+  const labelFor = (key: string) =>
+    boms.find((b) => b.id === key)?.name || trades.find((t) => t.id === key)?.name || pkgLabel(key)
   const subjectLabel = labelFor(pkg)
   const isCustom = !!(bom && bom.custom)
+  // A trade scope quotes subcontractors on a scope of work, not BOM items.
+  const trade = trades.find((t) => t.id === pkg) || null
+  const isTrade = !!trade
 
-  // Load this project's custom BOMs (the extra selectable "packages").
+  // Load this project's custom BOMs + trade scopes (the extra selectable "packages").
   useEffect(() => {
     let alive = true
     listProjectBoms(projectId).then((b) => { if (alive) setBoms(b) }).catch(() => {})
+    listTradeScopes(projectId).then((t) => { if (alive) setTrades(t) }).catch(() => {})
     return () => { alive = false }
   }, [projectId])
+
+  // Seed the scope textarea from the selected trade's saved scope. Keyed on the
+  // resolved trade id (not the trades array) so saveScope's list update doesn't
+  // clobber in-progress typing, while switching chips always re-seeds.
+  useEffect(() => {
+    setScope(trade ? trade.scope || '' : '')
+    setScopeNote(null)
+  }, [trade ? trade.id : null])
+
+  const saveScope = async () => {
+    if (!trade || scope === (trade.scope || '')) return
+    try {
+      const updated = await updateTradeScope(projectId, trade.id, scope)
+      setTrades((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))
+      setScopeNote('Scope saved.')
+    } catch { setScopeNote('Could not save the scope.') }
+  }
 
   // Load any prior results when the package changes.
   useEffect(() => {
@@ -1332,16 +1848,21 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
     return () => { alive = false }
   }, [projectId, pkg])
 
-  // Load the selected package/BOM's line items (what we'll ask suppliers to quote).
+  // Load the selected package/BOM's line items (what we'll ask suppliers to
+  // quote). A trade scope has no BOM — its ask is the scope-of-work text.
+  // Keyed on isTrade (not the trades array) so the trades list resolving
+  // doesn't refetch the same BOM for a non-trade package.
   useEffect(() => {
     let alive = true
-    setBom(null); setBomLoading(true)
+    setBom(null)
+    if (isTrade) { setBomLoading(false); return }
+    setBomLoading(true)
     getPackageBom(projectId, pkg)
       .then((b) => { if (alive) setBom(b) })
       .catch(() => {})
       .finally(() => { if (alive) setBomLoading(false) })
     return () => { alive = false }
-  }, [projectId, pkg])
+  }, [projectId, pkg, isTrade])
 
   // Poll while a background search runs.
   useEffect(() => {
@@ -1389,7 +1910,8 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
   const generate = async () => {
     setGenerating(true); setErr(null)
     try {
-      const rfq = await generateRfq(projectId, pkg, selectedIds)
+      if (isTrade) await saveScope() // the modal shows what's actually stored
+      const rfq = await generateRfq(projectId, pkg, selectedIds, isTrade ? scope : undefined)
       setDraft(rfq)
     } catch (e) {
       // Surface backend reasons (e.g. the BOM approval gate: "confirm the
@@ -1478,6 +2000,17 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
               {boms.length === 0 && <span style={css('font-size:12px;color:var(--text-3)')}>None yet — create one in the Documents tab to quote items by hand.</span>}
             </div>
           </div>
+          <div>
+            <div style={css('font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:7px')}>Subcontractor trades</div>
+            <div style={css('display:flex;gap:7px;flex-wrap:wrap;align-items:center')}>
+              {trades.map((t) => (
+                <Box as="button" key={t.id} onClick={() => setPkg(t.id)} style={chip(pkg === t.id)} hover="background:var(--panel-2)">
+                  <Svg size={13} sw={1.9} d={TRADE_ICON} />{t.name}
+                </Box>
+              ))}
+              {trades.length === 0 && <span style={css('font-size:12px;color:var(--text-3)')}>None yet — create a trade in the Documents tab to request subcontractor bids.</span>}
+            </div>
+          </div>
         </div>
 
         <div style={css('display:flex;align-items:center;gap:16px;flex-wrap:wrap')}>
@@ -1494,7 +2027,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
             {searching
               ? <span style={css('width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>
               : <Svg size={15} d='<circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/>' />}
-            {searching ? 'Searching…' : 'Search suppliers'}
+            {searching ? 'Searching…' : isTrade ? 'Search subcontractors' : 'Search suppliers'}
           </Box>
         </div>
         <div style={css('font-size:11.5px;color:var(--text-3);margin-top:10px')}>
@@ -1504,7 +2037,22 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
         {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>{err}</div>}
       </div>
 
-      {/* What we're asking suppliers to quote — the package's or custom BOM's items */}
+      {/* What we're asking for — the package/BOM's line items, or (for a trade
+          scope) the editable scope of work the bid request is built from. */}
+      {isTrade ? (
+      <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
+        <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:4px')}>
+          <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>Scope of work · {labelFor(pkg)}</h2>
+          <span style={{ ...DcBadge('violet') }}>Sub bid</span>
+        </div>
+        <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:12px')}>This scope goes into the bid request — subcontractors price this, plus any documents you attach before sending.</div>
+        <textarea value={scope} onChange={(e) => { setScope(e.target.value); setScopeNote(null) }} onBlur={saveScope} rows={6}
+          placeholder={'Describe the work you want bids on — takeoff quantities, spec sections, inclusions/exclusions.'}
+          style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
+        {scopeNote && <div style={css('font-size:12px;color:var(--text-3);margin-top:6px')}>{scopeNote}</div>}
+        {!scope.trim() && <div style={css('font-size:12px;color:var(--text-3);margin-top:6px')}>Write a scope of work to enable the bid request.</div>}
+      </div>
+      ) : (
       <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px')}>
         <div style={css('display:flex;align-items:center;gap:9px;margin-bottom:4px')}>
           <h2 style={css('margin:0;font-size:14px;font-weight:600;flex:1')}>What we're asking for · {labelFor(pkg)}</h2>
@@ -1535,6 +2083,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
           </div>
         )}
       </div>
+      )}
 
       {/* Results */}
       {searching && total === 0 && (
@@ -1565,15 +2114,17 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded }: { projectId
       {/* Action bar */}
       {selectedIds.length > 0 && (
         <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--primary-soft);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
-          <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} supplier{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</span>
-          <Box as="button" onClick={generate} disabled={generating}
-            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating ? '.6' : '1'}`)}
-            hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />{generating ? 'Generating…' : 'Generate RFQ draft'}</Box>
+          <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} {isTrade ? 'subcontractor' : 'supplier'}{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</span>
+          {/* A trade bid request needs a scope — disable rather than 400 later. */}
+          <Box as="button" onClick={generate} disabled={generating || (isTrade && !scope.trim())}
+            title={isTrade && !scope.trim() ? 'Write a scope of work first' : undefined}
+            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating || (isTrade && !scope.trim()) ? '.6' : '1'}`)}
+            hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />{generating ? 'Generating…' : isTrade ? 'Generate bid request' : 'Generate RFQ draft'}</Box>
         </div>
       )}
 
       {draft && (
-        <RfqReviewModal projectId={projectId} rfq={draft} onClose={() => setDraft(null)} />
+        <RfqReviewModal projectId={projectId} rfq={draft} docs={docs} onClose={() => setDraft(null)} />
       )}
     </>
   )
@@ -1643,7 +2194,7 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
         <div style={css('display:flex;align-items:center;gap:8px;margin-bottom:4px')}><span style={css('font-size:12.5px;font-weight:600')}>{t.who}</span><span style={css('font-size:11px;color:var(--text-3)')}>{t.time}</span></div>
         {t.subject && <div style={css('font-size:13px;font-weight:600;margin-bottom:3px')}>{t.subject}</div>}
         <div style={css('font-size:13px;line-height:1.55;color:var(--text);white-space:pre-wrap;word-break:break-word')}>{t.body}</div>
-        {t.attach && <div style={css('display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}><Svg size={14} sw={1.8} stroke="var(--text-3)" d='M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8' />{t.attach}</div>}
+        {t.attach && <div style={css('display:inline-flex;align-items:center;gap:7px;margin-top:8px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}><Svg size={14} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />{t.attach}</div>}
       </div>
     </div>
   )
@@ -1653,7 +2204,10 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 // via Gmail or the logging mock). Once sent it becomes the conversation view:
 // the full email thread is read live from Gmail, and "Check for replies" pulls
 // any supplier response — flipping the RFQ to 'Replied' when one has arrived.
-function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: PersistedRfq; onClose: () => void }) {
+// Attachable project documents for the RFQ modal — anything with a stored file.
+type AttachableDoc = { id?: string; name: string; hasFile?: boolean }
+
+function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void }) {
   const [subject, setSubject] = useState(rfq.subject)
   const [body, setBody] = useState(rfq.body)
   const [recipients, setRecipients] = useState<RfqRecipient[]>(rfq.recipients || [])
@@ -1662,7 +2216,23 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
   const [err, setErr] = useState<string | null>(null)
   const [conv, setConv] = useState<RfqConversation | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
+  // The user chooses which project documents ride along on the email. Custom
+  // BOMs and trade scopes have no file, so they're excluded automatically.
+  const [attachIds, setAttachIds] = useState<string[]>((rfq.attachments || []).map((a) => a.documentId))
+  const [attachNames, setAttachNames] = useState<string[]>((rfq.attachments || []).map((a) => a.name))
+  const attachable = (docs || []).filter((d) => d.hasFile && d.id)
+  // Ids chosen earlier can go stale (document deleted since the draft was
+  // saved). Sending stale ids would 400 at save with no checkbox to uncheck —
+  // a dead end — so both the count and the save payload use the live set.
+  // Only filter when we actually know the project's documents.
+  const liveAttachIds = docs !== undefined
+    ? attachIds.filter((id) => attachable.some((d) => d.id === id))
+    : attachIds
+  const isSub = rfq.kind === 'subcontractor'
   const draft = status === 'Draft'
+
+  const toggleAttach = (id: string) =>
+    setAttachIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
 
   const dropRecipient = (email: string) => setRecipients((rs) => rs.filter((r) => r.email !== email))
 
@@ -1682,10 +2252,11 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
   const send = async () => {
     setBusy(true); setErr(null)
     try {
-      await saveRfq(projectId, rfq.id, { subject, body, recipients })
+      await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
       const out = await sendRfq(projectId, rfq.id)
       setRecipients(out.recipients || [])
       setStatus(out.status)
+      setAttachNames((out.attachments || []).map((a) => a.name))
       loadConversation() // surface the just-sent message as the thread
     } catch (e) {
       // Backend reasons (already sent, no approved BOM items, …) come through
@@ -1702,7 +2273,8 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
       <div style={css('position:relative;width:min(640px,100%);max-height:90vh;overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);animation:pcUp .2s ease both')}>
         <div style={css('display:flex;align-items:center;gap:9px;padding:16px 18px;border-bottom:1px solid var(--border)')}>
           <span style={css('width:26px;height:26px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} fill d={SPARKLE_SM} /></span>
-          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? 'Review RFQ draft' : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
+          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? (isSub ? 'Review bid request' : 'Review RFQ draft') : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
+          {isSub && <span style={DcBadge('violet')}>Sub bid</span>}
           {!draft && <span style={DcBadge(STATUS_TONE[status] || 'gray')}>{status}</span>}
           <Box as="button" onClick={onClose} style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={17} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
@@ -1733,7 +2305,50 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
               <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12}
                 style={{ ...css('width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;line-height:1.55;resize:vertical;font-family:inherit') }} />
             </div>
-          ) : (
+          ) : null}
+          {/* Attachments: the user picks which project documents ride along on
+              the email. Editable on a draft; read-only once sent. */}
+          {draft ? (
+            <div>
+              <label style={fieldLabel}>Attachments ({liveAttachIds.length})</label>
+              {liveAttachIds.length < attachIds.length && (
+                <div style={css('font-size:11.5px;color:var(--warn);font-weight:600;margin-bottom:6px')}>
+                  {attachIds.length - liveAttachIds.length} previously chosen attachment{attachIds.length - liveAttachIds.length === 1 ? ' was' : 's were'} removed — the document no longer exists.
+                </div>
+              )}
+              {attachable.length === 0 ? (
+                <div style={css('font-size:12.5px;color:var(--text-3)')}>No attachable documents on this project — upload plans or specs in the Documents tab first.</div>
+              ) : (
+                <div style={css('display:flex;flex-direction:column;gap:6px')}>
+                  {attachable.map((d) => {
+                    const on = attachIds.includes(d.id!)
+                    return (
+                      <Box as="button" key={d.id} onClick={() => toggleAttach(d.id!)}
+                        style={css(`display:flex;align-items:center;gap:9px;padding:7px 11px;border:1px solid ${on ? 'var(--primary)' : 'var(--border)'};border-radius:9px;background:${on ? 'var(--primary-soft)' : 'var(--panel-2)'};text-align:left;cursor:pointer`)}
+                        hover="border-color:var(--primary)">
+                        <input type="checkbox" checked={on} readOnly style={{ accentColor: 'var(--primary)', pointerEvents: 'none', flex: 'none' }} />
+                        <Svg size={14} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />
+                        <span style={css('flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span>
+                      </Box>
+                    )
+                  })}
+                  <div style={css('font-size:11.5px;color:var(--text-3)')}>Attachments are capped at 15 MB total per email.</div>
+                </div>
+              )}
+            </div>
+          ) : attachNames.length > 0 ? (
+            <div>
+              <label style={fieldLabel}>Attachments ({attachNames.length})</label>
+              <div style={css('display:flex;gap:7px;flex-wrap:wrap')}>
+                {attachNames.map((n, i) => (
+                  <span key={i} style={css('display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:12px;font-weight:500')}>
+                    <Svg size={13} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />{n}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {!draft ? (
             <div>
               <div style={css('display:flex;align-items:center;justify-content:space-between;margin-bottom:10px')}>
                 <label style={{ ...fieldLabel, marginBottom: 0 }}>Conversation</label>
@@ -1748,7 +2363,7 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
                 {conv && conv.thread.map((t, i) => <ThreadBubble key={i} t={t} />)}
               </div>
             </div>
-          )}
+          ) : null}
           {err && <div style={css('font-size:12.5px;color:var(--danger)')}>{err}</div>}
         </div>
         <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border)')}>
@@ -1757,7 +2372,7 @@ function RfqReviewModal({ projectId, rfq, onClose }: { projectId: string; rfq: P
           {draft && (
             <Box as="button" onClick={send} disabled={busy || recipients.length === 0}
               style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || recipients.length === 0 ? '.6' : '1'}`)}
-              hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send RFQ (${recipients.length})`}</Box>
+              hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send ${isSub ? 'bid request' : 'RFQ'} (${recipients.length})`}</Box>
           )}
         </div>
       </div>
@@ -1769,7 +2384,7 @@ function TabSuppliers({ m }: MProps) {
   // Names already in the customer's network — the search marks matching results
   // as "In your network" and adding one refreshes the global list via m.reload.
   const networkNames = new Set<string>((m.suppliers || []).map((s) => s.name.toLowerCase()))
-  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} />
+  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} docs={m.docs} />
 }
 
 /* ----------------------------------------------------------------- RFQs tab */
@@ -1841,6 +2456,7 @@ function TabRfqs({ m }: MProps) {
                     <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.subject}</div>
                     <div style={css('font-size:11.5px;color:var(--text-3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.pkg || pkgLabel(rq.package)} · {(rq.recipients || []).length} recipient{(rq.recipients || []).length === 1 ? '' : 's'}</div>
                   </div>
+                  {rq.kind === 'subcontractor' && <span style={DcBadge('violet')}>Sub bid</span>}
                   <span style={DcBadge(rq.statusTone)}>{rq.status}</span>
                   {rq.status === 'Draft' && (
                     <Box as="button" onClick={(e: { stopPropagation: () => void }) => remove(rq, e)} disabled={busyId === rq.id}
@@ -1855,7 +2471,7 @@ function TabRfqs({ m }: MProps) {
           </div>
         </div>
       </div>
-      {open && <RfqReviewModal projectId={projectId} rfq={open} onClose={() => { setOpen(null); load() }} />}
+      {open && <RfqReviewModal projectId={projectId} rfq={open} docs={m.docs} onClose={() => { setOpen(null); load() }} />}
     </div>
   )
 }
@@ -2281,6 +2897,10 @@ function LendersPanel({ projectId }: { projectId: string }) {
 /* ------------------------------------------------------- Supplier drawer */
 function SupplierDrawer({ m }: MProps) {
   const a = m.activeSupplier
+  const [editing, setEditing] = useState(false)
+  // Inline remove confirmation (not window.confirm — native dialogs are
+  // suppressed in embedded/webview browsers, which silently swallowed the delete).
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
   return (
     <div style={css('position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end')}>
       <div onClick={m.closeSupplier} style={css('position:absolute;inset:0;background:rgba(15,20,30,.4)')}></div>
@@ -2288,6 +2908,7 @@ function SupplierDrawer({ m }: MProps) {
         <div style={css('display:flex;align-items:flex-start;gap:13px;padding:20px;border-bottom:1px solid var(--border)')}>
           <div style={a.logoStyle}>{a.logo}</div>
           <div style={css('flex:1;min-width:0')}><div style={css('font-size:16px;font-weight:700')}>{a.name}</div><div style={css('font-size:12.5px;color:var(--text-3);margin-top:1px')}>{a.contact} · Account rep</div><div style={css('margin-top:7px')}><span style={a.rfqBadge}>{a.rfq}</span></div></div>
+          <Box as="button" onClick={() => setEditing(true)} title="Edit details" style={css('width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={16} sw={1.9} d='M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z' /></Box>
           <Box as="button" onClick={m.closeSupplier} style={css('width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={18} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
         <div style={css('padding:20px;display:flex;flex-direction:column;gap:22px')}>
@@ -2307,27 +2928,59 @@ function SupplierDrawer({ m }: MProps) {
           <div>
             <div style={css('font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--text-3);text-transform:uppercase;margin-bottom:13px')}>Communication history</div>
             <div style={css('display:flex;flex-direction:column')}>
-              {m.supComms.map((c, i) => (
-                <div key={i} style={css('display:flex;gap:12px')}>
-                  <div style={css('display:flex;flex-direction:column;align-items:center;flex:none')}><div style={c.chipStyle}><IconHtml html={c.iconHtml} size={14} /></div><span style={css('flex:1;width:2px;background:var(--border);min-height:14px')}></span></div>
-                  <div style={css('flex:1;padding-bottom:16px')}><div style={css('font-size:13px;font-weight:600')}>{c.title}</div><div style={css('font-size:12px;color:var(--text-2);margin-top:2px;line-height:1.45')}>{c.body}</div><div style={css('font-size:11px;color:var(--text-3);margin-top:4px')}>{c.time}</div></div>
-                </div>
-              ))}
-              {m.supComms.length === 0 && (
-                <div style={css('font-size:12.5px;color:var(--text-3)')}>No communication yet.</div>
+              {m.supCommsLoading ? (
+                <div style={css('font-size:12.5px;color:var(--text-3)')}>Loading…</div>
+              ) : m.supComms.length === 0 ? (
+                <div style={css('font-size:12.5px;color:var(--text-3)')}>No communication with {a.name} yet.</div>
+              ) : (
+                m.supComms.map((c, i) => (
+                  <div key={i} style={css('display:flex;gap:12px')}>
+                    <div style={css('display:flex;flex-direction:column;align-items:center;flex:none')}><div style={c.chipStyle}><IconHtml html={c.iconHtml} size={14} /></div><span style={css('flex:1;width:2px;background:var(--border);min-height:14px')}></span></div>
+                    <div style={css('flex:1;padding-bottom:16px')}><div style={css('font-size:13px;font-weight:600')}>{c.title}</div><div style={css('font-size:12px;color:var(--text-2);margin-top:2px;line-height:1.45')}>{c.body}</div><div style={css('font-size:11px;color:var(--text-3);margin-top:4px')}>{c.time}</div></div>
+                  </div>
+                ))
               )}
             </div>
           </div>
           <div style={css('border-top:1px solid var(--border);padding-top:18px')}>
-            <Box as="button"
-              onClick={() => { if (window.confirm(`Remove “${a.name}” from your network? This won't affect RFQs already sent.`)) m.deleteSupplier(a.id) }}
-              style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3);font-size:13px;font-weight:600')}
-              hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)">
-              <Svg size={15} sw={1.9} d={TRASH} />Remove from network
-            </Box>
+            {!confirmingRemove ? (
+              <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
+                <Box as="button"
+                  onClick={() => setEditing(true)}
+                  style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')}
+                  hover="background:var(--panel-2)">
+                  <Svg size={15} sw={1.9} d='M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z' />Edit details
+                </Box>
+                <Box as="button"
+                  onClick={() => setConfirmingRemove(true)}
+                  style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3);font-size:13px;font-weight:600')}
+                  hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)">
+                  <Svg size={15} sw={1.9} d={TRASH} />Remove from network
+                </Box>
+              </div>
+            ) : (
+              <div>
+                <div style={css('font-size:13px;color:var(--text-2);margin-bottom:11px;line-height:1.45')}>Remove “{a.name}” from your network? This won't affect RFQs already sent.</div>
+                <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
+                  <Box as="button"
+                    onClick={() => m.deleteSupplier(a.id)}
+                    style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--danger,#dc2626);border:1px solid var(--danger,#dc2626);color:#fff;font-size:13px;font-weight:600')}
+                    hover="opacity:.9">
+                    <Svg size={15} sw={1.9} d={TRASH} />Remove
+                  </Box>
+                  <Box as="button"
+                    onClick={() => setConfirmingRemove(false)}
+                    style={css('display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')}
+                    hover="background:var(--panel-2)">
+                    Cancel
+                  </Box>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+      {editing && <EditSupplierModal m={m} onClose={() => setEditing(false)} />}
     </div>
   )
 }

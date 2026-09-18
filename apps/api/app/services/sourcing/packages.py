@@ -297,6 +297,28 @@ def adhoc_keywords(text: str) -> List[str]:
     return [base, f"{base} supplier", f"{base} distributor"]
 
 
+def trade_keywords(text: str) -> List[str]:
+    """Fan a free-text trade name (e.g. "concrete flatwork") into Places search
+    variants aimed at installers, not material suppliers. When the user already
+    wrote "contractor"/"subcontractor", don't double the suffix."""
+    base = " ".join((text or "").split())
+    if not base:
+        return []
+    if "contractor" in base.lower():  # covers "subcontractor" too
+        return [base, f"{base} company"]
+    return [f"{base} contractor", f"{base} subcontractor", f"{base} company"]
+
+
+def trade_verify_hint(label: str) -> str:
+    """Relevance hint for subcontractor searches — steer the verifier toward
+    firms that perform the work rather than sell the materials."""
+    return (
+        f"Licensed {label} trade contractor or subcontractor performing "
+        "installation work on commercial construction projects — not a "
+        "materials supplier, distributor, or retail store."
+    )
+
+
 def label_for(category_key: str) -> str:
     pkg = PACKAGES.get(category_key)
     return pkg["label"] if pkg else category_key.title()

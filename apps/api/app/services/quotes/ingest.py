@@ -25,10 +25,10 @@ logger = logging.getLogger("procureai.quotes.ingest")
 _PKG_BASE = {"water": 490_000, "sewer": 215_000, "storm": 260_000, "erosion": 70_000}
 
 
-def _recipient_index(db: Session, project_id: str) -> Dict[str, dict]:
+def _recipient_index(db: Session, org_id: str, project_id: str) -> Dict[str, dict]:
     """email → {rfq_id, package, package_label, supplier_id, supplier_name}."""
     index: Dict[str, dict] = {}
-    for rfq in rfqs_repo.list_awaiting_rfqs(db, project_id):
+    for rfq in rfqs_repo.list_awaiting_rfqs(db, org_id, project_id):
         for r in rfq.get("recipients", []):
             email = (r.get("email") or "").strip().lower()
             if email and email not in index:
@@ -43,20 +43,22 @@ def _recipient_index(db: Session, project_id: str) -> Dict[str, dict]:
     return index
 
 
-def ingest_quotes(db: Session, project_id: str) -> Tuple[int, int, bool]:
+def ingest_quotes(db: Session, org_id: str, project_id: str) -> Tuple[int, int, bool]:
     """Return (ingested_count, total_recipients, mocked)."""
-    index = _recipient_index(db, project_id)
+    index = _recipient_index(db, org_id, project_id)
     total = len(index)
     if total == 0:
         return 0, 0, not (gmail_configured() and parser.is_configured())
 
     if gmail_configured():
-        return _ingest_live(db, project_id, index)
-    return _ingest_mock(db, project_id, index), total, True
+        return _ingest_live(db, org_id, project_id, index)
+    return _ingest_mock(db, org_id, project_id, index), total, True
 
 
-def _ingest_live(db: Session, project_id: str, index: Dict[str, dict]) -> Tuple[int, int, bool]:
-    seen = quotes_repo.message_ids_for_project(db, project_id)
+def _ingest_live(
+    db: Session, org_id: str, project_id: str, index: Dict[str, dict]
+) -> Tuple[int, int, bool]:
+    seen = quotes_repo.message_ids_for_project(db, org_id, project_id)
     try:
         messages = gmail_reader.fetch_replies(
             list(index.keys()), lookback_days=settings.quote_ingest_lookback_days
@@ -77,34 +79,34 @@ def _ingest_live(db: Session, project_id: str, index: Dict[str, dict]) -> Tuple[
         if not parsed.is_quote:
             continue
         finalize_quote(parsed)
-        _persist(db, project_id, meta, parsed, source="gmail", message_id=msg.message_id, email=msg.from_email)
+        _persist(db, org_id, project_id, meta, parsed, source="gmail", message_id=msg.message_id, email=msg.from_email)
         seen.add(msg.message_id)
         ingested += 1
         if meta["rfq_id"]:
             quoted_rfqs.add(meta["rfq_id"])
 
     for rfq_id in quoted_rfqs:
-        rfqs_repo.mark_rfq_quoted(db, rfq_id)
+        rfqs_repo.mark_rfq_quoted(db, org_id, rfq_id)
     return ingested, len(index), False
 
 
-def _ingest_mock(db: Session, project_id: str, index: Dict[str, dict]) -> int:
+def _ingest_mock(db: Session, org_id: str, project_id: str, index: Dict[str, dict]) -> int:
     ingested = 0
     quoted_rfqs: set = set()
     for email, meta in index.items():
-        if quotes_repo.has_quote_for_recipient(db, project_id, meta["package"], email):
+        if quotes_repo.has_quote_for_recipient(db, org_id, project_id, meta["package"], email):
             continue
         parsed = _mock_quote(meta["supplier_name"], meta["package"], meta.get("rfq_lines"))
-        _persist(db, project_id, meta, parsed, source="mock", message_id=None, email=email)
+        _persist(db, org_id, project_id, meta, parsed, source="mock", message_id=None, email=email)
         ingested += 1
         if meta["rfq_id"]:
             quoted_rfqs.add(meta["rfq_id"])
     for rfq_id in quoted_rfqs:
-        rfqs_repo.mark_rfq_quoted(db, rfq_id)
+        rfqs_repo.mark_rfq_quoted(db, org_id, rfq_id)
     return ingested
 
 
-def _persist(db, project_id, meta, parsed, *, source, message_id, email=None) -> None:
+def _persist(db, org_id, project_id, meta, parsed, *, source, message_id, email=None) -> None:
     # Normalize parsed lines into the shape the comparison engine reads
     # ({name, qty, unitPrice, extended, leadDays} — see line_comparison.py).
     line_items = [
@@ -120,6 +122,7 @@ def _persist(db, project_id, meta, parsed, *, source, message_id, email=None) ->
     ]
     quotes_repo.create_quote(
         db,
+        org_id,
         project_id=project_id,
         package=meta["package"],
         package_label=meta["package_label"],
