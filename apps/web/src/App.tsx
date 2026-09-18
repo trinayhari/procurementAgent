@@ -258,7 +258,7 @@ export default function App() {
         loadSeqRef.current++ // invalidate any in-flight load
         set({
           data: null, docLineItems: null, customProjects: [], bomDraft: null,
-          editBom: false, bomBusy: false, uploadError: null, projError: null,
+          editBom: false, bomEditDocId: null, bomBusy: false, uploadError: null, projError: null,
         })
       }
       return
@@ -304,7 +304,7 @@ export default function App() {
     // render's closure, so it can't clobber a bundle applied in between.
     setS((prev) =>
       prev.data && bundleForRef.current.pid !== pid
-        ? { ...prev, data: { ...prev.data, ...emptyProjectSlices() }, docLineItems: null, docIdx: 0, rfqIdx: 0 }
+        ? { ...prev, data: { ...prev.data, ...emptyProjectSlices() }, docLineItems: null, docIdx: 0, rfqIdx: 0, editBom: false, bomDraft: null, bomEditDocId: null }
         : prev,
     )
     reload(pid)
@@ -417,7 +417,7 @@ export default function App() {
       set({
         tab: 'documents', docIdx: 0, uploadError: null,
         docLineItems: { id: doc.id, groups },
-        editBom: true,
+        editBom: true, bomEditDocId: doc.id,
         bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })),
       })
     } catch (e) {
@@ -457,6 +457,15 @@ export default function App() {
     // Skip the no-op write when already null (the purge/blank paths set it),
     // so those paths don't trigger a second identical render commit.
     if (!doc || !doc.id) { if (s.docLineItems !== null) set({ docLineItems: null }); return }
+    // The editor is pinned to a document id, but docIdx is a list position and
+    // the list is refetched (newest-first) while anything is processing. If a
+    // reload moved the edited document, follow it; if it's gone, close the
+    // editor rather than leave it hovering over some other document.
+    if (s.editBom && s.bomEditDocId && doc.id !== s.bomEditDocId) {
+      const at = docs.findIndex((d) => d.id === s.bomEditDocId)
+      set(at >= 0 ? { docIdx: at } : { editBom: false, bomDraft: null, bomEditDocId: null })
+      return
+    }
     let alive = true
     getDocumentLineItems(doc.id)
       .then((groups) => { if (alive) set({ docLineItems: { id: doc.id, groups } }) })
@@ -470,10 +479,14 @@ export default function App() {
     return docs && docs[s.docIdx]
   }
   const startBomEdit = () => {
-    const groups = (s.docLineItems && s.docLineItems.groups) || []
-    set({ editBom: true, bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })) })
+    const doc = currentDoc()
+    if (!doc || !doc.id) return
+    // Edit the groups loaded FOR THIS document; an in-flight load for another
+    // document must not seed the draft.
+    const groups = (s.docLineItems && s.docLineItems.id === doc.id && s.docLineItems.groups) || []
+    set({ editBom: true, bomEditDocId: doc.id, bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })) })
   }
-  const cancelBomEdit = () => set({ editBom: false, bomDraft: null })
+  const cancelBomEdit = () => set({ editBom: false, bomDraft: null, bomEditDocId: null })
   const editBomItem = (gi: number, ii: number, field: string, value: string) =>
     set({ bomDraft: (s.bomDraft ?? []).map((g, i) => (i !== gi ? g : { ...g, items: g.items.map((it, j) => (j !== ii ? it : { ...it, [field]: value })) })) })
   const addBomItem = (gi: number) =>
@@ -481,17 +494,26 @@ export default function App() {
   const deleteBomItem = (gi: number, ii: number) =>
     set({ bomDraft: (s.bomDraft ?? []).map((g, i) => (i !== gi ? g : { ...g, items: g.items.filter((_, j) => j !== ii) })) })
   const saveBom = async () => {
+    // Save to the document the editor was opened for — NOT the currently
+    // selected one. They can differ if the list re-ordered under the editor
+    // (see the effect above); writing the draft to the wrong id replaced
+    // another document's extracted BOM with no way back.
     const doc = currentDoc()
-    if (!doc) return
+    const targetId = s.bomEditDocId || (doc && doc.id)
+    if (!targetId) return
+    if (doc && doc.id !== targetId) {
+      set({ uploadError: 'The BOM editor lost track of its document — reopen it and try again.', editBom: false, bomDraft: null, bomEditDocId: null })
+      return
+    }
     const uid = user && user.id
     set({ bomBusy: true })
     try {
-      await saveDocumentLineItems(doc.id, s.bomDraft ?? [])
-      const groups = await getDocumentLineItems(doc.id)
+      await saveDocumentLineItems(targetId, s.bomDraft ?? [])
+      const groups = await getDocumentLineItems(targetId)
       // Same guard as reload: never write a previous session's data back into
       // state after the account changed mid-flight.
       if (!userRef.current || userRef.current.id !== uid) return
-      set({ editBom: false, bomDraft: null, docLineItems: { id: doc.id, groups } })
+      set({ editBom: false, bomDraft: null, bomEditDocId: null, docLineItems: { id: targetId, groups } })
       await reload()
     } catch (e) {
       set({ uploadError: hasDetail(e) ? e.message : 'Could not save BOM edits.' })
@@ -1302,6 +1324,37 @@ type Slot = Model['docSlots'][number]
 // One plan slot — holds a single site / building / electrical plan. A filled slot
 // shows the document with View / Replace / Remove; an empty slot is an uploader.
 // "Replace" re-uploads the same plan type, which the backend swaps in place.
+// Two-click document removal. Deleting drops the file, its extracted BOM and
+// any RFQ attachment references with no undo, so the X first turns into an
+// inline "Remove? Yes / No" (a native window.confirm is auto-dismissed in
+// embedded webviews, which made the flow look broken there). The prompt
+// reverts on its own after a few seconds.
+function RemoveDocButton({ id, onRemove, size = 28, bordered = false }: {
+  id?: string; onRemove: (id: string) => void; size?: number; bordered?: boolean
+}) {
+  const [arm, setArm] = useState(false)
+  useEffect(() => {
+    if (!arm) return
+    const t = setTimeout(() => setArm(false), 5000)
+    return () => clearTimeout(t)
+  }, [arm])
+  const stop = (e: MouseEvent) => e.stopPropagation()
+  if (arm) {
+    return (
+      <span onClick={stop} style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;white-space:nowrap')}>
+        <span style={css('color:var(--danger)')}>Remove?</span>
+        <Box as="button" onClick={(e: MouseEvent) => { stop(e); if (id) onRemove(id) }} aria-label="Confirm remove" style={css('padding:3px 8px;border-radius:6px;background:var(--danger);color:#fff')}>Yes</Box>
+        <Box as="button" onClick={(e: MouseEvent) => { stop(e); setArm(false) }} aria-label="Cancel remove" style={css('padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--text-2)')} hover="background:var(--panel-2)">No</Box>
+      </span>
+    )
+  }
+  return (
+    <Box as="button" onClick={(e: MouseEvent) => { stop(e); if (id) setArm(true) }} title="Remove" aria-label="Remove"
+      style={css(`width:${size}px;height:${size}px;flex:none;border-radius:7px;${bordered ? 'border:1px solid var(--border);' : ''}color:var(--text-3);display:flex;align-items:center;justify-content:center`)}
+      hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+  )
+}
+
 function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const pick = () => inputRef.current && inputRef.current.click()
@@ -1330,7 +1383,7 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
           <div style={css('display:flex;gap:6px')}>
             <Box as="button" onClick={d.onOpen} style={btn} hover="background:var(--panel-2)">View</Box>
             <Box as="button" onClick={pick} disabled={m.uploading} style={btn} hover="background:var(--panel-2)">Replace</Box>
-            <Box as="button" onClick={() => d.id && m.onDeleteDoc(d.id)} title="Remove" style={css('width:30px;height:30px;flex:none;border-radius:7px;border:1px solid var(--border);color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <RemoveDocButton id={d.id} onRemove={m.onDeleteDoc} size={30} bordered />
           </div>
         </>
       ) : (
@@ -1356,12 +1409,17 @@ function AdditionalDocsCard({ m }: MProps) {
   }
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
-      <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }}
+      {/* Reference documents aren't extracted, so spreadsheets are fine here
+          (the BOM plan slots above take only PDFs/images — same as the API). */}
+      <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xls,.xlsx" style={{ display: 'none' }}
         onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} />
-      <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
-        <div style={css('display:flex;align-items:center;gap:8px')}>
+      <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border)')}>
+        <div style={css('display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap')}>
           <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Additional documents</h2>
           <span style={css('font-size:12px;color:var(--text-3)')}>{m.additionalDocs.length} files</span>
+          {/* Repeat the upload outcome here: this card sits well below the
+              top-of-tab status line, so a rejection was scrolled out of view. */}
+          {m.uploadError && <span style={css('font-size:12px;color:var(--danger)')}>{m.uploadError}</span>}
         </div>
         <Box as="button" onClick={pick} disabled={m.uploading}
           style={css(`display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600;opacity:${m.uploading ? '.6' : '1'}`)}
@@ -1375,7 +1433,7 @@ function AdditionalDocsCard({ m }: MProps) {
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--panel-3);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={FILE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{d.date}</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <RemoveDocButton id={d.id} onRemove={m.onDeleteDoc} />
           </div>
         ))
       )}
@@ -1406,7 +1464,7 @@ function CustomBomsCard({ m }: MProps) {
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d='M9 3H5a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 5 21h14a1.5 1.5 0 0 0 1.5-1.5V4.5A1.5 1.5 0 0 0 19 3h-4" /><path d="M8 8h8M8 12h8M8 16h5' /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{d.items === '—' ? '0' : d.items} items</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <RemoveDocButton id={d.id} onRemove={m.onDeleteDoc} />
           </div>
         ))
       )}
@@ -1441,7 +1499,7 @@ function TradeScopesCard({ m }: MProps) {
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--violet-soft);color:var(--violet);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={TRADE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{(d.summary || '').trim() ? 'Scope written' : 'No scope yet'}</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <RemoveDocButton id={d.id} onRemove={m.onDeleteDoc} />
           </div>
         ))
       )}
@@ -1577,8 +1635,10 @@ function TabDocuments({ m }: MProps) {
           ) : m.doc ? (
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
-              <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.pages} pages</span></div>
-              <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><Svg size={12} fill d={SPARKLE_SM} />AI Analysis</span>
+              <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.pages} {m.doc.pages === 1 ? 'page' : 'pages'}</span></div>
+              {m.doc.mocked
+                ? <span title={m.doc.summary || 'No extraction model is configured — these line items are simulated, not read from the plans.'} style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warn-soft);padding:3px 9px;border-radius:999px')}>Simulated extraction</span>
+                : <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><Svg size={12} fill d={SPARKLE_SM} />AI Analysis</span>}
             </div>
             {m.doc.status === 'Failed' && !m.doc.processing && (
               <div role="alert" style={css('display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--danger-soft);font-size:12.5px')}>

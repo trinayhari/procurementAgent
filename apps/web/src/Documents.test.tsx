@@ -34,7 +34,10 @@ const GONE_DOC = {
 
 let docs: object[] = []
 let uploadResponse: Response | null = null
+let lineItems: Record<string, object[]> = {}
 const analyzeCalls: string[] = []
+const deleteCalls: string[] = []
+const savedTo: string[] = []
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -57,6 +60,19 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     docs = docs.map((d) => ((d as { id: string }).id === analyze[1] ? { ...d, status: 'Processing', statusTone: 'blue', processing: true, error: null } : d))
     return json(docs[0])
   }
+  const del = path.match(/^\/api\/documents\/([^/]+)$/)
+  if (del && method === 'DELETE') {
+    deleteCalls.push(del[1])
+    docs = docs.filter((d) => (d as { id: string }).id !== del[1])
+    return new Response(null, { status: 204 })
+  }
+  const put = path.match(/^\/api\/documents\/([^/]+)\/line-items$/)
+  if (put && method === 'PUT') {
+    savedTo.push(put[1])
+    lineItems[put[1]] = JSON.parse(String(init && init.body)).groups
+    return json(lineItems[put[1]])
+  }
+  if (put && method === 'GET') return json(lineItems[put[1]] || [])
   if (path.endsWith('/documents')) return json(docs)
   if (path.includes('/preview')) return json({ pages: 0, pageUrl: null, fileUrl: '/x', expiresInMinutes: 15 })
   if (path.includes('/timeline')) return json({ milestones: [], gantt: [], ganttCols: [] })
@@ -71,7 +87,10 @@ beforeEach(() => {
   window.history.replaceState(null, '', window.location.pathname)
   docs = []
   uploadResponse = null
+  lineItems = {}
   analyzeCalls.length = 0
+  deleteCalls.length = 0
+  savedTo.length = 0
   fetchMock.mockClear()
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -128,6 +147,61 @@ describe('documents tab reliability', () => {
     const file = new File([new Uint8Array([37, 80, 68, 70])], 'broken.pdf', { type: 'application/pdf' })
     fireEvent.change(inputs[0], { target: { files: [file] } })
 
-    await screen.findByText('Could not read this PDF — the file appears to be corrupt or incomplete')
+    // Shown at the top of the tab AND on the Additional documents card, which
+    // sits far below where the rejection used to scroll out of view.
+    const shown = await screen.findAllByText('Could not read this PDF — the file appears to be corrupt or incomplete')
+    expect(shown).toHaveLength(2)
+  })
+
+  it('asks before removing a document instead of deleting on one click', async () => {
+    docs = [GONE_DOC]
+    await openDocuments()
+    await screen.findByText('File no longer available')
+    const removeButtons = screen.getAllByRole('button', { name: 'Remove' })
+    fireEvent.click(removeButtons[0])
+    // Nothing deleted yet — an inline confirm appeared.
+    expect(deleteCalls).toEqual([])
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel remove' }))
+    expect(screen.queryByRole('button', { name: 'Confirm remove' })).toBeNull()
+    expect(deleteCalls).toEqual([])
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm remove' }))
+    await waitFor(() => expect(deleteCalls).toEqual(['doc-gone']))
+  })
+
+  it('saves BOM edits to the document the editor was opened for, even after the list reorders', async () => {
+    // The editor is opened on a confirmed plan at index 0. A document is still
+    // processing, so the 3s poll reloads the list — and a newer upload now
+    // sits at index 0. Save used to PUT to "whatever is at docIdx" and wiped
+    // that document's BOM.
+    const PLAN = { ...GONE_DOC, id: 'doc-plan', name: 'Site Plan', fileMissing: false, hasFile: false, items: '1' }
+    const PROC = { ...GONE_DOC, id: 'doc-proc', name: 'Older Upload', fileMissing: false, hasFile: false, items: '—', processing: true, status: 'Processing', statusTone: 'blue' }
+    const NEW = { ...PROC, id: 'doc-new', name: 'Newer Upload' }
+    docs = [PLAN, PROC]
+    lineItems = {
+      'doc-plan': [{ group: 'Water', count: 1, tone: 'blue', items: [{ n: '12" DI Pipe', q: '100 LF' }] }],
+      'doc-new': [{ group: 'Other', count: 1, tone: 'gray', items: [{ n: 'SOMETHING ELSE', q: '1' }] }],
+    }
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      await openDocuments()
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+      await screen.findByDisplayValue('12" DI Pipe')
+
+      // The processing poll fires and the list comes back reordered.
+      docs = [NEW, PLAN]
+      vi.advanceTimersByTime(3100)
+      await screen.findByText('Newer Upload')
+      // The editor is still open on the plan's draft, and the plan is the
+      // selected document (its card is highlighted), not the newcomer.
+      const input = await screen.findByDisplayValue('12" DI Pipe')
+      fireEvent.change(input, { target: { value: '12" DI Pipe, Class 350' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(savedTo).toEqual(['doc-plan']))
+      expect(lineItems['doc-new'][0]).toMatchObject({ group: 'Other' }) // untouched
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

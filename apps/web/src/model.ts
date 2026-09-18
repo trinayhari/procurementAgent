@@ -25,6 +25,11 @@ export interface State {
   docLineItems: { id: string; groups: LineItemGroup[] } | null
   editBom: boolean
   bomDraft: LineItemGroup[] | null
+  // The document the open editor belongs to. Save always targets this id —
+  // never "whatever is selected now" — so a list reorder (the processing
+  // poll reloads docs newest-first) or a stray click can't write one
+  // document's draft over another document's BOM.
+  bomEditDocId?: string | null
   bomBusy: boolean
   projectId?: string
   comparePkg?: string
@@ -87,7 +92,7 @@ interface DocInput {
   id?: string; name: string; type: string; date: string; status: string; statusTone: string
   items: string; pages: number; processing?: boolean; hasFile?: boolean; planType?: string | null
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
-  timelineEvents?: number; error?: string | null; fileMissing?: boolean
+  timelineEvents?: number; error?: string | null; fileMissing?: boolean; mocked?: boolean
 }
 interface QuoteInput { id?: string; sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }
@@ -208,7 +213,11 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
 
   const docRaw: DocInput[] = D.docs || []
   const docs = docRaw.map((d, i) => ({
-    ...d, onOpen: () => set({ docIdx: i }), active: i === s.docIdx, statusBadge: badge(d.statusTone),
+    ...d,
+    // Selecting a different document closes an open BOM editor (its draft
+    // belonged to the previous document — see State.bomEditDocId).
+    onOpen: () => set(i === s.docIdx ? { docIdx: i } : { docIdx: i, editBom: false, bomDraft: null, bomEditDocId: null }),
+    active: i === s.docIdx, statusBadge: badge(d.statusTone),
     rowStyle: sx({
       display: 'grid', gridTemplateColumns: 'minmax(150px,2fr) 124px 116px 104px', gap: 10,
       padding: '12px 16px', alignItems: 'center', cursor: 'pointer', borderBottom: '1px solid var(--border)',
