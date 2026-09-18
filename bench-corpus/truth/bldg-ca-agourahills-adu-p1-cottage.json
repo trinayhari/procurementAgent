@@ -1,0 +1,191 @@
+{
+  "doc_id": "bldg-ca-agourahills-adu-p1-cottage",
+  "plan_type": "building_plan",
+  "authored_by": "agent:corpus-acquisition",
+  "authored_at": "2026-08-12",
+  "completeness": "partial",
+  "notes": "City of Agoura Hills pre-approved ADU, Plan 1 'Cottage' — a single detached dwelling unit with no repetition, so the extraction's REPEATED UNITS rule must not scale anything here. Truth is transcribed from sheet S1-201 'Foundation & Roof Framing Plans — Cottage & Ranch', read as a rendered image: the CONTINUOUS FOOTING, GRADE BEAM, PAD FOOTING and SHEARWALL HOLDOWN schedules, the ROOF BEAM / FLOOR RAFTER / HEADER schedules, and the slab-on-grade plan callout. Sizes and reinforcing come from those schedules verbatim; counts and lengths do not appear anywhere on the sheet, so every quantity is null rather than derived off the 1/4\"=1'-0\" plan. Not enumerated (hence partial): the architectural sheets, the window and door schedules, the general structural notes sheets (S-100 to S-103), and the typical concrete/wood detail sheets (S-301, S-401 to S-404). TRAP WORTH KNOWING, deliberately NOT put in `forbidden` because it is unverified: the PREFABRICATED ROOF TRUSS schedule on this sheet lists thirteen truss types (RT, SGT, MT, JT, VJT, CJT, GT, MGT, DT, CGT, HR, CHT, SCT) as a standard type key, and this small cottage plainly does not use all thirteen — an extraction that emits every row is over-reading a legend, but confirming which types the plan actually tags requires a careful pass over the roof framing plan that has not been done. The same S1-201 sheet serves both the Cottage and the Ranch plan.",
+  "items": [
+    {
+      "category": "concrete",
+      "name": "Continuous Footing C1.25, 1'-3\" wide",
+      "aliases": ["continuous footing 1'-3\" wide", "15 inch wide continuous footing", "C1.25 continuous footing"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S1-201, CONTINUOUS FOOTING SCHEDULE (mark C1.25, width 1'-3\", detail 31/S-311)"
+    },
+    {
+      "category": "concrete",
+      "name": "Grade Beam GB1, 1'-0\" wide x 1'-0\" thick",
+      "aliases": ["grade beam GB1", "1'-0\" x 1'-0\" grade beam", "12 inch by 12 inch grade beam"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S1-201, GRADE BEAM SCHEDULE (type GB1, detail 14/S-311)"
+    },
+    {
+      "category": "concrete",
+      "name": "Pad Footing F2, 2'-0\" x 2'-0\" x 1'-6\" thick",
+      "aliases": ["pad footing F2", "2'-0\" square pad footing", "2x2 spread footing 1'-6\" thick"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S1-201, PAD FOOTING SCHEDULE (type F2)"
+    },
+    {
+      "category": "concrete",
+      "name": "4\" Concrete Slab on Grade",
+      "aliases": ["4 inch slab on grade", "4\" SOG", "slab-on-grade, 4\" thick"],
+      "quantity": null,
+      "unit": "CY",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S1-201 foundation plan callout: \"4\\\" SOG W/ #4 @ 16\\\" OC, EW @ MID-HEIGHT\""
+    },
+    {
+      "category": "rebar",
+      "name": "#5 Rebar — Continuous footing longitudinal, (2) top & bottom",
+      "aliases": ["#5 rebar continuous footing", "(2) #5 T&B", "no. 5 bar footing longitudinal"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, CONTINUOUS FOOTING SCHEDULE — LONG REINF (2) #5 T&B"
+    },
+    {
+      "category": "rebar",
+      "name": "#3 Rebar — Continuous footing transverse @ 12\" O.C. bottom",
+      "aliases": ["#3 rebar at 12 inches on center", "#3 @ 12\" OC BOT", "no. 3 transverse bar footing"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, CONTINUOUS FOOTING SCHEDULE — TRANS REINF #3 @ 12\" OC, BOT"
+    },
+    {
+      "category": "rebar",
+      "name": "#4 Rebar — Grade beam longitudinal, (2) top and (2) bottom",
+      "aliases": ["#4 rebar grade beam", "(2) #4 top (2) #4 bottom", "no. 4 bar grade beam"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, GRADE BEAM SCHEDULE — LONG REINF (2) #4 @ TOP, (2) #4 @ BOT"
+    },
+    {
+      "category": "rebar",
+      "name": "#3 Rebar — Grade beam transverse @ 24\" O.C.",
+      "aliases": ["#3 rebar at 24 inches on center", "#3 @ 24\" OC", "no. 3 grade beam ties"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, GRADE BEAM SCHEDULE — TRANS REINF #3 @ 24\" OC"
+    },
+    {
+      "category": "rebar",
+      "name": "#5 Rebar — Pad footing F2, (3) each way top and bottom",
+      "aliases": ["#5 rebar pad footing", "(3) #5 EW", "no. 5 bar pad footing each way"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, PAD FOOTING SCHEDULE — TOP REINF (3) #5, EW and BOT REINF (3) #5, EW"
+    },
+    {
+      "category": "rebar",
+      "name": "#4 Rebar — Slab on grade @ 16\" O.C. each way at mid-height",
+      "aliases": ["#4 rebar slab on grade", "#4 @ 16\" OC EW", "slab reinforcing no. 4 each way"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201 foundation plan callout: \"4\\\" SOG W/ #4 @ 16\\\" OC, EW @ MID-HEIGHT\""
+    },
+    {
+      "category": "framing",
+      "name": "Simpson Holdown w/ SSTB Anchor Bolt to Concrete Foundation",
+      "aliases": ["Simpson holdown with SSTB", "SSTB anchor bolt holdown", "shearwall holdown"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, SHEARWALL HOLDOWN SCHEDULE (Simpson holdown w/ SSTB to concrete foundation, detail 12/S-311); holdown symbols are tagged on the foundation plan"
+    },
+    {
+      "category": "framing",
+      "name": "6x12 Roof Beam (B1)",
+      "aliases": ["6x12 beam", "6 x 12 roof beam", "B1 roof beam"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, ROOF BEAM SCHEDULE — mark B1"
+    },
+    {
+      "category": "framing",
+      "name": "4x10 Roof Beam (B2)",
+      "aliases": ["4x10 beam", "4 x 10 roof beam", "B2 roof beam"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, ROOF BEAM SCHEDULE — mark B2"
+    },
+    {
+      "category": "framing",
+      "name": "2x6 Floor Rafter @ 16\" O.C. (J1)",
+      "aliases": ["2x6 rafter at 16 inches on center", "2x6 @ 16\" OC joist", "J1 floor rafter"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, FLOOR RAFTER SCHEDULE — mark J1"
+    },
+    {
+      "category": "framing",
+      "name": "6x8 Header (H1)",
+      "aliases": ["6x8 header", "6 x 8 header beam", "H1 header"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, HEADER SCHEDULE — mark H1"
+    },
+    {
+      "category": "framing",
+      "name": "Prefabricated Common Roof Truss (RT) @ 24\" O.C. max",
+      "aliases": ["roof truss common at 24 inches on center", "prefabricated roof truss", "RT roof truss"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S1-201, ROOF TRUSS SCHEDULE mark RT; tagged on the roof framing plan"
+    },
+    {
+      "category": "framing",
+      "name": "Structural Gable Truss (SGT)",
+      "aliases": ["structural gable end truss", "SGT gable truss"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet S1-201, ROOF TRUSS SCHEDULE mark SGT; a matching SGT callout appears on the roof framing plan but was read at low magnification"
+    },
+    {
+      "category": "framing",
+      "name": "Girder Truss (GT)",
+      "aliases": ["girder truss", "GT truss"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet S1-201, ROOF TRUSS SCHEDULE mark GT; a matching GT callout appears on the roof framing plan but was read at low magnification"
+    }
+  ],
+  "forbidden": []
+}

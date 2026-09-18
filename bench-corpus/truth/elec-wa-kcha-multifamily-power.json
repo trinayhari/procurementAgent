@@ -1,0 +1,164 @@
+{
+  "doc_id": "elec-wa-kcha-multifamily-power",
+  "plan_type": "electrical_plan",
+  "authored_by": "agent:corpus-acquisition",
+  "authored_at": "2026-08-12",
+  "completeness": "partial",
+  "notes": "MULTIFAMILY REPEATED-UNIT CASE. Brittany Park is a 43-dwelling-unit apartment building (King County Housing Authority) and the set draws exactly ONE typical unit — Sheet E601 'TYPICAL ENLARGED DWELLING UNIT FLOOR PLANS', labelled 'typ. unit 117'. The whole-project unit count is stated on Sheet E002 in the 'KCHA - Brittany Park' unit-type matrix: Total Upgraded Units = 37, Total Classic Units = 6, i.e. 43 units; Sheet E800's two apartment-unit load calculations agree (MC-A&B TOTAL = 23 units, MC-C&D TOTAL = 20 units). Per-unit work must therefore be scaled to the project, and the split matters: E002 electrical calculation note 3 provides a NEW 25A/2P breaker only in the 37 UPGRADED (remodel) panelboards, while the 6 CLASSIC units reuse their existing 30A/2P baseboard-heater breaker (Sheet E601 demo-plan general note 2). So the correct whole-project count for the new breaker is 37, NOT 43 and NOT 1. Every quantity below is whole-project. Conduit and conductor lengths are not dimensioned anywhere on the set, so those are null by design rather than derived. This is a retrofit: Sheet E001/E002/E201-E204 general note 1 says ALL PANELS SHOWN ARE EXISTING TO REMAIN and Sheet E800 says the one-line 'IS EXISTING AND TO REMAIN... FOR REFERENCE ONLY', so the existing service, switchboard, transformer, meter centers, house panels and dwelling-unit panelboards are NOT procured — see `forbidden`. Sources read as rendered images: E002 (schedules, unit matrix, calculation notes), E601 (typical unit), E800 (one-line + load calculations). Sheets E201-E204 (floor plans) and E900 (panel schedules) were not enumerated, hence partial.",
+  "items": [
+    {
+      "category": "equipment",
+      "name": "25A/2P Circuit Breaker",
+      "aliases": ["25 amp 2 pole circuit breaker", "25A/2 breaker", "new 25A/2P breaker in existing panelboard"],
+      "quantity": 37,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E002 electrical calculation note 3 + 'KCHA - Brittany Park' unit matrix (37 Upgraded units); Sheet E601 power plan note 601; breaker rating confirmed by the VHP row of the Electrical Mechanical Equipment Connection Schedule (BKR 25/2)"
+    },
+    {
+      "category": "equipment",
+      "name": "20A/3P Circuit Breaker",
+      "aliases": ["20 amp 3 pole circuit breaker", "20A/3 breaker"],
+      "quantity": 2,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E002, Electrical Mechanical Equipment Connection Schedule — EF-5 and SF-6 rows (BKR 20/3)"
+    },
+    {
+      "category": "equipment",
+      "name": "20A/1P Circuit Breaker",
+      "aliases": ["20 amp 1 pole circuit breaker", "20A/1 breaker", "single pole 20A breaker"],
+      "quantity": 2,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E002, Electrical Mechanical Equipment Connection Schedule — MD-1 and MD-2 rows (BKR 20/1)"
+    },
+    {
+      "category": "equipment",
+      "name": "15A/3P Circuit Breaker",
+      "aliases": ["15 amp 3 pole circuit breaker", "15A/3 breaker"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E002, Electrical Mechanical Equipment Connection Schedule — CP-4 pump row (BKR 15/3)"
+    },
+    {
+      "category": "equipment",
+      "name": "20A Motor-Rated Switch (damper disconnect)",
+      "aliases": ["20 amp motor rated switch", "motor rated switch disconnect", "MRSW"],
+      "quantity": 2,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E002, Electrical Mechanical Equipment Connection Schedule — MD-1 and MD-2 notes (\"PROVIDE 20A MOTOR RATED SWITCH FOR THE DISCONNECT\")"
+    },
+    {
+      "category": "equipment",
+      "name": "Interlock Relay (motorized damper)",
+      "aliases": ["interlock relay", "damper interlock relay", "power and interlock relay"],
+      "quantity": 2,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E002, Electrical Mechanical Equipment Connection Schedule — EF-5 and SF-6 notes (interlock relay for MD-1 and MD-2)"
+    },
+    {
+      "category": "equipment",
+      "name": "30A Frame Fusible Disconnect Switch w/ 25A Fuse (VHP)",
+      "aliases": ["30A disconnect with 25A fuse", "fused disconnect switch 30A frame"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet E002, Electrical Mechanical Equipment Connection Schedule — VHP disconnect columns (frame 30A, fuse 25A); the schedule states the required rating but the set does not say how many disconnects are installed"
+    },
+    {
+      "category": "conductors",
+      "name": "2#10 + #10G Copper (VHP branch circuit)",
+      "aliases": ["2 #10 and #10 ground copper", "#10 copper branch circuit conductor", "2#10, #10G"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E002 VHP row (WIRE 2#10, #10G) and Sheet E601 power plan note 1 (\"REPLACE EXISTING 2#12 WIRING WITH NEW 2#10 WIRING\"); one home run per dwelling unit, run lengths not dimensioned"
+    },
+    {
+      "category": "conductors",
+      "name": "4#12 + #12G Copper (exhaust/supply fan circuits)",
+      "aliases": ["4 #12 and #12 ground copper", "4#12, #12G"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E002, EF-5 and SF-6 rows (WIRE 4#12, #12G); lengths not dimensioned"
+    },
+    {
+      "category": "conductors",
+      "name": "3#12 + #12G Copper (pump CP-4 circuit)",
+      "aliases": ["3 #12 and #12 ground copper", "3#12, #12G"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E002, CP-4 row (WIRE 3#12, #12G); length not dimensioned"
+    },
+    {
+      "category": "conductors",
+      "name": "2#12 + #12G Copper (motorized damper circuits)",
+      "aliases": ["2 #12 and #12 ground copper", "2#12, #12G"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E002, MD-1 and MD-2 rows (WIRE 2#12, #12G); lengths not dimensioned"
+    },
+    {
+      "category": "raceway",
+      "name": "3/4\" Conduit (branch and home run)",
+      "aliases": ["3/4 inch conduit", "3/4\"C", "3/4\" GRS conduit"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E002, Electrical Mechanical Equipment Connection Schedule — CONDUIT SIZE MIN. columns (branch 3/4\"C, homerun 3/4\"C) for every row; Sheet E001 general note 3 requires GRS for exterior runs. Lengths are not dimensioned on any sheet."
+    },
+    {
+      "category": "devices",
+      "name": "Watertight Junction Box (exterior)",
+      "aliases": ["watertight j-box", "weatherproof junction box"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet E001 general note 4 (\"PROVIDE WATERTIGHT J-BOXES, LB, AND GRS CONDUIT FOR ALL EXTERIOR RUNS\") — count not stated"
+    },
+    {
+      "category": "devices",
+      "name": "LB Conduit Body (exterior)",
+      "aliases": ["LB fitting", "conduit body LB"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet E001 general note 4 — count not stated"
+    }
+  ],
+  "forbidden": [
+    {
+      "name": "1600A Main Switchboard, 208Y/120V, 3Ø 4W",
+      "why": "drawn on the E800 one-line as \"(E)MSW\", and E800 general note 1 says the one-line is existing and to remain, for reference only — it is not procured on this project"
+    },
+    {
+      "name": "150 kVA Pad-Mounted Transformer, 208/120V",
+      "why": "the utility (PSE) pad-mount transformer is shown on the E800 one-line as \"(E)PSE PADMOUNT XFMR\" — existing utility equipment, not part of this contract"
+    },
+    {
+      "name": "125A Panelboard, 208/120V, 1Ø, Main Lugs Only",
+      "why": "the dwelling-unit panel schedules on E002 are all existing panels ((E)OLD 1 BR, (E) UPG 1 BR, and the revised schedule of the same panel); general note 1 on every sheet states ALL PANELS SHOWN ARE EXISTING TO REMAIN — no panelboard is purchased"
+    }
+  ]
+}

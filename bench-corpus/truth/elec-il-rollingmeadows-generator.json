@@ -1,0 +1,184 @@
+{
+  "doc_id": "elec-il-rollingmeadows-generator",
+  "plan_type": "electrical_plan",
+  "authored_by": "agent:corpus-acquisition",
+  "authored_at": "2026-08-12",
+  "completeness": "partial",
+  "notes": "Small single-discipline electrical bid set (8 sheets) adding a standby generator to an existing public works building. Truth is taken from sheet E-402 'New Work One-Line Diagram' (its keynotes and the BASE BID FEEDER SCHEDULE) and sheet E-201 'Enlarged New Work Plans' keynotes; the text layer on those sheets is clean, so this was read from extracted text and confirmed against the sheet layout. NOT enumerated, hence partial: E-101 demolition plan, E-200 overall new work plan (which carries additional underground conduit runs), and E-501 installation details. The defining feature of this document is that almost everything drawn on the one-line is EXISTING — the 1200A MDP, seven 75 kVA transformers TA-TG, and roughly twenty 480V and 208V panelboards are the existing building distribution, and the ATS and fire-pump controller are explicitly keynoted as existing. Only the generator, three feeders, one breaker and the emergency-power-off wiring are procured. The `forbidden` list covers the two items the drawings state outright are existing plus the utility-owned transformer; the existing panelboards and 75 kVA transformers are almost certainly the same trap but the sheets do not label them 'existing' individually, so they are left out of `forbidden` rather than guessed — a reviewer who confirms them against sheet E-401 (demolition one-line) should add them. Feeder conduit and conductor LENGTHS are not dimensioned; the schedule gives quantity of runs, sets, conductors per set and sizes, so run counts are stated and footages are null. The generator concrete slab (E-201 keynote 2) is real scope but has no electrical_plan category and is omitted.",
+  "items": [
+    {
+      "category": "equipment",
+      "name": "250 kW Natural Gas Generator, 480Y/277V",
+      "aliases": ["250kW natural gas generator", "250 kW standby generator", "natural gas emergency generator 250kW"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E-402 keynote 1 (\"PROVIDE 250kW NATURAL GAS GENERATOR. SEE SPECIFICATION 26 32 13\") and E-201 keynote 1"
+    },
+    {
+      "category": "equipment",
+      "name": "60A/2P Circuit Breaker",
+      "aliases": ["60 amp 2 pole circuit breaker", "60A/2 breaker"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E-402 keynote 5 (\"PROVIDE 60A/2P BREAKER AT EXISTING GE PANELBOARD FOR NEW FEEDER\")"
+    },
+    {
+      "category": "conductors",
+      "name": "3/0 Copper Feeder Conductor (feeder mark 1, 200A/4W)",
+      "aliases": ["3/0 copper conductor", "#3/0 THHN copper feeder", "3/0 AWG feeder wire"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-402 FEEDER SCHEDULE mark 1 — 200A/4W, 1 set of 4 conductors, size 3/0; run length not dimensioned"
+    },
+    {
+      "category": "conductors",
+      "name": "#6 Copper Ground (feeder mark 1)",
+      "aliases": ["#6 ground conductor", "no. 6 equipment grounding conductor"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-402 FEEDER SCHEDULE mark 1 — ground 1 set, size 6"
+    },
+    {
+      "category": "conductors",
+      "name": "1/0 Copper Feeder Conductor (feeder mark 2, 100A/3W)",
+      "aliases": ["1/0 copper conductor", "#1/0 THHN copper feeder", "1/0 AWG feeder wire"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-402 FEEDER SCHEDULE mark 2 — 100A/3W, 1 set of 3 conductors, size 1/0; run length not dimensioned"
+    },
+    {
+      "category": "conductors",
+      "name": "#4 Copper Ground (feeder mark 2)",
+      "aliases": ["#4 ground conductor for 100A feeder", "no. 4 equipment grounding conductor"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-402 FEEDER SCHEDULE mark 2 — ground 1 set, size 4"
+    },
+    {
+      "category": "conductors",
+      "name": "#4 Copper Feeder Conductor (feeder mark 3, 60A/3W)",
+      "aliases": ["#4 copper feeder conductor", "no. 4 THHN copper feeder"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-402 FEEDER SCHEDULE mark 3 — 60A/3W, 1 set of 3 conductors, size 4; run length not dimensioned"
+    },
+    {
+      "category": "conductors",
+      "name": "#8 Copper Ground (feeder mark 3)",
+      "aliases": ["#8 ground conductor", "no. 8 equipment grounding conductor"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-402 FEEDER SCHEDULE mark 3 — ground 1 set, size 8"
+    },
+    {
+      "category": "conductors",
+      "name": "#14 AWG XHHW Conductor (emergency power off wiring)",
+      "aliases": ["#14 AWG XHHW", "(2) #14 XHHW control conductors", "no. 14 XHHW wire"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-201 keynote 9 — (2) #14 AWG XHHW conductors from generator control panel to emergency power off; length not dimensioned"
+    },
+    {
+      "category": "raceway",
+      "name": "2\" Conduit (generator feeders)",
+      "aliases": ["2 inch conduit", "2\" feeder conduit"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-402 FEEDER SCHEDULE — all three feeder marks call 2\" conduit, type per specification; lengths not dimensioned"
+    },
+    {
+      "category": "raceway",
+      "name": "3/4\" PVC Conduit (underground, emergency power off)",
+      "aliases": ["3/4 inch PVC conduit underground", "3/4\" PVC schedule 40 conduit"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-201 keynote 7 — 3/4\" PVC conduit underground from generator control panel to building"
+    },
+    {
+      "category": "raceway",
+      "name": "3/4\" Schedule 80 PVC Elbow",
+      "aliases": ["schedule 80 PVC elbow", "3/4\" PVC 90 degree elbow, schedule 80"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-201 keynote 7 — transition to vertical with schedule 80 PVC elbow"
+    },
+    {
+      "category": "raceway",
+      "name": "PVC Expansion Fitting",
+      "aliases": ["PVC expansion coupling", "conduit expansion fitting"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-201 keynote 7 — expansion fitting in the vertical conduit"
+    },
+    {
+      "category": "raceway",
+      "name": "PVC LB Conduit Body",
+      "aliases": ["PVC LB fitting", "LB conduit body"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet E-201 keynote 7 — transition through wall with PVC LB, sealed"
+    },
+    {
+      "category": "raceway",
+      "name": "Galvanized Channel (strut) conduit support",
+      "aliases": ["galvanized channel support", "unistrut conduit support", "galvanized strut"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet E-201 keynote 7 — galvanized channel for support of the vertical conduit above grade"
+    },
+    {
+      "category": "devices",
+      "name": "Emergency Power Off (EPO) Button",
+      "aliases": ["emergency power off button", "EPO pushbutton", "emergency stop button"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet E-201 keynote 8 — provide emergency power off button at 48\" above grade"
+    }
+  ],
+  "forbidden": [
+    {
+      "name": "Building Automatic Transfer Switch",
+      "why": "Sheet E-402 keynote 2 states the building ATS is EXISTING and the contractor only makes final connections — it is not purchased on this project"
+    },
+    {
+      "name": "Combination Fire Pump Controller / Automatic Transfer Switch",
+      "why": "Sheet E-402 keynote 3 states the combination fire pump controller/ATS (FPC/ATS) is EXISTING and the contractor only makes final connections"
+    },
+    {
+      "name": "300 kVA Pad-Mount Transformer",
+      "why": "labelled on the E-402 one-line as \"COMED 300kVA PAD MOUNT TRANSFORMER\" with a \"COMED PRIMARY CONNECTION\" — utility-owned existing service equipment, never in the contractor's bill of materials"
+    }
+  ]
+}

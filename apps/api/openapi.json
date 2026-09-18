@@ -3103,6 +3103,370 @@
           }
         }
       }
+    },
+    "/bench/status": {
+      "get": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "Status",
+        "description": "Liveness + whether a run would produce real (non-mocked) numbers.",
+        "operationId": "status_bench_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BenchStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bench/corpus": {
+      "get": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "Get Corpus",
+        "description": "Every corpus document, plus the problems `validate` would report.\n\nA corpus that is not populated on this machine is an empty list and one\nexplanatory problem \u2014 not an error. The corpus is gitignored and owned by\nanother track, so \"not there yet\" is a normal state.",
+        "operationId": "get_corpus_bench_corpus_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorpusOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bench/plan-types": {
+      "get": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "List Plan Types",
+        "description": "Registered plan types with their category keys \u2014 the run panel's selector.",
+        "operationId": "list_plan_types_bench_plan_types_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlanTypeOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Plan Types Bench Plan Types Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bench/variants": {
+      "get": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "List Variants",
+        "description": "Every variant on disk, baseline first, each with its validation problems.",
+        "operationId": "list_variants_bench_variants_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VariantOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Variants Bench Variants Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bench/runs": {
+      "post": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "Create Runs",
+        "description": "Queue one run per variant. Returns immediately; the worker executes them.\n\nEverything that can be checked without an extraction is checked here, so a\nbad request costs nothing.",
+        "operationId": "create_runs_bench_runs_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "List Runs",
+        "description": "Recent runs, newest first. Summary rows only \u2014 no trials.",
+        "operationId": "list_runs_bench_runs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RunSummaryOut"
+                  },
+                  "title": "Response List Runs Bench Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bench/runs/compare": {
+      "get": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "Compare",
+        "description": "Metric deltas between two runs, overall and per document.",
+        "operationId": "compare_bench_runs_compare_get",
+        "parameters": [
+          {
+            "name": "a",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "A"
+            }
+          },
+          {
+            "name": "b",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "B"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bench/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "Get Run",
+        "description": "One run with its trials, per-doc scores, and match lists (the diff view).",
+        "operationId": "get_run_bench_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "Delete Run",
+        "operationId": "delete_run_bench_runs__run_id__delete",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bench/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "bench"
+        ],
+        "summary": "Cancel Run",
+        "description": "Ask a queued/running run to stop. The runner checks between trials.",
+        "operationId": "cancel_run_bench_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3306,6 +3670,50 @@
         ],
         "title": "AwardResult"
       },
+      "BenchStatus": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "corpus_dir": {
+            "type": "string",
+            "title": "Corpus Dir"
+          },
+          "docs": {
+            "type": "integer",
+            "title": "Docs"
+          },
+          "labelled": {
+            "type": "integer",
+            "title": "Labelled"
+          },
+          "live_extraction": {
+            "type": "boolean",
+            "title": "Live Extraction"
+          },
+          "present": {
+            "type": "integer",
+            "title": "Present",
+            "default": 0
+          },
+          "populated": {
+            "type": "boolean",
+            "title": "Populated",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "corpus_dir",
+          "docs",
+          "labelled",
+          "live_extraction"
+        ],
+        "title": "BenchStatus",
+        "description": "Is the bench usable here, and would a run produce real numbers?"
+      },
       "Body_upload_document_api_documents_post": {
         "properties": {
           "file": {
@@ -3328,6 +3736,56 @@
           "file"
         ],
         "title": "Body_upload_document_api_documents_post"
+      },
+      "CancelResult": {
+        "properties": {
+          "cancelled": {
+            "type": "boolean",
+            "title": "Cancelled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cancelled"
+        ],
+        "title": "CancelResult"
+      },
+      "CompareOut": {
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/RunSummaryOut"
+          },
+          "b": {
+            "$ref": "#/components/schemas/RunSummaryOut"
+          },
+          "deltas": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MetricDeltaOut"
+            },
+            "type": "object",
+            "title": "Deltas",
+            "default": {}
+          },
+          "per_doc": {
+            "items": {
+              "$ref": "#/components/schemas/PerDocCompareOut"
+            },
+            "type": "array",
+            "title": "Per Doc",
+            "default": []
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "a",
+          "b"
+        ],
+        "title": "CompareOut"
       },
       "Comparison": {
         "properties": {
@@ -3506,6 +3964,156 @@
         ],
         "title": "ConversationMessage"
       },
+      "CorpusDocOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "plan_type": {
+            "type": "string",
+            "title": "Plan Type"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "exists": {
+            "type": "boolean",
+            "title": "Exists"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "license": {
+            "type": "string",
+            "title": "License"
+          },
+          "retrieved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieved At"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages"
+          },
+          "has_text_layer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Text Layer"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          },
+          "has_truth": {
+            "type": "boolean",
+            "title": "Has Truth",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "plan_type",
+          "path",
+          "exists",
+          "license"
+        ],
+        "title": "CorpusDocOut"
+      },
+      "CorpusOut": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/CorpusDocOut"
+            },
+            "type": "array",
+            "title": "Documents",
+            "default": []
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "CorpusOut"
+      },
       "CustomBomSummary": {
         "properties": {
           "id": {
@@ -3558,6 +4166,146 @@
           "activity"
         ],
         "title": "Dashboard"
+      },
+      "DeleteResult": {
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "DeleteResult"
+      },
+      "DocScoreOut": {
+        "properties": {
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id"
+          },
+          "plan_type": {
+            "type": "string",
+            "title": "Plan Type"
+          },
+          "completeness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completeness"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "f1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "F1"
+          },
+          "optional_recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optional Recall"
+          },
+          "quantity_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Accuracy"
+          },
+          "unit_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Accuracy"
+          },
+          "category_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Accuracy"
+          },
+          "hallucinations": {
+            "type": "integer",
+            "title": "Hallucinations",
+            "default": 0
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts",
+            "default": {}
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/MatchOut"
+            },
+            "type": "array",
+            "title": "Matches",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_id",
+          "plan_type"
+        ],
+        "title": "DocScoreOut"
       },
       "DocStatus": {
         "type": "string",
@@ -4294,6 +5042,200 @@
         "title": "ManualBomCreate",
         "description": "Body for creating a hand-built custom BOM document (no file upload)."
       },
+      "MatchOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "truth_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truth Index"
+          },
+          "extracted_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extracted Index"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "default": 0.0
+          },
+          "category_ok": {
+            "type": "boolean",
+            "title": "Category Ok",
+            "default": false
+          },
+          "quantity_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Ok"
+          },
+          "unit_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Ok"
+          },
+          "truth_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truth Name"
+          },
+          "extracted_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extracted Name"
+          },
+          "quantity_got": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Got"
+          },
+          "quantity_want": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Want"
+          },
+          "unit_got": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Got"
+          },
+          "unit_want": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Want"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": true
+          },
+          "truth_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truth Category"
+          },
+          "extracted_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extracted Category"
+          },
+          "truth_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truth Source"
+          },
+          "qty_tolerance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qty Tolerance"
+          },
+          "forbidden_why": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forbidden Why"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "MatchOut",
+        "description": "One truth/extracted pairing \u2014 the diff view's row."
+      },
       "MessageCreate": {
         "properties": {
           "body": {
@@ -4354,6 +5296,155 @@
           "delta"
         ],
         "title": "Metric"
+      },
+      "MetricDeltaOut": {
+        "properties": {
+          "a": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "A"
+          },
+          "b": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "B"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          }
+        },
+        "type": "object",
+        "title": "MetricDeltaOut"
+      },
+      "MetricsOut": {
+        "properties": {
+          "documents": {
+            "type": "integer",
+            "title": "Documents",
+            "default": 0
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "f1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "F1"
+          },
+          "optional_recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optional Recall"
+          },
+          "quantity_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Accuracy"
+          },
+          "unit_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Accuracy"
+          },
+          "category_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Accuracy"
+          },
+          "hallucinations": {
+            "type": "integer",
+            "title": "Hallucinations",
+            "default": 0
+          },
+          "defined": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Defined",
+            "default": {}
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "title": "MetricsOut",
+        "description": "`scoring.aggregate()` \u2014 macro-averaged across the run's documents."
       },
       "Milestone": {
         "properties": {
@@ -4569,6 +5660,55 @@
         ],
         "title": "PackageBomItem"
       },
+      "PerDocCompareOut": {
+        "properties": {
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id"
+          },
+          "a": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocScoreOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocScoreOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked",
+            "default": false
+          },
+          "trials_a": {
+            "type": "integer",
+            "title": "Trials A",
+            "default": 0
+          },
+          "trials_b": {
+            "type": "integer",
+            "title": "Trials B",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_id"
+        ],
+        "title": "PerDocCompareOut",
+        "description": "One document, scored on both sides \u2014 WITH the match lists.\n\nThe item-level lists are the point of compare: they say which materials a\nvariant started finding and which it stopped finding, which no metric delta\ncan tell you. Each side is the document's first live, scored trial in that\nrun (`trials_a`/`trials_b` say how many there were), or null when the run\nproduced no live score for it."
+      },
       "PersistedRfq": {
         "properties": {
           "id": {
@@ -4708,6 +5848,65 @@
         ],
         "title": "PlanType",
         "description": "A registered plan type, surfaced to the upload UI."
+      },
+      "PlanTypeCategoryOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "tone": {
+            "type": "string",
+            "title": "Tone"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "tone"
+        ],
+        "title": "PlanTypeCategoryOut"
+      },
+      "PlanTypeOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/PlanTypeCategoryOut"
+            },
+            "type": "array",
+            "title": "Categories",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "description",
+          "enabled"
+        ],
+        "title": "PlanTypeOut"
       },
       "Project": {
         "properties": {
@@ -5374,6 +6573,432 @@
         ],
         "title": "Risk"
       },
+      "RunCreate": {
+        "properties": {
+          "doc_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Doc Ids"
+          },
+          "variant_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Variant Ids"
+          },
+          "plan_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Type"
+          },
+          "trials": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Trials",
+            "default": 1
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_ids",
+          "variant_ids"
+        ],
+        "title": "RunCreate",
+        "description": "A run request. Every field is a cost multiplier \u2014 see \u00a76 of the contract."
+      },
+      "RunCreated": {
+        "properties": {
+          "run_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Run Ids"
+          },
+          "extractions": {
+            "type": "integer",
+            "title": "Extractions"
+          },
+          "docs": {
+            "type": "integer",
+            "title": "Docs"
+          },
+          "variants": {
+            "type": "integer",
+            "title": "Variants"
+          },
+          "trials": {
+            "type": "integer",
+            "title": "Trials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_ids",
+          "extractions",
+          "docs",
+          "variants",
+          "trials"
+        ],
+        "title": "RunCreated"
+      },
+      "RunDetailOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "variant_id": {
+            "type": "string",
+            "title": "Variant Id"
+          },
+          "plan_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Type"
+          },
+          "doc_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Doc Ids",
+            "default": []
+          },
+          "trials": {
+            "type": "integer",
+            "title": "Trials",
+            "default": 1
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "progress_done": {
+            "type": "integer",
+            "title": "Progress Done",
+            "default": 0
+          },
+          "progress_total": {
+            "type": "integer",
+            "title": "Progress Total",
+            "default": 0
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSummaryBlock"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mocked_trials": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mocked Trials"
+          },
+          "trials_detail": {
+            "items": {
+              "$ref": "#/components/schemas/TrialOut"
+            },
+            "type": "array",
+            "title": "Trials Detail",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "status",
+          "variant_id"
+        ],
+        "title": "RunDetailOut"
+      },
+      "RunSummaryBlock": {
+        "properties": {
+          "variant_id": {
+            "type": "string",
+            "title": "Variant Id"
+          },
+          "trials_total": {
+            "type": "integer",
+            "title": "Trials Total",
+            "default": 0
+          },
+          "trials_run": {
+            "type": "integer",
+            "title": "Trials Run",
+            "default": 0
+          },
+          "trials_ok": {
+            "type": "integer",
+            "title": "Trials Ok",
+            "default": 0
+          },
+          "trials_failed": {
+            "type": "integer",
+            "title": "Trials Failed",
+            "default": 0
+          },
+          "trials_mocked": {
+            "type": "integer",
+            "title": "Trials Mocked",
+            "default": 0
+          },
+          "trials_unlabelled": {
+            "type": "integer",
+            "title": "Trials Unlabelled",
+            "default": 0
+          },
+          "trials_scored": {
+            "type": "integer",
+            "title": "Trials Scored",
+            "default": 0
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked",
+            "default": false
+          },
+          "latency_ms_avg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms Avg"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mocked_metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "variant_id"
+        ],
+        "title": "RunSummaryBlock",
+        "description": "The summary the runner stores on a finished run."
+      },
+      "RunSummaryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "variant_id": {
+            "type": "string",
+            "title": "Variant Id"
+          },
+          "plan_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Type"
+          },
+          "doc_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Doc Ids",
+            "default": []
+          },
+          "trials": {
+            "type": "integer",
+            "title": "Trials",
+            "default": 1
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "progress_done": {
+            "type": "integer",
+            "title": "Progress Done",
+            "default": 0
+          },
+          "progress_total": {
+            "type": "integer",
+            "title": "Progress Total",
+            "default": 0
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSummaryBlock"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mocked_trials": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mocked Trials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "status",
+          "variant_id"
+        ],
+        "title": "RunSummaryOut"
+      },
       "SelectResult": {
         "properties": {
           "quote_id": {
@@ -5958,6 +7583,128 @@
         "title": "Tone",
         "description": "Semantic color token consumed by the frontend (maps to a CSS variable)."
       },
+      "TrialOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id"
+          },
+          "variant_id": {
+            "type": "string",
+            "title": "Variant Id"
+          },
+          "trial_index": {
+            "type": "integer",
+            "title": "Trial Index",
+            "default": 0
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groups"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "mocked": {
+            "type": "boolean",
+            "title": "Mocked",
+            "default": false
+          },
+          "score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocScoreOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "run_id",
+          "doc_id",
+          "variant_id",
+          "status"
+        ],
+        "title": "TrialOut"
+      },
       "UpdateMeRequest": {
         "properties": {
           "senderEmail": {
@@ -6062,6 +7809,58 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VariantOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "settings": {
+            "type": "object",
+            "title": "Settings",
+            "default": {}
+          },
+          "prompts": {
+            "type": "object",
+            "title": "Prompts",
+            "default": {}
+          },
+          "spec_overrides": {
+            "type": "object",
+            "title": "Spec Overrides",
+            "default": {}
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "VariantOut"
       }
     },
     "securitySchemes": {

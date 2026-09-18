@@ -1,0 +1,8 @@
+{
+  "id": "baseline",
+  "label": "Baseline (no overlay)",
+  "description": "The live extraction configuration exactly as it ships. Every other variant is scored against this run.",
+  "settings": {},
+  "prompts": {},
+  "spec_overrides": {}
+}

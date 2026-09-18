@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import (
     audit,
     auth,
+    bench,
     dashboard,
     documents,
     jobs,
@@ -95,3 +96,11 @@ app.include_router(documents.file_router)
 _authed = [Depends(get_current_user)]
 for module in (dashboard, projects, sourcing, suppliers, documents, rfqs, quotes, timeline, jobs, audit):
     app.include_router(module.router, dependencies=_authed)
+
+# The eval bench (docs/eval-harness.md) is a local tuning tool: unauthenticated,
+# and mounted only outside production. Production hard-refuses it regardless of
+# the flag, so a stray PROCUREAI_BENCH_ENABLED can't expose the corpus.
+if settings.bench_enabled and settings.env != "production":
+    app.include_router(bench.router)
+elif settings.bench_enabled:
+    logger.warning("PROCUREAI_BENCH_ENABLED is set but env=production — bench routes NOT mounted.")
