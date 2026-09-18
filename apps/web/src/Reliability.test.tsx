@@ -328,7 +328,7 @@ describe('award is a confirmed commitment that remembers prior awards', () => {
       return undefined
     }))
     await openProject('quotes')
-    fireEvent.click(await screen.findByRole('button', { name: /Compare/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare' }))
     await screen.findByText(/Quote Comparison/)
     expect(screen.queryByText(/Already awarded/)).toBeNull()
 
@@ -360,7 +360,7 @@ describe('award is a confirmed commitment that remembers prior awards', () => {
       return undefined
     }))
     await openProject('quotes')
-    fireEvent.click(await screen.findByRole('button', { name: /Compare/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare' }))
     await screen.findByText(/Quote Comparison/)
     expect(window.location.hash).toBe(`#/project/${PROJECT.id}/quotes/compare/Water%20Utilities`)
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>

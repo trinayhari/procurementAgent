@@ -1274,6 +1274,115 @@ function ProjectWorkspace({ m }: MProps) {
 }
 
 /* ------------------------------------------------------------ Overview tab */
+// The procurement journey as a checklist computed from this project's real
+// state (documents, generated RFQs, quotes, purchase decisions), so the next
+// action is always obvious — especially on a brand-new project, where the
+// overview otherwise shows only "Project created".
+type Step = { key: string; title: string; detail: string; state: 'done' | 'current' | 'todo'; cta?: string; go?: () => void }
+
+export function computeSteps(input: {
+  docs: { planType?: string | null; hasFile?: boolean; reviewed?: boolean; processing?: boolean; status: string; items: string }[]
+  rfqs: { status: string }[] | null
+  quotes: number
+  decisions: number | null
+  nav: { documents: () => void; suppliers: () => void; rfqs: () => void; quotes: () => void }
+}): Step[] {
+  const { docs, rfqs, quotes, decisions, nav } = input
+  const plans = docs.filter((d) => d.planType !== 'custom_bom' && d.planType !== 'trade_scope')
+  const customWithItems = docs.filter((d) => d.planType === 'custom_bom' && d.items !== '—' && Number(d.items) > 0)
+  const trades = docs.filter((d) => d.planType === 'trade_scope')
+  const hasSource = plans.length > 0 || customWithItems.length > 0 || trades.length > 0
+  const processing = plans.filter((d) => d.processing).length
+  const failed = plans.filter((d) => d.status === 'Failed').length
+  const reviewable = plans.filter((d) => !d.processing && d.status !== 'Failed' && d.items !== '—').length + customWithItems.length
+  const reviewed = docs.filter((d) => d.reviewed).length
+  const sent = (rfqs || []).filter((r) => r.status !== 'Draft').length
+  const drafts = (rfqs || []).filter((r) => r.status === 'Draft').length
+  const awarded = (decisions || 0) > 0
+
+  const steps: Step[] = []
+  steps.push({
+    key: 'source', title: 'Upload plans or build a BOM',
+    detail: hasSource
+      ? `${plans.length} plan${plans.length === 1 ? '' : 's'}${customWithItems.length ? `, ${customWithItems.length} custom BOM${customWithItems.length === 1 ? '' : 's'}` : ''}${trades.length ? `, ${trades.length} trade${trades.length === 1 ? '' : 's'}` : ''}${processing ? ` · ${processing} still analyzing` : ''}${failed ? ` · ${failed} failed` : ''}`
+      : 'Upload a site, building or electrical plan — or hand-build a BOM / name a trade for sub bids.',
+    state: hasSource ? 'done' : 'current', cta: hasSource ? undefined : 'Go to Documents', go: nav.documents,
+  })
+  const reviewState: Step['state'] = reviewed > 0 || trades.length > 0 && reviewable === 0 ? 'done' : hasSource ? 'current' : 'todo'
+  steps.push({
+    key: 'review', title: 'Review & confirm the bill of materials',
+    detail: reviewed > 0
+      ? `${reviewed} confirmed${reviewable > reviewed ? ` · ${reviewable - reviewed} awaiting review` : ''}`
+      : reviewable > 0
+        ? `${reviewable} document${reviewable === 1 ? '' : 's'} awaiting your review — only confirmed items are quoted.`
+        : processing ? 'Extraction in progress — review the items when it finishes.' : trades.length && !plans.length ? 'Not needed for subcontractor bids.' : 'Nothing to review yet.',
+    state: reviewState, cta: reviewState === 'current' && reviewable > 0 ? 'Review BOM' : undefined, go: nav.documents,
+  })
+  const rfqState: Step['state'] = sent > 0 ? 'done' : reviewState === 'done' ? 'current' : 'todo'
+  steps.push({
+    key: 'rfq', title: 'Find suppliers & send RFQs',
+    detail: sent > 0
+      ? `${sent} sent${drafts ? ` · ${drafts} draft${drafts === 1 ? '' : 's'} not sent yet` : ''}`
+      : drafts > 0 ? `${drafts} draft${drafts === 1 ? '' : 's'} waiting to be sent.` : 'Pick a package, search nearby suppliers, generate and send the RFQ.',
+    state: rfqState, cta: rfqState === 'current' ? (drafts > 0 ? 'Open drafts' : 'Find suppliers') : undefined, go: drafts > 0 && sent === 0 ? nav.rfqs : nav.suppliers,
+  })
+  const quoteState: Step['state'] = quotes > 0 ? 'done' : sent > 0 ? 'current' : 'todo'
+  steps.push({
+    key: 'quotes', title: 'Collect quotes',
+    detail: quotes > 0 ? `${quotes} quote${quotes === 1 ? '' : 's'} received` : sent > 0 ? 'Waiting on supplier replies — pull them in with “Check for replies”.' : 'Quotes arrive once RFQs are out.',
+    state: quoteState, cta: quoteState === 'current' ? 'Check for replies' : undefined, go: nav.quotes,
+  })
+  const awardState: Step['state'] = awarded ? 'done' : quotes > 0 ? 'current' : 'todo'
+  steps.push({
+    key: 'award', title: 'Compare & award',
+    detail: awarded ? `${decisions} award${decisions === 1 ? '' : 's'} recorded` : quotes > 0 ? 'Compare line by line and issue the POs.' : 'Needs at least one quote.',
+    state: awardState, cta: awardState === 'current' ? 'Compare quotes' : undefined, go: nav.quotes,
+  })
+  return steps
+}
+
+function NextStepsCard({ m }: MProps) {
+  const projectId = m.activeProject.id
+  const [rfqs, setRfqs] = useState<{ status: string }[] | null>(null)
+  const [decisions, setDecisions] = useState<number | null>(null)
+  useEffect(() => {
+    let alive = true
+    setRfqs(null); setDecisions(null)
+    listGeneratedRfqs(projectId).then((r) => { if (alive) setRfqs(r) }).catch(() => { if (alive) setRfqs([]) })
+    listPurchaseDecisions(projectId).then((d) => { if (alive) setDecisions(d.length) }).catch(() => { if (alive) setDecisions(0) })
+    return () => { alive = false }
+  }, [projectId, m.docs.length, m.quotes.length])
+  const steps = computeSteps({
+    docs: m.docs, rfqs, quotes: m.quotes.length, decisions,
+    nav: { documents: m.setDocuments, suppliers: m.setSuppliers, rfqs: m.setRfqs, quotes: m.setQuotes },
+  })
+  const done = steps.filter((st) => st.state === 'done').length
+  return (
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:16px')}>
+      <div style={css('display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--border)')}>
+        <h2 style={css('margin:0;font-size:15px;font-weight:600;flex:1')}>Where this project stands</h2>
+        <span style={css("font-size:12px;font-weight:600;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>{done}/{steps.length}</span>
+      </div>
+      <div>
+        {steps.map((st, i) => (
+          <div key={st.key} data-step-state={st.state} style={css(`display:flex;align-items:center;gap:13px;padding:11px 18px;${i ? 'border-top:1px solid var(--border);' : ''}${st.state === 'current' ? 'background:var(--primary-softer)' : ''}`)}>
+            <span style={css(`width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;${st.state === 'done' ? 'background:var(--success);color:#fff' : st.state === 'current' ? 'background:var(--primary);color:#fff' : 'background:var(--panel-3);color:var(--text-3)'}`)}>
+              {st.state === 'done' ? <Svg size={12} sw={3} d="M20 6 9 17l-5-5" /> : i + 1}
+            </span>
+            <div style={css('flex:1;min-width:0')}>
+              <div style={css(`font-size:13px;font-weight:600;${st.state === 'todo' ? 'color:var(--text-2)' : ''}`)}>{st.title}</div>
+              <div style={css('font-size:12px;color:var(--text-3);margin-top:1px')}>{st.detail}</div>
+            </div>
+            {st.cta && st.go && (
+              <Box as="button" onClick={st.go} style={css('height:30px;padding:0 12px;border-radius:8px;background:var(--primary);color:var(--on-primary);font-size:12px;font-weight:600;white-space:nowrap;flex:none')} hover="background:var(--primary-2)">{st.cta} →</Box>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function TabOverview({ m }: MProps) {
   // In-place refresh of the activity stream (re-fetches the workspace bundle and
   // re-renders — no full page reload). Spins the icon while the fetch is in flight.
@@ -1285,6 +1394,7 @@ function TabOverview({ m }: MProps) {
   }
   return (
     <>
+      <NextStepsCard m={m} />
       {m.overviewCards.length > 0 && (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(162px,1fr));gap:13px;margin-bottom:18px')}>
         {m.overviewCards.map((c, i) => (
