@@ -7,13 +7,13 @@ UX. With no Google/Gmail keys the whole flow runs against mocks.
 import logging
 import os
 import re
-import threading
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.core import locks
 from app.core.security import get_current_user
 from app.db import DEMO_ORG_ID, SessionLocal, get_db
 from app.models.user import User
@@ -894,28 +894,9 @@ def send_generated_rfq(
     """
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
-    lock = _send_lock(rfq_id)
-    if not lock.acquire(blocking=False):
-        raise HTTPException(status_code=409, detail="This RFQ is already being sent")
-    try:
+    # One lock per RFQ id, held only for the duration of a send (see core/locks).
+    with locks.exclusive(f"rfq-send:{rfq_id}", "This RFQ is already being sent"):
         return _send_locked(db, org_id, project_id, rfq_id, current_user)
-    finally:
-        lock.release()
-
-
-# One lock per RFQ id, held only for the duration of a send. Process-local:
-# sufficient for the single-process deployment; a multi-worker deployment
-# would need the status flip to move into the database (SELECT … FOR UPDATE).
-_send_locks: Dict[str, threading.Lock] = {}
-_send_locks_guard = threading.Lock()
-
-
-def _send_lock(rfq_id: str) -> threading.Lock:
-    with _send_locks_guard:
-        lock = _send_locks.get(rfq_id)
-        if lock is None:
-            lock = _send_locks[rfq_id] = threading.Lock()
-        return lock
 
 
 def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current_user: User):

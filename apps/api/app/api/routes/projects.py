@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core import locks
 from app.core.security import get_current_user
 from app.db import DEMO_ORG_ID, get_db
 from app.models.user import User
@@ -346,10 +347,25 @@ def award_package(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Submit a (possibly split) award for a package and issue the purchase orders."""
+    """Submit a (possibly split) award for a package and issue the purchase orders.
+
+    Exactly-once: the whole award — the already-awarded check, the decision
+    row, the quote flips and the supplier notifications — runs under a lock
+    keyed by (org, project, package). Overlapping requests (a triple-clicked
+    confirm) used to all pass the check-then-insert and each issue POs and
+    email every supplier; now the losers answer 409 immediately.
+    """
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
     key, pkg_label_for_record = _resolve_package(db, org_id, project_id, pkg)
+    with locks.exclusive(
+        f"award:{org_id}:{project_id}:{key or pkg}",
+        f"{pkg_label_for_record} is being awarded right now — wait for it to finish",
+    ):
+        return _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payload, current_user)
+
+
+def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payload, current_user):
     previous = purchase_decisions_repo.latest_for_package(db, org_id, project_id, key or pkg)
     if previous is not None and not payload.supersede:
         who = ", ".join(previous.get("suppliers") or []) or "a supplier"

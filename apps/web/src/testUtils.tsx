@@ -17,7 +17,7 @@ export const PROJECT = {
 export const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-export type Route = (path: string, init?: RequestInit) => Response | Promise<Response> | undefined
+export type Route = (path: string, init?: RequestInit) => Response | Promise<Response | undefined> | undefined
 
 // Build a fetch mock. `routes` is consulted first (return undefined to fall
 // through); the defaults answer auth + an empty workspace.

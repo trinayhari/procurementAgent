@@ -182,3 +182,20 @@ export function lb(bg: string, size?: number): CSSProperties {
     flex: 'none', letterSpacing: '-.02em',
   }
 }
+
+
+// ---- Navigation guards -------------------------------------------------
+// A screen with unsaved work (the RFQ review modal) registers a guard; every
+// in-app navigation (sidebar, project tabs, hash/Back) asks the guards first
+// and is refused while any of them says no. The guard itself is responsible
+// for showing the "discard?" prompt. Module-level so model.ts and App.tsx
+// share one registry without threading a ref through the model.
+const navGuards = new Set<() => boolean>()
+export function registerNavGuard(guard: () => boolean): () => void {
+  navGuards.add(guard)
+  return () => { navGuards.delete(guard) }
+}
+export function canNavigate(): boolean {
+  for (const g of navGuards) if (!g()) return false
+  return true
+}

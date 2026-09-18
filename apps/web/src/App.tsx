@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, FormEvent, MouseEvent, ReactNode } from 'react'
-import { Box, DcIcon, css, ic, lb } from './lib'
+import { Box, DcIcon, css, ic, lb, canNavigate, registerNavGuard } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
@@ -16,7 +16,7 @@ import {
   getRfqConversation, ingestQuotes, getIngestStatus,
   getLineComparison, awardPackage, listPurchaseDecisions,
   getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
-  getTeam, createInvite, revokeInvite,
+  getTeam, createInvite, revokeInvite, resendInvite,
   TOKEN_KEY, emptyProjectSlices,
 } from './api'
 import type {
@@ -370,8 +370,15 @@ export default function App() {
   // Honour manual hash edits and browser back/forward by re-syncing state.
   // Transient chrome (mobile drawer, open supplier) is dropped so arriving at
   // a page via history behaves like navigating to it.
+  const hashRef = useRef('')
+  hashRef.current = hashFor(s)
   useEffect(() => {
-    const onHash = () => set({ mnav: false, supplierId: null, ...parseHash() })
+    const onHash = () => {
+      // A screen with unsaved work refuses the navigation: put the URL back
+      // (the guard has shown its own "discard?" prompt).
+      if (!canNavigate()) { window.history.replaceState(null, '', hashRef.current); return }
+      set({ mnav: false, supplierId: null, ...parseHash() })
+    }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -645,6 +652,20 @@ function ConfirmBar({
   compact?: boolean
 }) {
   const color = tone === 'danger' ? 'var(--danger,#dc2626)' : 'var(--primary)'
+  // One shot: after the confirm is clicked, further clicks are ignored until
+  // the caller reports the request finished (`busy` back to false) or the bar
+  // is unmounted. A rapid double/triple click used to fire the DELETE/POST
+  // that many times — React's disabled re-render doesn't land between clicks
+  // dispatched in the same task.
+  const fired = useRef(false)
+  useEffect(() => { if (!busy) fired.current = false }, [busy])
+  const confirm = () => { if (fired.current || busy) return; fired.current = true; onConfirm() }
+  // Escape dismisses the prompt, like any dialog.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onCancel() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, onCancel])
   return (
     <div
       role="alertdialog"
@@ -656,7 +677,7 @@ function ConfirmBar({
         <Box as="button" type="button" onClick={onCancel} disabled={busy}
           style={css(`height:${compact ? '28px' : '32px'};padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;font-weight:600`)}
           hover="background:var(--panel-2)">Cancel</Box>
-        <Box as="button" type="button" onClick={onConfirm} disabled={busy}
+        <Box as="button" type="button" onClick={confirm} disabled={busy}
           style={css(`height:${compact ? '28px' : '32px'};padding:0 12px;border-radius:8px;border:1px solid ${color};background:${color};color:#fff;font-size:12px;font-weight:600;opacity:${busy ? '.6' : '1'}`)}
           hover="opacity:.9">{busy ? 'Working…' : confirmLabel}</Box>
       </div>
@@ -1199,9 +1220,13 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
     if (!target || busy) return
     setBusy(true); setErr(null); setNote(null)
     try {
-      await createInvite(target)
+      const inv = await createInvite(target)
       setEmail('')
-      setNote(`Invitation sent to ${target}.`)
+      // Only claim "sent" when a real provider accepted it. With email
+      // unconfigured the accept link is handed back for the inviter to share.
+      setNote(inv.emailed
+        ? `Invitation sent to ${target}.`
+        : `Invitation created for ${target}. Email isn’t configured, so nothing was delivered — copy the invite link below and send it yourself.`)
       load()
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Could not send the invite')
@@ -1210,10 +1235,33 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
     }
   }
 
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
+  const [busyInvite, setBusyInvite] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
   const revoke = async (id: string) => {
-    setErr(null); setNote(null)
-    try { await revokeInvite(id); load() }
+    setErr(null); setNote(null); setBusyInvite(id)
+    try { await revokeInvite(id); setConfirmRevoke(null); load() }
     catch (ex) { setErr(ex instanceof Error ? ex.message : 'Could not revoke') }
+    finally { setBusyInvite(null) }
+  }
+  const resend = async (id: string, to: string) => {
+    setErr(null); setNote(null); setBusyInvite(id)
+    try {
+      const inv = await resendInvite(id)
+      setNote(inv.emailed ? `Invitation re-sent to ${to}.` : `Email isn’t configured — copy the invite link for ${to} and send it yourself.`)
+      load()
+    } catch (ex) { setErr(ex instanceof Error ? ex.message : 'Could not resend') }
+    finally { setBusyInvite(null) }
+  }
+  const copyLink = async (id: string, url: string) => {
+    setErr(null)
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(id)
+      setTimeout(() => setCopied((c) => (c === id ? null : c)), 2000)
+    } catch {
+      setErr(`Copy failed — the link is: ${url}`)
+    }
   }
 
   const rowStyle = css('display:flex;align-items:center;gap:12px;padding:12px 18px;border-top:1px solid var(--border)')
@@ -1247,9 +1295,23 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{inv.email}</div>
-            <div style={css('font-size:12px;color:var(--text-3)')}>Invitation pending</div>
+            <div style={css('font-size:12px;color:var(--text-3)')}>{inv.acceptUrl ? 'Invitation pending — not emailed (email isn’t configured); share the link' : 'Invitation pending'}</div>
           </div>
-          <Box as="button" onClick={() => revoke(inv.id)} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);flex:none')} hover="background:var(--panel-2)">Revoke</Box>
+          {confirmRevoke === inv.id ? (
+            <ConfirmBar compact busy={busyInvite === inv.id}
+              message={<>Revoke the invitation for <b>{inv.email}</b>? The link stops working.</>}
+              confirmLabel="Revoke"
+              onConfirm={() => revoke(inv.id)}
+              onCancel={() => setConfirmRevoke(null)} />
+          ) : (
+            <div style={css('display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end')}>
+              {inv.acceptUrl && (
+                <Box as="button" onClick={() => copyLink(inv.id, inv.acceptUrl!)} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)')} hover="background:var(--panel-2)">{copied === inv.id ? 'Copied ✓' : 'Copy invite link'}</Box>
+              )}
+              <Box as="button" onClick={() => resend(inv.id, inv.email)} disabled={busyInvite === inv.id} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)')} hover="background:var(--panel-2)">Resend</Box>
+              <Box as="button" onClick={() => { setErr(null); setConfirmRevoke(inv.id) }} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)')} hover="background:var(--danger-soft);color:var(--danger)">Revoke</Box>
+            </div>
+          )}
         </div>
       ))}
 
@@ -2760,12 +2822,20 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   // Pull the thread as soon as a non-draft RFQ opens.
   useEffect(() => { if (!draft) loadConversation() }, [])
 
+  // Synchronous in-flight flag (see TabCompare.submit) and whether THIS modal
+  // already delivered the RFQ — a later "already sent" 409 is then a
+  // confirmation, not a failure to alarm the user with.
+  const sendInFlight = useRef(false)
+  const sentHere = useRef(false)
   const send = async () => {
+    if (sendInFlight.current) return
+    sendInFlight.current = true
     setBusy(true); setErr(null); setConfirmSend(false)
     try {
       // A 'Send failed' RFQ is no longer editable server-side — retry as-is.
       if (draft) await persist()
       const out = await sendRfq(projectId, rfq.id)
+      sentHere.current = true
       statusEpoch.current++ // invalidate any conversation read still in flight
       setRecipients(out.recipients || [])
       setStatus(out.status)
@@ -2782,10 +2852,23 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
       // Backend reasons (already sent, no approved BOM items, …) come through
       // the error message; fall back to the generic hint otherwise.
       const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      if (msg && sentHere.current && /already (been )?sent|already being sent/i.test(msg)) {
+        // Our own send succeeded a moment ago; this replay was refused. Not
+        // an error — just make sure the thread reflects the delivery.
+        loadConversation()
+        return
+      }
       setErr(msg || 'Send failed. Is the backend running?')
     }
-    finally { setBusy(false) }
+    finally { sendInFlight.current = false; setBusy(false) }
   }
+
+  // Unsaved edits also block in-app navigation (sidebar, project tabs,
+  // Back) — not only the Close button — and surface the discard prompt.
+  useEffect(() => registerNavGuard(() => {
+    if (dirty && !busy) { setConfirmDiscard(true); return false }
+    return true
+  }), [dirty, busy])
 
   return (
     <div style={css('position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px')}>
@@ -2983,7 +3066,14 @@ function TabRfqs({ m }: MProps) {
 
   const remove = async (rq: PersistedRfq) => {
     setBusyId(rq.id); setErr(null)
-    try { await deleteRfq(projectId, rq.id); setConfirmId(null); await load() }
+    try {
+      await deleteRfq(projectId, rq.id)
+      setConfirmId(null)
+      // The review modal may be open on this very draft — it has nothing to
+      // show (and Send would only 404) once the row is gone.
+      setOpen((cur) => (cur && cur.id === rq.id ? null : cur))
+      await load()
+    }
     catch { setErr(`Couldn’t delete “${rq.subject}” — is the backend running?`) }
     finally { setBusyId(null) }
   }
@@ -3192,6 +3282,9 @@ function TabCompare({ m }: MProps) {
   // `supersede` — the backend refuses it (409) otherwise.
   const [prior, setPrior] = useState<PurchaseDecision[]>([])
   const [confirming, setConfirming] = useState(false)
+  // Synchronous in-flight flag: state-driven `busy` only disables the button
+  // after a re-render, which clicks dispatched in the same task can beat.
+  const inFlight = useRef(false)
 
   useEffect(() => {
     let alive = true
@@ -3244,6 +3337,8 @@ function TabCompare({ m }: MProps) {
     createdAt: lc.lastAward.decidedAt || null,
   } : null)
   const submit = async () => {
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true); setSubmitErr(null)
     try {
       // A repeat award must say so — the backend refuses it (409) otherwise.
@@ -3267,7 +3362,7 @@ function TabCompare({ m }: MProps) {
       // line items" — the backend's reason beats the generic hint.
       const reason = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
       setSubmitErr(reason || 'Could not submit the award. Is the backend running? Nothing was committed.')
-    } finally { setBusy(false) }
+    } finally { inFlight.current = false; setBusy(false) }
   }
   const budgetPct = lc.budget ? Math.min(100, (sum.total / lc.budget) * 100) : null
   const overBudget = lc.budget != null && sum.total > lc.budget
@@ -3661,6 +3756,13 @@ function MobileNav({ m }: MProps) {
 }
 
 /* ----------------------------------------------------- New project modal */
+// "$4.2M", "450,000", "1.5 b", "12000.50" or blank — mirrors the API's rule.
+const MONEY_RE = /^\$?\s*\d{1,3}(,\d{3})*(\.\d+)?\s*[kKmMbB]?$|^\$?\s*\d+(\.\d+)?\s*[kKmMbB]?$/
+export function isMoneyLike(v: string): boolean {
+  const t = v.trim()
+  return !t || MONEY_RE.test(t)
+}
+
 const fieldLabel = css('display:block;font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:6px')
 const fieldInput = css('width:100%;height:38px;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13.5px')
 
@@ -3668,7 +3770,10 @@ function NewProjectModal({ m }: MProps) {
   const [name, setName] = useState('')
   const [loc, setLoc] = useState('')
   const [value, setValue] = useState('')
-  const valid = name.trim().length > 0
+  // Same rule as the API (ProjectCreate.value): an amount like $4.2M or
+  // 450,000, or blank. Free text used to be stored and shown as "Value abc".
+  const valueOk = isMoneyLike(value)
+  const valid = name.trim().length > 0 && valueOk
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -3700,7 +3805,8 @@ function NewProjectModal({ m }: MProps) {
             </div>
             <div style={{ flex: 1 }}>
               <label style={fieldLabel}>Est. value</label>
-              <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="$0" style={fieldInput} />
+              <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="$0" aria-invalid={!valueOk} style={{ ...fieldInput, ...(valueOk ? {} : css('border-color:var(--danger)')) }} />
+              {!valueOk && <div role="alert" style={css('font-size:11.5px;color:var(--danger);margin-top:5px')}>Enter an amount, e.g. $4.2M or 450,000</div>}
             </div>
           </div>
         </div>

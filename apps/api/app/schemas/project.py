@@ -1,8 +1,13 @@
+import re
 from typing import List
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import Risk, Stage, Tone
+
+# "$4.2M", "4.2m", "$450,000", "450000", "1.5 B" — an optional currency sign, a
+# number with optional thousands separators/decimals, an optional K/M/B suffix.
+_VALUE_RE = re.compile(r"^\$?\s*\d{1,3}(,\d{3})*(\.\d+)?\s*[kKmMbB]?$|^\$?\s*\d+(\.\d+)?\s*[kKmMbB]?$")
 from app.schemas.dashboard import Activity
 
 
@@ -37,6 +42,16 @@ class ProjectCreate(BaseModel):
     @classmethod
     def _strip(cls, v):
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("value")
+    @classmethod
+    def _value_is_an_amount(cls, v: str) -> str:
+        # Free text ("abc") used to be stored and shown as "Value abc". Accept
+        # the ways people write a contract value — "$4.2M", "450,000", "1.5 m",
+        # "$3.1B" — and nothing else. Blank means "not set".
+        if v and not _VALUE_RE.match(v):
+            raise ValueError("Est. value must be an amount, e.g. $4.2M or 450,000")
+        return v
 
 
 class OverviewCard(BaseModel):

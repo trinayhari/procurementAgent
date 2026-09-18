@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { tone, badge, chip, bar, ic, lb } from './lib'
+import { tone, badge, chip, bar, ic, lb, canNavigate } from './lib'
 import { post, deleteProject as apiDeleteProject, deleteSupplier as apiDeleteSupplier, updateSupplier as apiUpdateSupplier } from './api'
 import type { SupplierUpdate } from './api'
 import type { ModelData, PlanType, LineItemGroup, AuthUser, SupplierComm } from './api'
@@ -118,8 +118,10 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   // back to its baked-in literal when a key is absent, so the UI renders fully
   // even if the API is unavailable.
   const D: Partial<ModelData> = (props && props.data) || {}
-  const go = (n: string) => set({ nav: n, mnav: false, compare: false, supplierId: null })
-  const setTab = (t: string) => set({ tab: t, compare: false, supplierId: null })
+  // In-app navigation is refused while a guard (an RFQ modal with unsaved
+  // edits) says no — see lib.tsx registerNavGuard.
+  const go = (n: string) => { if (!canNavigate()) return; set({ nav: n, mnav: false, compare: false, supplierId: null }) }
+  const setTab = (t: string) => { if (!canNavigate()) return; set({ tab: t, compare: false, supplierId: null }) }
 
   const desktop = s.vw > 860
   const isProject = s.nav === 'project'
@@ -450,7 +452,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     },
     goDashboard: () => go('dashboard'), goProjects: () => go('projects'),
     goSuppliers: () => go('suppliers'), goSettings: () => go('settings'),
-    openProject: (p?: { id?: string }) => set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }),
+    openProject: (p?: { id?: string }) => { if (!canNavigate()) return; set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }) },
     toggleMnav: () => set({ mnav: !s.mnav }),
     mnavOpen: s.mnav, closeMnav: () => set({ mnav: false }),
     activeProject, tabStyle,

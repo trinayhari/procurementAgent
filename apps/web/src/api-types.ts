@@ -483,6 +483,12 @@ export interface paths {
         /**
          * Award Package
          * @description Submit a (possibly split) award for a package and issue the purchase orders.
+         *
+         *     Exactly-once: the whole award — the already-awarded check, the decision
+         *     row, the quote flips and the supplier notifications — runs under a lock
+         *     keyed by (org, project, package). Overlapping requests (a triple-clicked
+         *     confirm) used to all pass the check-then-insert and each issue POs and
+         *     email every supplier; now the losers answer 409 immediately.
          */
         post: operations["award_package_api_projects__project_id__packages__pkg__award_post"];
         delete?: never;
@@ -1257,6 +1263,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/team/invites/{invite_id}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend Invite
+         * @description Re-send a pending invitation (or, with no email provider, hand back
+         *     the accept link again).
+         */
+        post: operations["resend_invite_api_team_invites__invite_id__resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/team/invites/{invite_id}": {
         parameters: {
             query?: never;
@@ -1999,6 +2026,13 @@ export interface components {
             expiresAt?: string | null;
             /** Acceptedat */
             acceptedAt?: string | null;
+            /**
+             * Emailed
+             * @default true
+             */
+            emailed: boolean;
+            /** Accepturl */
+            acceptUrl?: string | null;
         };
         /** InviteCreateRequest */
         InviteCreateRequest: {
@@ -5786,6 +5820,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resend_invite_api_team_invites__invite_id__resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

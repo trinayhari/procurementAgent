@@ -448,7 +448,7 @@ async def upload_document(
         title=f"{'Plans' if extractable else 'Document'} uploaded — {payload['name']}",
         icon="file",
         tone="blue",
-        meta=f"{spec.label}{f' · {pages} pages' if pages else ''}",
+        meta=f"{spec.label}{f' · {pages} page{'s' if pages != 1 else ''}' if pages else ''}",
     )
     if analyzable:
         background.add_task(_run_pipeline, org_id, doc.id, stored.locator, plan_type)
