@@ -608,6 +608,13 @@ export function deleteRfq(projectId: string, rfqId: string): Promise<void> {
   })
 }
 
+// The project's documents, fresh from the API — the RFQ modal's attachment
+// picker reads this rather than the workspace bundle, which can be stale
+// (a document uploaded from another tab / by a teammate since the load).
+export function getProjectDocuments(projectId: string): Promise<Document[]> {
+  return get<Document[]>(`/api/projects/${projectId}/documents`)
+}
+
 // User-approved send: delivers the RFQ to every recipient via Gmail (or the
 // logging mock when Gmail is unconfigured). Attaches the documents chosen on
 // the RFQ and flips it to 'Awaiting' (awaiting supplier quotes).

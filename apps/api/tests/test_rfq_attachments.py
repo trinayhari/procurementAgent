@@ -424,3 +424,17 @@ def test_sub_template_body_note_strip_helper():
     stripped = generator.body_without_attachment_note(body)
     assert "attached" not in stripped
     assert "Scope of work:" in stripped and "Your prompt response is appreciated." in stripped
+
+
+def test_documents_report_their_file_size_for_the_attachment_picker(project, monkeypatch):
+    """The RFQ modal shows per-file sizes and keeps the running total under the
+    15 MB cap client-side; a BOM with no file has no size."""
+    client, headers, pid = project
+    monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
+    doc_id = _upload_doc(client, headers, pid)
+    bom_id = make_confirmed_bom(client, headers, pid)
+    docs = {d["id"]: d for d in client.get(f"/api/projects/{pid}/documents", headers=headers).json()}
+    assert docs[doc_id]["fileSize"] == len(_MINI_PDF) and docs[doc_id]["fileMissing"] is False
+    assert docs[bom_id]["fileSize"] is None and docs[bom_id]["hasFile"] is False
+    one = client.get(f"/api/documents/{doc_id}", headers=headers).json()
+    assert one["fileSize"] == len(_MINI_PDF)

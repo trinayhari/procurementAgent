@@ -5340,6 +5340,17 @@
             "title": "Filemissing",
             "default": false
           },
+          "fileSize": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filesize"
+          },
           "planType": {
             "anyOf": [
               {

@@ -9,7 +9,7 @@ import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, analyzeDocument,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone, hasDetail,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
-  getDocumentPreview, sendTestEmail, getEmailConfig, getProvidersHealth,
+  getDocumentPreview, sendTestEmail, getEmailConfig, getProvidersHealth, getProjectDocuments,
   listProjectBoms, createSupplier, getSupplierDetail,
   listTradeScopes, createTradeScope, updateTradeScope,
   listLenders, createLender, deleteLender,
@@ -2769,7 +2769,16 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 // the full email thread is read live from Gmail, and "Check for replies" pulls
 // any supplier response — flipping the RFQ to 'Replied' when one has arrived.
 // Attachable project documents for the RFQ modal — anything with a stored file.
-type AttachableDoc = { id?: string; name: string; hasFile?: boolean; fileMissing?: boolean }
+type AttachableDoc = { id?: string; name: string; hasFile?: boolean; fileMissing?: boolean; fileSize?: number | null }
+
+// Total attachment budget per email — mirrors services/rfq/sender.py
+// MAX_ATTACHMENT_TOTAL_BYTES; the backend 400 remains the backstop.
+const MAX_ATTACHMENT_TOTAL_BYTES = 15 * 1024 * 1024
+function fmtBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(n >= 10 * 1024 * 1024 ? 0 : 1)} MB`
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`
+  return `${n} B`
+}
 
 // Workflow order of RFQ statuses, for "only ever advance" status merges.
 const STATUS_ORDER = ['Draft', 'Send failed', 'Sent', 'Awaiting', 'Replied', 'Quoted']
@@ -2816,14 +2825,37 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   // BOMs and trade scopes have no file, so they're excluded automatically.
   const [attachIds, setAttachIds] = useState<string[]>((rfq.attachments || []).map((a) => a.documentId))
   const [attachNames, setAttachNames] = useState<string[]>((rfq.attachments || []).map((a) => a.name))
-  const attachable = (docs || []).filter((d) => d.hasFile && !d.fileMissing && d.id)
+  // The picker reads the project's documents FRESH from the API when the
+  // modal opens (and again on request): the workspace bundle `docs` can be
+  // stale — a document uploaded from another tab or by a teammate since the
+  // load used to show as "no longer exists" and Save silently dropped it.
+  // Until the fetch answers (or when it fails) the bundle is only a display
+  // fallback; attachment ids are never dropped on its say-so.
+  const [freshDocs, setFreshDocs] = useState<AttachableDoc[] | null>(null)
+  const [docsErr, setDocsErr] = useState<string | null>(null)
+  const [docsLoading, setDocsLoading] = useState(false)
+  const refreshDocs = async () => {
+    setDocsLoading(true); setDocsErr(null)
+    try { setFreshDocs(await getProjectDocuments(projectId)) }
+    catch { setDocsErr('Couldn’t refresh the project’s documents — showing what was loaded earlier; your chosen attachments are kept as they are.') }
+    finally { setDocsLoading(false) }
+  }
+  useEffect(() => { if (rfq.status === 'Draft') refreshDocs() }, [])
+  const docSource = freshDocs !== null ? freshDocs : docs
+  const attachable = (docSource || []).filter((d) => d.hasFile && !d.fileMissing && d.id)
   // Ids chosen earlier can go stale (document deleted since the draft was
   // saved). Sending stale ids would 400 at save with no checkbox to uncheck —
   // a dead end — so both the count and the save payload use the live set.
-  // Only filter when we actually know the project's documents.
-  const liveAttachIds = docs !== undefined
+  // Only filter against a FRESH list: a stale bundle must never confirm a
+  // document as gone.
+  const liveAttachIds = freshDocs !== null
     ? attachIds.filter((id) => attachable.some((d) => d.id === id))
     : attachIds
+  // Running size of the chosen attachments (files whose size is known).
+  const sizeOf = (id: string) => (attachable.find((d) => d.id === id) || {}).fileSize || 0
+  const attachTotal = liveAttachIds.reduce((n, id) => n + sizeOf(id), 0)
+  const overCap = attachTotal > MAX_ATTACHMENT_TOTAL_BYTES
+  const capReason = overCap ? `Attachments total ${fmtBytes(attachTotal)} — over the ${fmtBytes(MAX_ATTACHMENT_TOTAL_BYTES)} email limit; untick some files.` : null
   const isSub = rfq.kind === 'subcontractor'
   const draft = status === 'Draft'
   // A partially failed send can be retried: the backend re-attempts only the
@@ -2836,8 +2868,10 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
     liveAttachIds.slice().sort().join(',') !== saved.attachIds
   )
 
-  const toggleAttach = (id: string) =>
+  const toggleAttach = (id: string) => {
+    setErr(null)  // a stale "over the limit" error must not outlive the selection that caused it
     setAttachIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
+  }
 
   const dropRecipient = (email: string) => setRecipients((rs) => rs.filter((r) => r.email !== email))
 
@@ -2999,14 +3033,19 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
               the email. Editable on a draft; read-only once sent. */}
           {draft ? (
             <div>
-              <label style={fieldLabel}>Attachments ({liveAttachIds.length})</label>
+              <div style={css('display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px')}>
+                <label style={{ ...fieldLabel, marginBottom: 0 }}>Attachments ({liveAttachIds.length}{attachTotal ? ` · ${fmtBytes(attachTotal)}` : ''})</label>
+                <Box as="button" onClick={docsLoading ? undefined : refreshDocs} title="Re-read the project's documents (picks up files uploaded since this page loaded)"
+                  style={css(`height:26px;padding:0 9px;border-radius:7px;border:1px solid var(--border);font-size:11.5px;font-weight:600;color:var(--text-2);${docsLoading ? 'opacity:.6' : ''}`)} hover="background:var(--panel-2)">{docsLoading ? 'Refreshing…' : 'Refresh documents'}</Box>
+              </div>
+              {docsErr && <div style={css('font-size:11.5px;color:var(--warn);font-weight:600;margin-bottom:6px')}>{docsErr}</div>}
               {liveAttachIds.length < attachIds.length && (
                 <div style={css('font-size:11.5px;color:var(--warn);font-weight:600;margin-bottom:6px')}>
                   {attachIds.length - liveAttachIds.length} previously chosen attachment{attachIds.length - liveAttachIds.length === 1 ? ' was' : 's were'} removed — the document no longer exists.
                 </div>
               )}
               {attachable.length === 0 ? (
-                <div style={css('font-size:12.5px;color:var(--text-3)')}>No attachable documents on this project — upload plans or specs in the Documents tab first.</div>
+                <div style={css('font-size:12.5px;color:var(--text-3)')}>{docsLoading && !docSource ? 'Loading documents…' : 'No attachable documents on this project — upload plans or specs in the Documents tab first.'}</div>
               ) : (
                 <div style={css('display:flex;flex-direction:column;gap:6px')}>
                   {attachable.map((d) => {
@@ -3018,10 +3057,13 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
                         <input type="checkbox" checked={on} readOnly style={{ accentColor: 'var(--primary)', pointerEvents: 'none', flex: 'none' }} />
                         <Svg size={14} sw={1.8} stroke="var(--text-3)" d={PAPERCLIP} />
                         <span style={css('flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span>
+                        {d.fileSize != null && <span style={css("font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace;flex:none")}>{fmtBytes(d.fileSize)}</span>}
                       </Box>
                     )
                   })}
-                  <div style={css('font-size:11.5px;color:var(--text-3)')}>Attachments are capped at 15 MB total per email.</div>
+                  <div style={css(`font-size:11.5px;color:${overCap ? 'var(--danger)' : 'var(--text-3)'};font-weight:${overCap ? '600' : '400'}`)}>
+                    {overCap ? capReason : `Attachments are capped at ${fmtBytes(MAX_ATTACHMENT_TOTAL_BYTES)} total per email${attachTotal ? ` — ${fmtBytes(attachTotal)} selected` : ''}.`}
+                  </div>
                 </div>
               )}
             </div>
@@ -3072,14 +3114,14 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
           </span>
           <Box as="button" onClick={requestClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{draft ? (dirty ? 'Cancel' : 'Close') : 'Close'}</Box>
           {draft && (
-            <Box as="button" onClick={saveDraft} disabled={busy || saving || !dirty} title={dirty ? 'Save without sending' : 'No unsaved changes'}
-              style={css(`height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600;opacity:${busy || saving || !dirty ? '.55' : '1'}`)}
+            <Box as="button" onClick={overCap ? undefined : saveDraft} disabled={busy || saving || !dirty || overCap} title={overCap ? capReason! : dirty ? 'Save without sending' : 'No unsaved changes'}
+              style={css(`height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600;opacity:${busy || saving || !dirty || overCap ? '.55' : '1'}`)}
               hover="background:var(--panel-2)">{saving ? 'Saving…' : 'Save draft'}</Box>
           )}
           {draft && (
-            <Box as="button" onClick={busy || recipients.length === 0 ? undefined : send} disabled={busy || recipients.length === 0}
-              title={recipients.length === 0 ? 'Add a recipient first' : undefined}
-              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || recipients.length === 0 ? '.6' : '1'}`)}
+            <Box as="button" onClick={busy || recipients.length === 0 || overCap ? undefined : send} disabled={busy || recipients.length === 0 || overCap}
+              title={overCap ? capReason! : recipients.length === 0 ? 'Add a recipient first' : undefined}
+              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || recipients.length === 0 || overCap ? '.6' : '1'}`)}
               hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send to ${recipients.length} ${isSub ? 'subcontractor' : 'supplier'}${recipients.length === 1 ? '' : 's'}`}</Box>
           )}
           {sendFailed && unsent.length > 0 && (

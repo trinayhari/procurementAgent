@@ -2056,6 +2056,8 @@ export interface components {
              * @default false
              */
             fileMissing: boolean;
+            /** Filesize */
+            fileSize?: number | null;
             /** Plantype */
             planType?: string | null;
             /** Summary */

@@ -194,3 +194,76 @@ describe('award notifications', () => {
     expect(screen.queryByRole('button', { name: /Re-send/ })).toBeNull()
   })
 })
+
+describe('RFQ modal attachments', () => {
+  const DOC = (id: string, name: string, fileSize: number) => ({
+    id, name, type: 'PDF', date: 'Sep 1', status: 'Analyzed', statusTone: 'success', items: '0', pages: 1,
+    processing: false, hasFile: true, fileMissing: false, fileSize, reviewed: true,
+  })
+  const OLD = DOC('d-1', 'Site plan.pdf', 5 * 1024 * 1024)
+  const NEW = DOC('d-2', 'Specs uploaded later.pdf', 6 * 1024 * 1024)
+  const BIG = DOC('d-3', 'Huge scan.pdf', 11 * 1024 * 1024)
+  const DRAFT = {
+    ...RFQ_BASE, status: 'Draft', statusTone: 'gray', recipients: [{ supplierId: 's1', name: 'Core & Main', email: 'a@x.com' }],
+    attachments: [{ documentId: 'd-1', name: OLD.name }, { documentId: 'd-2', name: NEW.name }],
+  }
+
+  it('reads the documents fresh when it opens, lists newly uploaded ones and keeps the saved ids', async () => {
+    let docCalls = 0
+    const saves: { attachment_ids?: string[]; attachmentIds?: string[] }[] = []
+    vi.stubGlobal('fetch', makeFetch((path, init) => {
+      if (path.endsWith('/documents')) { docCalls++; return json(docCalls === 1 ? [OLD] : [OLD, NEW, BIG]) }  // bundle is stale; modal fetch is fresh
+      if (path.endsWith('/rfqs/generated')) return json([DRAFT])
+      if (path.endsWith('/rfqs/rfq-1') && init && init.method === 'PUT') { saves.push(JSON.parse(String(init.body))); return json(DRAFT) }
+      return undefined
+    }))
+    await openProject('rfqs')
+    fireEvent.click(await screen.findByText(DRAFT.subject))
+    await screen.findByText(NEW.name)
+    expect(screen.queryByText(/no longer exists/)).toBeNull()
+    await screen.findByText(/Attachments \(2 · 11 MB\)/)
+    expect(screen.getByText('5.0 MB')).toBeTruthy()
+    // Edit the body so Save is enabled, then save: both original ids go out.
+    fireEvent.change(screen.getByDisplayValue('Please quote.'), { target: { value: 'Please quote soon.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(saves).toHaveLength(1))
+    const sent = saves[0].attachment_ids || saves[0].attachmentIds
+    expect(sent).toEqual(['d-1', 'd-2'])
+  })
+
+  it('keeps the saved attachments untouched and says so when the refresh fails', async () => {
+    let docCalls = 0
+    vi.stubGlobal('fetch', makeFetch((path) => {
+      if (path.endsWith('/documents')) { docCalls++; return docCalls === 1 ? json([OLD]) : json({ detail: 'boom' }, 500) }
+      if (path.endsWith('/rfqs/generated')) return json([DRAFT])
+      return undefined
+    }))
+    await openProject('rfqs')
+    fireEvent.click(await screen.findByText(DRAFT.subject))
+    await screen.findByText(/Couldn’t refresh the project’s documents/)
+    expect(screen.queryByText(/no longer exists/)).toBeNull()
+    await screen.findByText(/Attachments \(2/)
+  })
+
+  it('shows sizes, blocks Save/Send over 15 MB with the reason, and clears it when a file is unticked', async () => {
+    let docCalls = 0
+    vi.stubGlobal('fetch', makeFetch((path) => {
+      if (path.endsWith('/documents')) { docCalls++; return json([OLD, NEW, BIG]) }
+      if (path.endsWith('/rfqs/generated')) return json([DRAFT])
+      return undefined
+    }))
+    await openProject('rfqs')
+    fireEvent.click(await screen.findByText(DRAFT.subject))
+    await screen.findByText(BIG.name)
+    fireEvent.click(screen.getByText(BIG.name))
+    await screen.findByText(/Attachments total 22 MB — over the 15 MB email limit/)
+    const save = screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement
+    const send = screen.getByRole('button', { name: /Send to 1 supplier/ }) as HTMLButtonElement
+    expect(save.disabled && send.disabled).toBe(true)
+    expect(send.title).toMatch(/over the 15 MB email limit/)
+    fireEvent.click(screen.getByText(BIG.name))
+    await waitFor(() => expect(screen.queryByText(/over the 15 MB email limit/)).toBeNull())
+    expect((screen.getByRole('button', { name: /Send to 1 supplier/ }) as HTMLButtonElement).disabled).toBe(false)
+    await screen.findByText(/11 MB selected/)
+  })
+})
