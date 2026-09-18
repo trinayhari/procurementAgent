@@ -218,7 +218,8 @@ def _gmail_from_clause(addresses: List[str]) -> str:
     return " OR ".join('from:"{}"'.format(a.replace('"', "")) for a in addresses)
 
 
-def fetch_replies(sender_emails: List[str], lookback_days: int = 30, limit: int = 50) -> List[InboundMessage]:
+def fetch_replies(sender_emails: List[str], lookback_days: int = 30, limit: int = 50,
+                  skip_ids: Optional[set] = None) -> List[InboundMessage]:
     """Inbound messages from any of `sender_emails` within the lookback window.
 
     Gmail's `from:` operator matches loosely (a token of the address, so
@@ -245,8 +246,8 @@ def fetch_replies(sender_emails: List[str], lookback_days: int = 30, limit: int 
     out: List[InboundMessage] = []
     for ref in listing.get("messages", []) or []:
         mid = ref.get("id")
-        if not mid:
-            continue
+        if not mid or (skip_ids and mid in skip_ids):
+            continue  # already ingested / our own — don't download it again
         try:
             full = service.users().messages().get(userId="me", id=mid, format="full").execute()
         except Exception as exc:
@@ -293,7 +294,7 @@ def _inbound_from_full(service, full: dict) -> InboundMessage:
     )
 
 
-def fetch_thread_replies(thread_id: str) -> List[InboundMessage]:
+def fetch_thread_replies(thread_id: str, skip_ids: Optional[set] = None) -> List[InboundMessage]:
     """Every message in the Gmail thread an RFQ send created, oldest first,
     shaped for parsing (body + PDF attachment text).
 
@@ -310,7 +311,11 @@ def fetch_thread_replies(thread_id: str) -> List[InboundMessage]:
         ).execute()
     except Exception as exc:
         raise GmailReadUnavailable(describe_gmail_error(exc, stage="thread fetch")) from exc
-    out = [_inbound_from_full(service, m) for m in data.get("messages", []) or []]
+    out = [
+        _inbound_from_full(service, m)
+        for m in data.get("messages", []) or []
+        if not (skip_ids and m.get("id") in skip_ids)  # skip PDF downloads for known ids
+    ]
     out.sort(key=lambda m: m.date_ms)
     return out
 

@@ -208,7 +208,7 @@ def _ingest_live(
     ours = _outbound_message_ids(db, org_id, project_id)
     our_addrs = _our_addresses(db, org_id)
     try:
-        candidates = _collect_replies(index, our_addrs)
+        candidates = _collect_replies(index, our_addrs, skip_ids=seen | ours)
     except gmail_reader.GmailReadUnavailable as exc:
         logger.warning("Gmail read unavailable: %s", exc)
         raise
@@ -279,7 +279,8 @@ def _our_addresses(db: Session, org_id: str) -> set:
         return {sender_address().lower()}
 
 
-def _collect_replies(index: Dict[str, List[dict]], our_addrs: set) -> List[tuple]:
+def _collect_replies(index: Dict[str, List[dict]], our_addrs: set,
+                     skip_ids: Optional[set] = None) -> List[tuple]:
     """(message, meta-or-None) pairs worth parsing, deduped by Gmail id.
 
     Two sources, in priority order:
@@ -299,13 +300,13 @@ def _collect_replies(index: Dict[str, List[dict]], our_addrs: set) -> List[tuple
             if not thread_id or thread_id.startswith("mock") or thread_id in threads_done:
                 continue
             threads_done.add(thread_id)
-            for msg in gmail_reader.fetch_thread_replies(thread_id):
+            for msg in gmail_reader.fetch_thread_replies(thread_id, skip_ids=skip_ids):
                 if msg.message_id in seen_ids or (msg.from_email or "").lower() in our_addrs:
                     continue
                 seen_ids.add(msg.message_id)
                 pairs.append((msg, meta))
     for msg in gmail_reader.fetch_replies(
-        list(index.keys()), lookback_days=settings.quote_ingest_lookback_days
+        list(index.keys()), lookback_days=settings.quote_ingest_lookback_days, skip_ids=skip_ids
     ):
         if msg.message_id in seen_ids:
             continue

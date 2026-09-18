@@ -389,6 +389,34 @@ def test_strip_quoted_covers_gmail_outlook_and_apple_mail(body, expected):
     assert gmail_reader._strip_quoted(body) == expected
 
 
+def test_readers_skip_known_ids_before_downloading(monkeypatch):
+    fake = _FakeGmail(messages={
+        "known": _msg("known", "s@x.com", "Re: RFQ", "old $1", date_ms=1),
+        "fresh": _msg("fresh", "s@x.com", "Re: RFQ", "new $2", date_ms=2),
+    }, thread={"messages": [_msg("known", "s@x.com", "Re", "old $1"), _msg("fresh", "s@x.com", "Re", "new $2")]})
+    gets = []
+    real_users = fake.users
+
+    def users():
+        u = real_users()
+        m = u.messages()
+        orig_get = m.get
+
+        def get(userId, id, **kw):
+            gets.append(id)
+            return orig_get(userId, id, **kw)
+
+        m.get = get
+        u.messages = lambda: m
+        return u
+
+    monkeypatch.setattr(fake, "users", users)
+    monkeypatch.setattr(gmail_reader, "_service", lambda: fake)
+    assert [m.message_id for m in gmail_reader.fetch_replies(["s@x.com"], skip_ids={"known"})] == ["fresh"]
+    assert gets == ["fresh"]
+    assert [m.message_id for m in gmail_reader.fetch_thread_replies("thr", skip_ids={"known"})] == ["fresh"]
+
+
 def test_thread_names_are_decoded_from_rfc2047(monkeypatch):
     fake = _FakeGmail(thread={"messages": [
         _msg("o", "=?utf-8?q?Jane_Doe_=E2=80=94_Acme?= <bids@ws.com>", "=?utf-8?q?RFQ:_Tuber=C3=ADa?=", "please quote", date_ms=1),
@@ -418,11 +446,11 @@ def _live_gmail(monkeypatch, replies, parsed_by_text, threads=None):
     `replies` answer the from: search; `threads` ({thread_id: [messages]})
     answer the per-RFQ thread reads."""
     monkeypatch.setattr(ingest, "gmail_configured", lambda: True)
-    monkeypatch.setattr(ingest.gmail_reader, "fetch_replies", lambda emails, lookback_days=30: [
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_replies", lambda emails, lookback_days=30, skip_ids=None: [
         m for m in replies if m.from_email in {e.lower() for e in emails}
     ])
     monkeypatch.setattr(ingest.gmail_reader, "fetch_thread_replies",
-                        lambda thread_id: list((threads or {}).get(thread_id, [])))
+                        lambda thread_id, skip_ids=None: list((threads or {}).get(thread_id, [])))
     monkeypatch.setattr(ingest.parser, "parse_quote", lambda text: parsed_by_text(text))
 
 
@@ -582,13 +610,13 @@ def test_ingest_ignores_recipients_who_never_received_the_rfq(project, monkeypat
     assert r.json()["status"] == "Send failed"
     asked = {}
 
-    def fetch(emails, lookback_days=30):
+    def fetch(emails, lookback_days=30, skip_ids=None):
         asked["emails"] = sorted(emails)
         return []
 
     monkeypatch.setattr(ingest, "gmail_configured", lambda: True)
     monkeypatch.setattr(ingest.gmail_reader, "fetch_replies", fetch)
-    monkeypatch.setattr(ingest.gmail_reader, "fetch_thread_replies", lambda t: [])
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_thread_replies", lambda t, skip_ids=None: [])
     client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
     assert asked["emails"] == [rfq["recipients"][0]["email"]]
 
@@ -603,8 +631,8 @@ def test_unit_priced_reply_is_totalled_with_the_rfq_quantities(project, monkeypa
     reply = _inbound("u1", rcp["email"], "Fire hydrant $3,150.00 each, 8-inch gate valve $1,240 each, freight $900, 4 weeks",
                      rcp["threadId"], 1)
     monkeypatch.setattr(ingest, "gmail_configured", lambda: True)
-    monkeypatch.setattr(ingest.gmail_reader, "fetch_replies", lambda emails, lookback_days=30: [reply])
-    monkeypatch.setattr(ingest.gmail_reader, "fetch_thread_replies", lambda t: [])
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_replies", lambda emails, lookback_days=30, skip_ids=None: [reply])
+    monkeypatch.setattr(ingest.gmail_reader, "fetch_thread_replies", lambda t, skip_ids=None: [])
     client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
     st = client.get(f"/api/projects/{pid}/quotes/ingest-status", headers=headers).json()
     assert st["ingested"] == 1, st
@@ -618,7 +646,7 @@ def test_ingest_honours_the_lookback_setting(monkeypatch, project):
     client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     seen = {}
 
-    def fetch(emails, lookback_days=30):
+    def fetch(emails, lookback_days=30, skip_ids=None):
         seen["lookback"] = lookback_days
         return []
 
