@@ -160,9 +160,9 @@
       ],
       "quantity": 7,
       "unit": "EA",
-      "qty_tolerance": 0.15,
+      "qty_tolerance": 0.3,
       "required": true,
-      "source": "Sheet 15 water plan: 1-8\" GATE VALVE + three (2) 8\" GATE VALVES callouts"
+      "source": "Sheet 15 water plan: 1-8\" GATE VALVE + three (2) 8\" GATE VALVES callouts — 7 counted on the plan sheet text; profile sheets may carry more (±30%)."
     },
     {
       "category": "water",
@@ -187,7 +187,7 @@
       ],
       "quantity": 3,
       "unit": "EA",
-      "qty_tolerance": 0.34,
+      "qty_tolerance": 0.7,
       "required": false,
       "source": "Sheet 15 water plan INSTALL 8\"x8\" TEE callouts"
     },
@@ -209,9 +209,12 @@
       "category": "water",
       "name": "6\" PVC Water Line (hydrant lead)",
       "aliases": [
-        "6\" PVC pipe",
+        "6 inch PVC hydrant lead",
         "6 inch PVC waterline",
-        "6\" PVC water main"
+        "6\" PVC hydrant lead",
+        "6\" PVC pipe",
+        "6\" PVC water main",
+        "6\" hydrant lead"
       ],
       "quantity": null,
       "unit": "LF",

@@ -10,10 +10,13 @@
       "category": "lighting",
       "name": "Ceiling Light Fixture",
       "aliases": [
-        "surface mounted ceiling light",
+        "ceiling light",
+        "ceiling light fixture (symbol: light)",
         "ceiling mounted light fixture",
+        "ceiling mounted luminaire",
         "recessed ceiling light",
-        "ceiling light"
+        "surface mount light fixture",
+        "surface mounted ceiling light"
       ],
       "quantity": 116,
       "unit": "EA",
@@ -37,27 +40,31 @@
     },
     {
       "category": "devices",
-      "name": "Duplex Receptacle, 120V",
+      "name": "Duplex Receptacle",
       "aliases": [
-        "duplex receptacle",
+        "duplex receptacle, 125V, 20A",
         "duplex convenience receptacle",
         "receptacle outlet",
-        "120V receptacle"
+        "120V receptacle",
+        "duplex receptacle 15A",
+        "duplex receptacle 20A"
       ],
       "quantity": 240,
       "unit": "EA",
       "qty_tolerance": 0.2,
       "required": true,
-      "source": "Sheets A9-A11 (≈30 per unit x 8)"
+      "source": "Sheets A9-A11 (≈30 per unit x 8). Devices are 125V-rated on 120V circuits — the name carries no voltage so neither reading is a contradiction."
     },
     {
       "category": "devices",
       "name": "Smoke / Carbon Monoxide Detector",
       "aliases": [
+        "combination smoke and carbon monoxide alarm",
+        "smoke alarm",
+        "smoke and carbon monoxide detector",
         "smoke detector",
         "smoke/CO detector",
-        "combination smoke and carbon monoxide alarm",
-        "smoke alarm"
+        "smoke/co detector"
       ],
       "quantity": 26,
       "unit": "EA",

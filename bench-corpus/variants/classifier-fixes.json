@@ -1,0 +1,8 @@
+{
+  "id": "classifier-fixes",
+  "label": "Sheet classifier fixes (whole-word keywords, keep quantity tables, prefix tie-break)",
+  "description": "Three deterministic classifier fixes behind one setting. (1) Match discipline keywords on word boundaries so 'PLAT' no longer counts every 'PLATE' as civil and 'DUCT' no longer counts 'CONDUCTOR' — the Portland ADU foundation sheet (the truth's only source) classified civil 28 vs structural 25 and was skipped. (2) Keep SUMMARY OF QUANTITIES sheets for every plan type — Four Rivers' quantity table classified plumbing on sanitary vocabulary and was skipped. (3) On a word-score tie between the MEP and base families, let the sheet number (E-501) decide. Zero model-cost changes; compare against baseline on building + site sets.",
+  "settings": {
+    "sheet_keywords_word_boundary": true
+  }
+}

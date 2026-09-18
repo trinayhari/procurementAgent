@@ -30,6 +30,7 @@ real sets ("ELETRICAL", "STRUCUTRAL") — title blocks are hand-typed.
 import re
 from typing import Dict, List, Optional
 
+from app.config import settings
 from app.services.extraction.registry import PlanTypeSpec
 
 # strong: unambiguous discipline/title words — weight 4 per occurrence.
@@ -99,15 +100,40 @@ _SHEET_NUMBER_RE = re.compile(r"\b([ESMPC])(?:-\d{1,3}(?:\.\d{1,2})?|\d{2,3}(?:\
 # (building data, unit counts) useful to all disciplines, so they classify as
 # "general" and are kept for every plan type, excluded from none.
 COVER_MARKERS = ["COVER SHEET", "DRAWING INDEX", "SHEET INDEX", "CVR"]
+# A quantity table is the single most valuable sheet for a BOM and it sits on
+# a general-notes sheet whose vocabulary (sanitary, cleanout, backflow) reads as
+# another discipline. Kept for every plan type — only when the classifier
+# fixes setting is on, so the bench can compare.
+QUANTITY_MARKERS = ["SUMMARY OF QUANTITIES", "ESTIMATE OF QUANTITIES",
+                    "QUANTITY SUMMARY", "BILL OF MATERIALS", "SCHEDULE OF QUANTITIES"]
 GENERAL = "general"
+
+
+_WORD_RES: Dict[str, "re.Pattern"] = {}
+
+
+def _count(text_upper: str, kw: str) -> int:
+    """Occurrences of a keyword — as a whole word when the setting says so.
+
+    The substring count is the historical behaviour and is still the default;
+    it makes "PLAT" (civil) count every "PLATE" on a framing sheet and "DUCT"
+    (mechanical) count every "CONDUCTOR" on an electrical one. Word-boundary
+    matching tolerates plurals (JOISTS, TRUSSES) but not other suffixes.
+    """
+    if not settings.sheet_keywords_word_boundary:
+        return text_upper.count(kw)
+    pattern = _WORD_RES.get(kw)
+    if pattern is None:
+        pattern = _WORD_RES[kw] = re.compile(r"\b" + re.escape(kw) + r"(?:S|ES)?\b")
+    return len(pattern.findall(text_upper))
 
 
 def _score(text_upper: str, tiers: Dict[str, List[str]]) -> int:
     score = 0
     for kw in tiers["strong"]:
-        score += text_upper.count(kw) * 4
+        score += _count(text_upper, kw) * 4
     for kw in tiers["weak"]:
-        score += text_upper.count(kw) * (2 if " " in kw else 1)
+        score += _count(text_upper, kw) * (2 if " " in kw else 1)
     return score
 
 
@@ -137,7 +163,10 @@ def classify_page(text: str) -> Optional[str]:
     # Sheet numbers spanning 3+ disciplines = a drawing index, whatever else
     # the page says (an actual working sheet references 1-2 other disciplines
     # at most).
-    if any(k in up for k in COVER_MARKERS) or len(_prefix_tokens(up)) >= 3:
+    prefixes = _prefix_tokens(up)
+    if any(k in up for k in COVER_MARKERS) or len(prefixes) >= 3:
+        return GENERAL
+    if settings.sheet_keywords_word_boundary and any(k in up for k in QUANTITY_MARKERS):
         return GENERAL
     scores = _scores(text)
     if not any(scores.values()):
@@ -146,6 +175,16 @@ def classify_page(text: str) -> Optional[str]:
     base_total = sum(scores[d] for d in BASE_FAMILY)
     if mep_total > base_total:
         family = MEP_FAMILY
+    elif mep_total == base_total and settings.sheet_keywords_word_boundary and prefixes:
+        # A dead heat on words, but the sheet is numbered E-501 / S2.1: the
+        # sheet number says which family it belongs to.
+        prefixed = {d for d in prefixes}
+        if prefixed <= set(MEP_FAMILY):
+            family = MEP_FAMILY
+        elif prefixed <= set(BASE_FAMILY):
+            family = BASE_FAMILY
+        else:
+            family = BASE_FAMILY
     elif base_total > 0:
         family = BASE_FAMILY  # ties go to base: floor plans legitimately carry HVAC notes
     else:

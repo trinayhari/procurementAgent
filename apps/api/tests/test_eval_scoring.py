@@ -693,7 +693,7 @@ def test_usable_recall_is_none_without_required_items():
     [
         (None, None), (1.0, None), (1.04, None), (1.5, None),
         (8.0, 8), (7.5, 8), (0.125, -8), (0.13, -8), (3.0, 3), (2.0, 2), (0.5, -2),
-        (0.9, None), (1.2, None), (30.0, None),
+        (0.9, None), (1.2, None), (30.0, 30), (1 / 37.0, -37), (100.0, None),
     ],
 )
 def test_scale_factor_reads_integer_multiples(ratio, expected):
@@ -769,3 +769,75 @@ def test_negative_control_scores_every_extracted_line_as_an_extra():
     assert hallucinated.precision == 0.0
     assert hallucinated.recall is None
     assert hallucinated.counts["extra"] == 2
+
+
+# --------------------------------- artefacts the first live baseline exposed
+def test_an_exact_name_outranks_a_subset_alias_on_another_line():
+    """`hydrant` is a subset of `6" PVC Hydrant Lead` too; the exact line must win."""
+    t = truth(
+        item("Fire Hydrant Assembly", quantity=4, unit="EA", aliases=["fire hydrant", "hydrant"]),
+        item('6" PVC Water Line (hydrant lead)', quantity=None, unit="LF", aliases=['6" PVC pipe']),
+    )
+    score = scoring.score_document(
+        [group(WATER, ('6" PVC Hydrant Lead', "74.4 LF"), ("Fire Hydrant Assembly", "4 EA"))], t, SPEC
+    )
+    by_truth = {m.truth_name: m for m in score.matches if m.truth_name}
+    assert by_truth["Fire Hydrant Assembly"].extracted_name == "Fire Hydrant Assembly"
+    assert by_truth["Fire Hydrant Assembly"].quantity_ok is True
+
+
+def test_a_bare_word_alias_does_not_match_a_longer_line():
+    assert scoring.name_similarity("hydrant", '6" PVC Hydrant Lead') == 0.0
+    assert scoring.name_similarity("hydrant", "Fire Hydrant") >= scoring.FUZZY_THRESHOLD
+    assert scoring.name_similarity("hydrant", "hydrant") == 1.0
+
+
+def test_fuzzy_never_scores_as_high_as_exact():
+    assert scoring.name_similarity('12" DI Pipe', '12" DI Pipe, Class 350') <= scoring.FUZZY_CEILING
+    assert scoring.name_similarity('12" DI Pipe', '12" DI Pipe') == 1.0
+
+
+def test_ties_go_to_the_matching_category():
+    """Two 4' manholes, one per discipline: each truth item gets its own."""
+    storm = SPEC.category("storm")
+    t = truth(
+        item("Storm Sewer Manhole", category="storm", quantity=7, unit="EA", aliases=["standard 4' manhole"]),
+        item("Sanitary Sewer Manhole", category="sewer", quantity=11, unit="EA", aliases=["standard 4' manhole"]),
+    )
+    score = scoring.score_document(
+        [
+            group(SEWER, ("Standard 4' Diameter Manhole, Water-Tight", "11 EA")),
+            group(storm, ("Standard 4' Diameter Storm Manhole", "7 EA")),
+        ],
+        t,
+        SPEC,
+    )
+    by_truth = {m.truth_name: m for m in score.matches}
+    assert by_truth["Storm Sewer Manhole"].quantity_got == 7 and by_truth["Storm Sewer Manhole"].category_ok
+    assert by_truth["Sanitary Sewer Manhole"].quantity_got == 11 and by_truth["Sanitary Sewer Manhole"].category_ok
+    assert score.quantity_accuracy == 1.0
+
+
+@pytest.mark.parametrize(
+    "truth_name,extracted_name,should_match",
+    [
+        ('8" PVC SDR 26 Sanitary Sewer', '8" PVC SDR-26 Gravity Sewer Main', True),
+        ('8" PVC SDR 26 Sanitary Sewer', '8" PVC SDR-35 Sanitary Sewer', False),
+        ("Schedule 40 PVC Conduit", "SCH-40 PVC conduit", True),
+        ("Schedule 40 PVC Conduit", "Sch. 80 PVC conduit", False),
+        ('1/2" Anchor Bolt @ 6\' O.C.', '1/2" Diameter Anchor Bolts at 6\'-0" O.C. max', True),
+        ('1/2" Anchor Bolt @ 6\' O.C.', '1/2" anchor bolts @ 48" o.c.', False),
+        ('1/2" Anchor Bolt @ 6\' O.C.', '1/2" anchor bolts @ 72" o.c.', True),
+    ],
+)
+def test_spec_words_and_spacing_are_read_however_punctuated(truth_name, extracted_name, should_match):
+    gated = scoring.name_similarity(truth_name, extracted_name)
+    assert (gated >= scoring.FUZZY_THRESHOLD) == should_match, (truth_name, extracted_name, gated)
+
+
+def test_normalised_names_fold_notation_the_same_way_on_both_sides():
+    assert scoring.normalize_name('1/2" Anchor Bolt') == "0.5 inch anchor bolt"
+    assert scoring.normalize_name("Pad Footing 2'-0\" x 2'-0\"") == "pad footing 24 inch x 24 inch"
+    assert scoring.normalize_name("3,000 psi concrete") == "3000 psi concrete"
+    assert scoring.normalize_name("2x6 studs") == "2 x 6 stud"
+    assert scoring.normalize_name("SDR-26 pipe") == "sdr 26 pipe"

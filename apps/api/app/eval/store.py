@@ -291,6 +291,29 @@ def append_trial(run_id: str, trial: dict) -> None:
         db.commit()
 
 
+def update_trial_score(trial_id: str, score: Optional[dict], error: Optional[str] = None) -> bool:
+    """Replace one trial's stored score (a re-score with a newer scorer / truth)."""
+    with _session() as db:
+        row = db.get(BenchTrial, trial_id)
+        if row is None:
+            return False
+        row.score = _dumps(score)
+        if error is not None:
+            row.error = error
+        db.commit()
+        return True
+
+
+def update_summary(run_id: str, summary: Optional[dict]) -> bool:
+    with _session() as db:
+        row = db.get(BenchRun, run_id)
+        if row is None:
+            return False
+        row.summary = _dumps(summary)
+        db.commit()
+        return True
+
+
 def update_progress(run_id: str, done: int, total: int) -> None:
     with _session() as db:
         row = db.get(BenchRun, run_id)

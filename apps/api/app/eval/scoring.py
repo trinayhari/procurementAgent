@@ -205,7 +205,7 @@ METRIC_KEYS = (
 # (or 1/k) is a SCALE error — a per-unit count not multiplied up, or a stacked
 # text layer summed — rather than a misread number.
 SCALE_ERROR_TOLERANCE = 0.1
-SCALE_ERROR_MAX_FACTOR = 24
+SCALE_ERROR_MAX_FACTOR = 64
 
 
 def scale_factor(ratio: Optional[float]) -> Optional[int]:
@@ -230,12 +230,14 @@ def scale_factor(ratio: Optional[float]) -> Optional[int]:
 def normalize_name(name: Optional[str]) -> str:
     """Lowercase, expand inch marks, drop a trailing parenthetical, keep numbers."""
     s = (name or "").lower()
-    s = _INCH_RE.sub(" inch ", s)
     while True:
         stripped = _TRAILING_PAREN_RE.sub("", s)
         if stripped == s:
             break
         s = stripped
+    s = _SPEC_WORD_RE.sub(lambda m: m.group(1) + " " + m.group(2), s)
+    s = _fold_numbers(s)
+    s = _INCH_RE.sub(" inch ", s)
     s = s.replace(u"°", " degree ").replace("%", " percent ").replace("&", " and ")
     s = re.sub(r"[^a-z0-9.]+", " ", s)
     # Keep decimal points, drop sentence/abbreviation dots ("no." → "no").
@@ -273,9 +275,13 @@ _PAREN_COUNT_RE = re.compile(r"\((\d+)\)")
 # `@ 16" O.C.` / `at 24 in. on center` — a spacing, stated by the truth, that an
 # extraction may legitimately leave off the line item.
 _SPACING_RE = re.compile(
-    r"(?:@|\bat)\s*(\d+(?:\.\d+)?)\s*(?:[\"”″']|inch(?:es)?\b|in\b\.?|ft\b\.?)?\s*"
+    r"(?:@|\bat)\s*(\d+(?:\.\d+)?)\s*(?:'\s*-?\s*(\d+(?:\.\d+)?)\s*[\"”″]|([\"”″']|inch(?:es)?\b|in\b\.?|ft\b\.?))?\s*"
     r"(?:o\.?\s?c\.?\b|on\s+center\b)"
 )
+# `SDR 26` and `SDR-26`, `Schedule 40` and `SCH-40`, `Class 350` / `CL-350`: a
+# spec value is a dimension however it is punctuated, so the hyphenated form
+# must not be read as an equipment tag (`MH-3`).
+_SPEC_WORD_RE = re.compile(r"\b(sdr|dr|sch|schedule|class|cl|grade|gr|type)[\s\-\.]*(\d+)\b")
 # `2x6`, `6x12`, `4x4x8` — a lumber / structure size written as one token.
 _SIZE_PRODUCT_RE = re.compile(
     r"(?<![a-z0-9.])(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?(?![a-z0-9])"
@@ -323,7 +329,12 @@ def _prepass(text: str, codes: Dict[str, set]) -> str:
         return " "
 
     def take_spacing(m):
-        codes.setdefault("oc", set()).add(_canonical_number(m.group(1)))
+        value = float(m.group(1))
+        if m.group(2) is not None:  # 6'-0" → inches
+            value = value * 12 + float(m.group(2))
+        elif m.group(3) == "'" or (m.group(3) or "").startswith("ft"):  # 6' → inches
+            value = value * 12
+        codes.setdefault("oc", set()).add(_canonical_number(str(value)))
         return " "
 
     def take_mixed(m):
@@ -341,13 +352,35 @@ def _prepass(text: str, codes: Dict[str, set]) -> str:
             return m.group(0)
         return " " + _canonical_number(str(value)) + " "
 
+    text = _PAREN_COUNT_RE.sub(take_count, text)
+    text = _SPACING_RE.sub(take_spacing, text)
+    text = _SPEC_WORD_RE.sub(lambda m: m.group(1) + " " + m.group(2), text)
+    return _fold_numbers(text, take_fraction=take_fraction, take_mixed=take_mixed)
+
+
+def _fold_numbers(text: str, take_fraction=None, take_mixed=None) -> str:
+    """Rewrite thousands separators, feet-inches, fractions and NxM sizes.
+
+    Shared by the gate (`_prepass`) and the fuzzy string (`normalize_name`) so
+    both sides of every comparison see `1/2"` as `0.5 inch` and `2'-0"` as
+    `24 inch` — otherwise the two strings disagree on how many tokens a size
+    is and the token-set ratio drifts on notation rather than meaning.
+    """
     text = _THOUSANDS_RE.sub("", text)
     text = _FEET_INCHES_RE.sub(
         lambda m: " " + _canonical_number(str(int(m.group(1)) * 12 + float(m.group(2)))) + '" ',
         text,
     )
-    text = _PAREN_COUNT_RE.sub(take_count, text)
-    text = _SPACING_RE.sub(take_spacing, text)
+    if take_mixed is None:
+        def take_mixed(m):
+            value = _fraction_value(m.group(1), m.group(2), m.group(3))
+            return m.group(0) if value is None else " " + _canonical_number(str(value)) + " "
+    if take_fraction is None:
+        def take_fraction(m):
+            if int(m.group(2)) == 0:
+                return m.group(0)  # AWG gauge: leave `3/0` for the tokeniser
+            value = _fraction_value("", m.group(1), m.group(2))
+            return m.group(0) if value is None else " " + _canonical_number(str(value)) + " "
     text = _MIXED_NUMBER_RE.sub(take_mixed, text)
     text = _FRACTION_RE.sub(take_fraction, text)
     text = _SIZE_PRODUCT_RE.sub(
@@ -549,6 +582,13 @@ def token_set_ratio(a: str, b: str) -> float:
     return max(_ratio(shared, only_a), _ratio(shared, only_b), _ratio(only_a, only_b))
 
 
+# A fuzzy match never scores as high as an exact one, so when an alias like
+# `hydrant` is a subset of BOTH `Fire Hydrant Assembly` and `6" PVC Hydrant
+# Lead`, the greedy pass takes the exact name first instead of whichever
+# extracted line happens to come earlier.
+FUZZY_CEILING = 0.99
+
+
 def _similarity(truth: _Prepared, extracted: _Prepared) -> float:
     if not truth.norm or not extracted.norm:
         return 0.0
@@ -558,7 +598,14 @@ def _similarity(truth: _Prepared, extracted: _Prepared) -> float:
         return 0.0
     if not _codes_agree(truth.codes, extracted.codes):
         return 0.0
-    return token_set_ratio(truth.norm, extracted.norm)
+    ta, tb = set(truth.norm.split()), set(extracted.norm.split())
+    shorter, longer = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    # A bare word (`hydrant`, `panel`) is a subset of every line that contains
+    # it, and token-set similarity scores that at 1.0. It is not a material
+    # description: it only matches a line that is itself (almost) that word.
+    if len(shorter) == 1 and shorter < longer and len(longer) > 2:
+        return 0.0
+    return min(token_set_ratio(truth.norm, extracted.norm), FUZZY_CEILING)
 
 
 def name_similarity(truth_name: str, extracted_name: str) -> float:
@@ -731,19 +778,22 @@ def score_document(extracted_groups: Sequence[dict], truth: Truth, spec=None) ->
             forbidden_hit[ref.index] = (best_entry, best_score)
 
     # 2. Every candidate pair above threshold, then greedy one-to-one by score.
-    pairs: List[Tuple[float, int, int]] = []
+    # Ties broken by category agreement: two `Standard 4' Manhole` lines, one
+    # under Sewer and one under Storm, must go to the sewer and storm truth
+    # items respectively, not to whichever truth item is listed first.
+    pairs: List[Tuple[float, int, int, bool]] = []
     for t_i, item in enumerate(truth.items):
         for ref in refs:
             if ref.index in forbidden_hit:
                 continue
             score = _best_score(truth_prepared[t_i], prepared[ref.index])
             if score >= FUZZY_THRESHOLD:
-                pairs.append((score, t_i, ref.index))
-    pairs.sort(key=lambda p: (-p[0], p[1], p[2]))
+                pairs.append((score, t_i, ref.index, ref.category == item.category))
+    pairs.sort(key=lambda p: (-p[0], not p[3], p[1], p[2]))
 
     truth_taken: Dict[int, int] = {}
     ext_taken: Dict[int, int] = {}
-    for score, t_i, e_i in pairs:
+    for score, t_i, e_i, _same_category in pairs:
         if t_i in truth_taken or e_i in ext_taken:
             continue
         truth_taken[t_i] = e_i

@@ -146,12 +146,18 @@ def fetch_replies(sender_emails: List[str], lookback_days: int = 30, limit: int 
         attach_parts: List[str] = []
         _walk(service, mid, payload, text_parts, attach_parts)
         from_email = _parse_addr(_header(payload, "From"))
+        # Parse only what the supplier wrote in THIS message. A reply carries the
+        # quoted chain beneath it (our RFQ, or their earlier quote); left in, the
+        # parser reads the old figures — the regex fallback takes the largest
+        # dollar amount anywhere in the text, so a revised $47.5k quote on top of
+        # a quoted $52k one came back as $52k.
+        body = _strip_quoted("\n".join(text_parts)) or full.get("snippet", "")
         out.append(
             InboundMessage(
                 message_id=mid,
                 from_email=from_email,
                 subject=_header(payload, "Subject"),
-                text="\n".join(text_parts).strip() or full.get("snippet", ""),
+                text=body,
                 attachments_text=attach_parts,
             )
         )

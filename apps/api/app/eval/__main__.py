@@ -230,6 +230,23 @@ def cmd_show(args) -> int:
     return 0
 
 
+def cmd_rescore(args) -> int:
+    """Re-score stored trials with the current scorer + truth — no model calls."""
+    from app.eval import runner
+
+    for run_id in args.run_ids:
+        try:
+            summary = runner.rescore_run(run_id)
+        except KeyError as exc:
+            print(str(exc))
+            return 2
+        if args.json:
+            _emit(args, {"run_id": run_id, "summary": summary})
+            continue
+        _print_run(store.get_run(run_id), detail=args.detail)
+    return 0
+
+
 def cmd_compare(args) -> int:
     a = store.get_run(args.a)
     b = store.get_run(args.b)
@@ -362,6 +379,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     show = add("show", cmd_show, "per-document detail for one run")
     show.add_argument("run_id")
+
+    rescore = add("rescore", cmd_rescore, "re-score stored runs with the current scorer/truth (no model calls)")
+    rescore.add_argument("run_ids", nargs="+")
+    rescore.add_argument("--detail", action="store_true", help="print per-document detail")
 
     compare = add("compare", cmd_compare, "metric deltas between two runs")
     compare.add_argument("a")

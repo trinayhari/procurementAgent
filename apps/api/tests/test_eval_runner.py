@@ -251,3 +251,41 @@ def test_plan_type_override_is_passed_to_extraction(bench, monkeypatch):
     )
     runner.execute_run(make_run(plan_type="building_plan"))
     assert seen == ["building_plan"]
+
+
+def test_rescore_reuses_the_stored_extraction_against_new_truth(bench, monkeypatch):
+    """A truth or scorer change is evaluated on runs already paid for — no model call."""
+    calls = []
+
+    def fake(path, plan_type):
+        calls.append(path)
+        return FakeResult(HYDRANT_GROUPS)
+
+    patch_extraction(monkeypatch, fake)
+    (run_id,) = store.create_run(
+        variant_ids=["baseline"], doc_ids=["site-test-01"], plan_type=None, trials=1, notes=None
+    )
+    runner.execute_run(run_id)
+    assert store.get_run(run_id)["summary"]["metrics"]["quantity_accuracy"] == 1.0
+    assert len(calls) == 1
+
+    # The truth author corrects the count: 4 hydrants, not 3.
+    corrected = dict(TRUTH)
+    corrected["items"] = [{"category": "water", "name": "Fire Hydrant Assembly", "quantity": 4, "unit": "EA"}]
+    (bench / "truth" / "site-test-01.json").write_text(json.dumps(corrected), encoding="utf-8")
+
+    summary = runner.rescore_run(run_id)
+    assert len(calls) == 1  # nothing re-extracted
+    assert summary["metrics"]["quantity_accuracy"] == 0.0
+    assert summary["metrics"]["recall"] == 1.0
+    assert summary["rescored_at"]
+    run = store.get_run(run_id)
+    assert run["summary"]["metrics"]["quantity_accuracy"] == 0.0
+    trial = run["trials_detail"][0]
+    assert trial["score"]["matches"][0]["quantity_want"] == 4
+    assert trial["groups"] == HYDRANT_GROUPS  # the extraction itself is untouched
+
+
+def test_rescore_unknown_run_raises(bench):
+    with pytest.raises(KeyError):
+        runner.rescore_run("nope")

@@ -1,0 +1,14 @@
+{
+  "why": "A revised quote replying on top of the earlier (higher) quote. Whatever parses this must read the NEW message, not the quoted chain — the regex fallback picks the largest figure anywhere in the text, so the quoted $52,000 wins unless the chain is stripped first.",
+  "text": "Revised pricing after the spec clarification:\n\nGrand total: $47,500.00 delivered\nLead time: 2 weeks\n\nThanks,\nSam\n\nOn Tue, Sep 9, 2026 at 3:12 PM Sam Ortiz <sam@example-supply.com> wrote:\n> Original quote:\n> Grand total: $52,000.00 delivered\n> Lead time: 4 weeks\n",
+  "expect_regex_stripped": {
+    "is_quote": true,
+    "total": 47500.0,
+    "lead_days": 14
+  },
+  "expect_regex_unstripped": {
+    "is_quote": true,
+    "total": 52000.0,
+    "lead_days": 14
+  }
+}

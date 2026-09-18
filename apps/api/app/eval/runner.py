@@ -205,3 +205,58 @@ def _run_trial(run: dict, variant: variants.Variant, doc_id: str, trial_index: i
             trial["error"] = "scoring failed: {}: {}".format(type(exc).__name__, exc)
             score = None
     return {"trial": trial, "score": score}
+
+
+def rescore_run(run_id: str) -> dict:
+    """Re-score every stored trial of a run with the CURRENT scorer and truth files.
+
+    The raw extraction (`groups`) is persisted with each trial, so a matcher or
+    ground-truth change can be evaluated against every run already paid for
+    without a single model call. Rewrites each trial's score and the run's
+    summary in place; the extraction itself is untouched. Returns the new
+    summary.
+    """
+    run = store.get_run(run_id)
+    if run is None:
+        raise KeyError("Unknown run '{}'".format(run_id))
+    from app.services.extraction import registry
+
+    live_scores: List[scoring.DocScore] = []
+    mocked_scores: List[scoring.DocScore] = []
+    rescored = 0
+    for trial in store.list_trials(run_id):
+        if trial.get("status") != "done":
+            continue
+        try:
+            truth = corpus.load_truth(trial["doc_id"])
+        except corpus.CorpusError:
+            truth = None
+        if truth is None:
+            store.update_trial_score(trial["id"], None)
+            continue
+        plan_type = run.get("plan_type") or truth.plan_type
+        spec = registry.get(plan_type)
+        try:
+            score = scoring.score_document(trial.get("groups") or [], truth, spec)
+        except Exception as exc:
+            store.update_trial_score(
+                trial["id"], None, error="scoring failed: {}: {}".format(type(exc).__name__, exc)
+            )
+            continue
+        store.update_trial_score(trial["id"], score.to_dict())
+        rescored += 1
+        (mocked_scores if trial.get("mocked") else live_scores).append(score)
+
+    summary = dict(run.get("summary") or {})
+    summary.update(
+        {
+            "variant_id": run["variant_id"],
+            "trials_scored": len(live_scores),
+            "metrics": scoring.aggregate(live_scores) if live_scores else None,
+            "mocked_metrics": scoring.aggregate(mocked_scores) if mocked_scores else None,
+            "note": None if live_scores else _NO_METRICS_NOTE,
+            "rescored_at": _now(),
+        }
+    )
+    store.update_summary(run_id, summary)
+    return summary

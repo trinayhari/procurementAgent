@@ -9,7 +9,11 @@
     {
       "category": "equipment",
       "name": "250 kW Natural Gas Generator, 480Y/277V",
-      "aliases": ["250kW natural gas generator", "250 kW standby generator", "natural gas emergency generator 250kW"],
+      "aliases": [
+        "250kW natural gas generator",
+        "250 kW standby generator",
+        "natural gas emergency generator 250kW"
+      ],
       "quantity": 1,
       "unit": "EA",
       "qty_tolerance": 0.05,
@@ -19,7 +23,10 @@
     {
       "category": "equipment",
       "name": "60A/2P Circuit Breaker",
-      "aliases": ["60 amp 2 pole circuit breaker", "60A/2 breaker"],
+      "aliases": [
+        "60 amp 2 pole circuit breaker",
+        "60A/2 breaker"
+      ],
       "quantity": 1,
       "unit": "EA",
       "qty_tolerance": 0.05,
@@ -29,7 +36,14 @@
     {
       "category": "conductors",
       "name": "3/0 Copper Feeder Conductor (feeder mark 1, 200A/4W)",
-      "aliases": ["3/0 copper conductor", "#3/0 THHN copper feeder", "3/0 AWG feeder wire"],
+      "aliases": [
+        "#3/0 THHN copper feeder",
+        "#3/0 copper",
+        "#3/0 copper feeder",
+        "3/0 AWG copper feeder conductor",
+        "3/0 AWG feeder wire",
+        "3/0 copper conductor"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -39,7 +53,10 @@
     {
       "category": "conductors",
       "name": "#6 Copper Ground (feeder mark 1)",
-      "aliases": ["#6 ground conductor", "no. 6 equipment grounding conductor"],
+      "aliases": [
+        "#6 ground conductor",
+        "no. 6 equipment grounding conductor"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -49,7 +66,14 @@
     {
       "category": "conductors",
       "name": "1/0 Copper Feeder Conductor (feeder mark 2, 100A/3W)",
-      "aliases": ["1/0 copper conductor", "#1/0 THHN copper feeder", "1/0 AWG feeder wire"],
+      "aliases": [
+        "#1/0 THHN copper feeder",
+        "#1/0 copper",
+        "#1/0 copper feeder",
+        "1/0 AWG copper feeder conductor",
+        "1/0 AWG feeder wire",
+        "1/0 copper conductor"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -59,7 +83,10 @@
     {
       "category": "conductors",
       "name": "#4 Copper Ground (feeder mark 2)",
-      "aliases": ["#4 ground conductor for 100A feeder", "no. 4 equipment grounding conductor"],
+      "aliases": [
+        "#4 ground conductor for 100A feeder",
+        "no. 4 equipment grounding conductor"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -69,7 +96,10 @@
     {
       "category": "conductors",
       "name": "#4 Copper Feeder Conductor (feeder mark 3, 60A/3W)",
-      "aliases": ["#4 copper feeder conductor", "no. 4 THHN copper feeder"],
+      "aliases": [
+        "#4 copper feeder conductor",
+        "no. 4 THHN copper feeder"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -79,7 +109,10 @@
     {
       "category": "conductors",
       "name": "#8 Copper Ground (feeder mark 3)",
-      "aliases": ["#8 ground conductor", "no. 8 equipment grounding conductor"],
+      "aliases": [
+        "#8 ground conductor",
+        "no. 8 equipment grounding conductor"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -89,7 +122,14 @@
     {
       "category": "conductors",
       "name": "#14 AWG XHHW Conductor (emergency power off wiring)",
-      "aliases": ["#14 AWG XHHW", "(2) #14 XHHW control conductors", "no. 14 XHHW wire"],
+      "aliases": [
+        "#14 AWG XHHW",
+        "#14 XHHW copper",
+        "#14 XHHW copper conductor",
+        "(2) #14 XHHW control conductors",
+        "14 AWG XHHW copper control conductor",
+        "no. 14 XHHW wire"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -99,7 +139,10 @@
     {
       "category": "raceway",
       "name": "2\" Conduit (generator feeders)",
-      "aliases": ["2 inch conduit", "2\" feeder conduit"],
+      "aliases": [
+        "2 inch conduit",
+        "2\" feeder conduit"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -109,7 +152,10 @@
     {
       "category": "raceway",
       "name": "3/4\" PVC Conduit (underground, emergency power off)",
-      "aliases": ["3/4 inch PVC conduit underground", "3/4\" PVC schedule 40 conduit"],
+      "aliases": [
+        "3/4 inch PVC conduit underground",
+        "3/4\" PVC schedule 40 conduit"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -119,7 +165,10 @@
     {
       "category": "raceway",
       "name": "3/4\" Schedule 80 PVC Elbow",
-      "aliases": ["schedule 80 PVC elbow", "3/4\" PVC 90 degree elbow, schedule 80"],
+      "aliases": [
+        "schedule 80 PVC elbow",
+        "3/4\" PVC 90 degree elbow, schedule 80"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -129,7 +178,10 @@
     {
       "category": "raceway",
       "name": "PVC Expansion Fitting",
-      "aliases": ["PVC expansion coupling", "conduit expansion fitting"],
+      "aliases": [
+        "PVC expansion coupling",
+        "conduit expansion fitting"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -139,7 +191,10 @@
     {
       "category": "raceway",
       "name": "PVC LB Conduit Body",
-      "aliases": ["PVC LB fitting", "LB conduit body"],
+      "aliases": [
+        "PVC LB fitting",
+        "LB conduit body"
+      ],
       "quantity": null,
       "unit": "EA",
       "qty_tolerance": 0.1,
@@ -149,7 +204,11 @@
     {
       "category": "raceway",
       "name": "Galvanized Channel (strut) conduit support",
-      "aliases": ["galvanized channel support", "unistrut conduit support", "galvanized strut"],
+      "aliases": [
+        "galvanized channel support",
+        "unistrut conduit support",
+        "galvanized strut"
+      ],
       "quantity": null,
       "unit": "LF",
       "qty_tolerance": 0.1,
@@ -159,7 +218,11 @@
     {
       "category": "devices",
       "name": "Emergency Power Off (EPO) Button",
-      "aliases": ["emergency power off button", "EPO pushbutton", "emergency stop button"],
+      "aliases": [
+        "emergency power off button",
+        "EPO pushbutton",
+        "emergency stop button"
+      ],
       "quantity": 1,
       "unit": "EA",
       "qty_tolerance": 0.05,
