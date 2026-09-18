@@ -52,12 +52,14 @@ def _buyer_intro(buyer) -> str:
     """
     name = (getattr(buyer, "name", "") or "").strip()
     company = (getattr(buyer, "company", "") or "").strip()
+    # "Meridian Civil Co." already ends the sentence — don't add a second stop.
+    stop = "" if company.endswith(".") else "."
     if name and company:
-        return f"My name is {name} with {company}."
+        return f"My name is {name} with {company}{stop}"
     if name:
         return f"My name is {name}."
     if company:
-        return f"I am writing on behalf of {company}."
+        return f"I am writing on behalf of {company}{stop}"
     return ""
 
 

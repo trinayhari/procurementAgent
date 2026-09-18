@@ -88,8 +88,10 @@ def _recency(e: dict) -> tuple:
     are 'upload-N'), then row id. Extraction jobs finish out of order, so row
     id alone would let a slow older document beat a newer revision."""
     doc_id = e.get("document_id") or ""
-    suffix = doc_id.rsplit("-", 1)[-1]
-    doc_seq = int(suffix) if suffix.isdigit() else 0
+    # Ids are 'upload-<seq>' (older rows) or 'upload-<seq>-<random>' (never
+    # reused after a delete); the seq is the first numeric segment either way.
+    parts = doc_id.split("-")
+    doc_seq = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
     return (doc_seq, e.get("id") or 0)
 
 

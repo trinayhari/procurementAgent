@@ -39,7 +39,21 @@ type BoxProps = {
 
 export function Box({ as = 'div', css: base, hover, style, children, ...rest }: BoxProps) {
   const [h, setH] = useState(false)
-  const merged: CSSProperties = { ...toStyle(base), ...toStyle(style), ...(h && hover ? toStyle(hover) : {}) }
+  const merged: CSSProperties = { ...toStyle(base), ...toStyle(style) }
+  if (h && hover) {
+    const hov = toStyle(hover)
+    // A hover `border-color` on top of a base `border` shorthand makes React
+    // warn on every re-render ("Removing a style property during rerender
+    // (borderColor) when a conflicting property is set (border)") and can
+    // leave the wrong colour behind. Fold the colour into the shorthand instead.
+    if (hov.borderColor !== undefined && typeof merged.border === 'string') {
+      const parts = merged.border.trim().split(/\s+/)
+      parts[parts.length - 1] = String(hov.borderColor)
+      merged.border = parts.join(' ')
+      delete hov.borderColor
+    }
+    Object.assign(merged, hov)
+  }
   const Tag = as
   const hoverProps = hover
     ? { onMouseEnter: () => setH(true), onMouseLeave: () => setH(false) }

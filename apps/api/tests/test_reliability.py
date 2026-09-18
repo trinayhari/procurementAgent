@@ -312,3 +312,134 @@ def test_valid_pdf_upload_still_works(project, monkeypatch, plan_type):
     r = _upload(client, headers, "plan.pdf", _MINI_PDF, plan_type=plan_type)
     assert r.status_code == 201, r.text
     assert r.json()["pages"] == 1
+
+
+# ------------------------------------------------------------ document ids
+def test_document_ids_are_never_reused_after_delete(project):
+    """Ids were 'upload-{max(seq)+1}': deleting the newest document handed its
+    id to the next one, so RFQ attachment references and signed file tokens
+    minted for the deleted document silently pointed at the new one."""
+    client, headers, pid = project
+    r = client.post("/api/documents/manual", headers=headers, json={"name": "A", "projectId": pid})
+    first = r.json()["id"]
+    assert client.delete(f"/api/documents/{first}", headers=headers).status_code == 204
+    r = client.post("/api/documents/manual", headers=headers, json={"name": "B", "projectId": pid})
+    second = r.json()["id"]
+    assert second != first
+    assert client.get(f"/api/documents/{first}", headers=headers).status_code == 404
+
+
+def test_concurrent_document_creates_do_not_collide(project):
+    """Two creates computing the same seq used to fail the second with a 500
+    (UNIQUE on seq); it now retries with the next number."""
+    client, headers, pid = project
+    codes = []
+
+    def go(i):
+        r = client.post("/api/documents/manual", headers=headers, json={"name": f"B{i}", "projectId": pid})
+        codes.append(r.status_code)
+
+    threads = [threading.Thread(target=go, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert codes == [201] * 6
+    ids = [d["id"] for d in client.get(f"/api/projects/{pid}/documents", headers=headers).json()]
+    assert len(ids) == len(set(ids)) == 6
+
+
+# ------------------------------------------ custom-package compare + award
+def test_compare_and_award_accept_a_custom_package_by_name(project):
+    """The Quotes table groups by label; for a custom BOM / trade the label is
+    the document's name, which the compare route couldn't map back to a key
+    ('No quotes to compare for package')."""
+    client, headers, pid = project
+    bom_id = make_confirmed_bom(client, headers, pid, name="Hydrants Package")
+    sids = run_supplier_search(client, headers, pid, bom_id)
+    rfq = generate_rfq(client, headers, pid, bom_id, sids[:2])
+    client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+
+    # Quote rows now carry the package key next to the label.
+    rows = client.get(f"/api/projects/{pid}/quotes", headers=headers).json()
+    assert rows and all(q["package"] == bom_id and q["pkg"] == "Hydrants Package" for q in rows)
+
+    by_name = client.get(f"/api/projects/{pid}/packages/Hydrants%20Package/line-comparison", headers=headers)
+    assert by_name.status_code == 200, by_name.text
+    by_id = client.get(f"/api/projects/{pid}/packages/{bom_id}/line-comparison", headers=headers)
+    assert by_name.json()["lines"] == by_id.json()["lines"]
+    assert by_id.json()["pkg"] == "Hydrants Package"  # label, not the document id
+    assert by_id.json()["lastAward"] is None
+
+    r = client.post(
+        f"/api/projects/{pid}/packages/Hydrants%20Package/award",
+        headers=headers, json={"selections": {}, "strategy": "mix"},
+    )
+    assert r.status_code == 200, r.text
+    decisions = client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers).json()
+    assert decisions[0]["package"] == bom_id and decisions[0]["packageLabel"] == "Hydrants Package"
+
+    # The comparison now reports the award so the UI can guard a re-award.
+    last = client.get(f"/api/projects/{pid}/packages/{bom_id}/line-comparison", headers=headers).json()["lastAward"]
+    assert last and last["decidedByEmail"] == "pm@example.com" and last["poCount"] >= 1
+
+
+# -------------------------------------------------------- demo data gating
+def test_demo_quotes_and_rfqs_are_not_served_to_other_tenants(project):
+    client, headers, pid = project
+    from app.repositories import reference as reference_repo
+
+    with SessionLocal() as db:
+        reference_repo.seed_reference_data(db)
+        assert reference_repo.list_demo_quotes(db)
+    assert client.get(f"/api/projects/{pid}/quotes", headers=headers).json() == []
+    assert client.get(f"/api/projects/{pid}/rfqs", headers=headers).json() == []
+    assert client.get(f"/api/projects/{pid}/rfq-folders", headers=headers).json() == []
+    assert client.get(f"/api/projects/{pid}/line-items", headers=headers).json() == []
+    r = client.get(f"/api/projects/{pid}/packages/Water%20Utilities/comparison", headers=headers)
+    assert r.status_code == 404
+
+
+def test_pending_review_count_ignores_seed_documents(project):
+    """Seed/demo documents have no BOM of their own; they used to inflate the
+    'confirm the extracted BOM on N documents first' count for every package."""
+    client, headers, pid = project
+    from app.models.document import Document
+    from app.repositories import reference as reference_repo
+
+    with SessionLocal() as db:
+        reference_repo.seed_reference_data(db)
+        for i in range(3):  # seed-style rows: no plan type
+            db.add(Document(
+                organization_id=_org_id(), seq=1000 + i, id=f"seed-{i}", project_id=pid,
+                name=f"Seed {i}", type="Plan Set", date="Jan 01, 2026", status="Analyzed",
+                status_tone="success", items="42", pages=1, processing=False, has_file=False,
+                plan_type=None, reviewed=False, edited=False,
+            ))
+        db.commit()
+    bom = client.get(f"/api/projects/{pid}/packages/water/bom", headers=headers).json()
+    assert bom["pendingReview"] == 0 and bom["count"] == 0
+
+
+# ------------------------------------------------------------- RFQ details
+def test_sent_rfq_reports_sent_at(project):
+    client, headers, pid = project
+    bom_id = make_confirmed_bom(client, headers, pid)
+    sids = run_supplier_search(client, headers, pid, bom_id)
+    rfq = generate_rfq(client, headers, pid, bom_id, sids[:1])
+    assert rfq["sentAt"] is None and rfq["time"] == "—"
+    sent = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers).json()
+    assert sent["sentAt"] and sent["time"] != "—"
+
+
+def test_rfq_intro_does_not_double_the_full_stop():
+    from app.services.rfq import generator
+
+    class Buyer:
+        name = "Jordan Mills"
+        company = "Meridian Civil Co."
+
+    assert generator._buyer_intro(Buyer()) == "My name is Jordan Mills with Meridian Civil Co."
+    Buyer.company = "Acme"
+    assert generator._buyer_intro(Buyer()) == "My name is Jordan Mills with Acme."

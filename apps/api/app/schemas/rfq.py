@@ -83,6 +83,8 @@ class PersistedRfq(Rfq):
     # "materials" (BOM quote request) or "subcontractor" (scope-of-work bid).
     kind: Literal["materials", "subcontractor"] = "materials"
     attachments: List[RfqAttachment] = []
+    # ISO timestamp of the (last) send; null for drafts.
+    sentAt: Optional[str] = None
 
 
 class ConversationMessage(BaseModel):

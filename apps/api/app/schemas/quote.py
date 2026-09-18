@@ -6,7 +6,11 @@ from pydantic import BaseModel
 class Quote(BaseModel):
     id: str
     sup: str
-    pkg: str
+    pkg: str  # display label
+    # Package key ("water", or a custom BOM / trade scope document id) — what
+    # the comparison + award routes take. Empty for the seeded demo quotes,
+    # whose label maps to a key server-side.
+    package: str = ""
     amount: str
     freight: str
     total: str
@@ -86,6 +90,16 @@ class AwardOption(BaseModel):
     selections: Dict[str, str] = {}  # lineName -> supplierId
 
 
+class LastAward(BaseModel):
+    """The most recent purchase decision for this package, when there is one."""
+
+    decidedAt: Optional[str] = None
+    decidedByEmail: str = ""
+    suppliers: List[str] = []
+    total: float = 0
+    poCount: int = 0
+
+
 class LineComparison(BaseModel):
     pkg: str
     package: str
@@ -94,6 +108,10 @@ class LineComparison(BaseModel):
     lines: List[LineCompareRow]
     options: List[AwardOption]
     recommendedOption: str = "mix"
+    # Set when the package was already awarded: the UI shows it and asks for
+    # an explicit re-award rather than re-issuing (and re-emailing) the POs
+    # on a stray click.
+    lastAward: Optional[LastAward] = None
 
 
 class AwardRequest(BaseModel):

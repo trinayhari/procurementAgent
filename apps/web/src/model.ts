@@ -94,7 +94,7 @@ interface DocInput {
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
   timelineEvents?: number; error?: string | null; fileMissing?: boolean; mocked?: boolean
 }
-interface QuoteInput { id?: string; sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
+interface QuoteInput { id?: string; sup: string; pkg: string; package?: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }
 interface ThreadInput { dir: string; who: string; initials: string; time: string; body: string; subject?: string; attach?: string; logoBg?: string }
 interface MilestoneInput { id?: number | null; name: string; date: string; status: string; desc: string; tone: string; done?: boolean; active?: boolean; conflict?: boolean }
@@ -271,7 +271,10 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     return { ...g, dotStyle: sx({ width: 8, height: 8, borderRadius: 2, background: fg, flex: 'none' }), countBadge: badge(g.tone, { fontSize: 11, padding: '1px 8px' }) }
   })
 
-  const quotes = ((D.quotes || []) as QuoteInput[]).map((q) => ({ ...q, onOpen: () => set({ compare: true, comparePkg: q.pkg }), logoStyle: lb(q.logoBg, 30) }))
+  // Compare by package KEY (a custom BOM / trade scope's key is its document
+  // id, which the label alone can't recover); the seeded demo quotes carry no
+  // key, and their label maps to one server-side.
+  const quotes = ((D.quotes || []) as QuoteInput[]).map((q) => ({ ...q, onOpen: () => set({ compare: true, comparePkg: q.package || q.pkg }), logoStyle: lb(q.logoBg, 30) }))
 
   const cmpSup = ((D.comparison && D.comparison.suppliers) || []).map((c) => ({ ...c, logoStyle: lb(c.logoBg, 40) }))
   const cmpRowsRaw: CmpRowInput[] = (D.comparison && D.comparison.rows) || []

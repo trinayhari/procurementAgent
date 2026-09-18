@@ -427,6 +427,12 @@ def _line_items_for_package(
 
     pending_review = 0
     for doc in documents_repo.list_for_project(db, org_id, project_id):
+        # Seed/demo documents (no plan type) have no BOM of their own — the
+        # repository hands back the shared demo groups for them, which made
+        # every seeded document count as "pending review" for every package
+        # ("confirm the extracted BOM on 12 documents first").
+        if not doc.get("planType"):
+            continue
         doc_items = _matching_items(
             documents_repo.get_line_items(db, org_id, doc.get("id", "")) or []
         )

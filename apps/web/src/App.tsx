@@ -2323,7 +2323,13 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 // Attachable project documents for the RFQ modal — anything with a stored file.
 type AttachableDoc = { id?: string; name: string; hasFile?: boolean; fileMissing?: boolean }
 
-function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void }) {
+function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
+  projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void
+  // Called with the persisted RFQ after a successful send, so the list
+  // behind the modal reflects the new status/subject immediately rather
+  // than only after the modal is closed (or never, if it was left open).
+  onChanged?: (rfq: PersistedRfq) => void
+}) {
   const [subject, setSubject] = useState(rfq.subject)
   const [body, setBody] = useState(rfq.body)
   const [recipients, setRecipients] = useState<RfqRecipient[]>(rfq.recipients || [])
@@ -2373,6 +2379,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
       setRecipients(out.recipients || [])
       setStatus(out.status)
       setAttachNames((out.attachments || []).map((a) => a.name))
+      if (onChanged) onChanged(out)
       loadConversation() // surface the just-sent message as the thread
     } catch (e) {
       // Backend reasons (already sent, no approved BOM items, …) come through
@@ -2581,7 +2588,11 @@ function TabRfqs({ m }: MProps) {
           </div>
         </div>
       </div>
-      {open && <RfqReviewModal projectId={projectId} rfq={open} docs={m.docs} onClose={() => { setOpen(null); load() }} />}
+      {open && (
+        <RfqReviewModal projectId={projectId} rfq={open} docs={m.docs}
+          onClose={() => { setOpen(null); load() }}
+          onChanged={(updated) => { setRfqs((rs) => (rs || []).map((r) => (r.id === updated.id ? updated : r))); m.reload() }} />
+      )}
     </div>
   )
 }
@@ -2621,10 +2632,13 @@ function TabQuotes({ m }: MProps) {
   }
 
   // Quotes are separated by utility type (package); each group compares on its own.
-  const groups: { pkg: string; rows: typeof m.quotes }[] = []
+  // Grouped by package key (falling back to the label for demo quotes that
+  // carry none); the compare link needs the key — see model.ts quotes.
+  const groups: { pkg: string; key: string; rows: typeof m.quotes }[] = []
   for (const q of m.quotes) {
-    let g = groups.find((x) => x.pkg === q.pkg)
-    if (!g) { g = { pkg: q.pkg, rows: [] }; groups.push(g) }
+    const key = q.package || q.pkg
+    let g = groups.find((x) => x.key === key)
+    if (!g) { g = { pkg: q.pkg, key, rows: [] }; groups.push(g) }
     g.rows.push(q)
   }
 
@@ -2651,7 +2665,7 @@ function TabQuotes({ m }: MProps) {
                 <span style={css('font-size:13.5px;font-weight:700;letter-spacing:-.01em')}>{g.pkg}</span>
                 <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-3);padding:2px 8px;border-radius:999px')}>{g.rows.length} {g.rows.length === 1 ? 'quote' : 'quotes'}</span>
               </div>
-              <Box as="button" onClick={() => m.comparePackage(g.pkg)} style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;background:var(--primary);color:#fff;font-size:12.5px;font-weight:600;white-space:nowrap')} hover="background:var(--primary-2)"><Svg size={14} d='M3 6h18M3 12h18M3 18h18' />Compare</Box>
+              <Box as="button" onClick={() => m.comparePackage(g.key)} style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;background:var(--primary);color:#fff;font-size:12.5px;font-weight:600;white-space:nowrap')} hover="background:var(--primary-2)"><Svg size={14} d='M3 6h18M3 12h18M3 18h18' />Compare</Box>
             </div>
             <div style={css('overflow-x:auto')}><div style={css('min-width:640px')}>
               <div style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase') }}><span>Supplier</span><span style={css('text-align:right')}>Quote</span><span style={css('text-align:right')}>Freight</span><span style={css('text-align:right')}>Total</span><span style={css('text-align:right')}>Lead</span><span style={css('text-align:right')}>Received</span></div>
@@ -2712,10 +2726,14 @@ function TabCompare({ m }: MProps) {
   // Set once this screen has awarded the package: the submit button then
   // stays off so a second click can't issue (and email) the same POs again.
   const [awarded, setAwarded] = useState(false)
+  // The package was already awarded (backend lastAward) — re-awarding
+  // re-issues POs and re-emails every supplier, so it takes an explicit
+  // "Re-award" step instead of the plain submit.
+  const [reawardArmed, setReawardArmed] = useState(false)
 
   useEffect(() => {
     let alive = true
-    setLoading(true); setErr(null); setMsg(null); setAwarded(false)
+    setLoading(true); setErr(null); setMsg(null); setAwarded(false); setReawardArmed(false)
     getLineComparison(m.projectId, m.comparePkg)
       .then((data) => {
         if (!alive) return
@@ -2871,7 +2889,16 @@ function TabCompare({ m }: MProps) {
             </div>
             {sum.savings > 0 && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>Saves {money(sum.savings)} vs. the best single supplier.</div>}
             {msg && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{msg}</div>}
-            <button onClick={busy || nothingSelected || awarded ? undefined : submit} disabled={busy || nothingSelected || awarded} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected || awarded ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : awarded ? 'Awarded' : nothingSelected ? 'Select at least one line' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            {lc.lastAward && !awarded && (
+              <div role="status" style={css('font-size:12px;color:var(--text-2);background:var(--warn-soft);border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:10px')}>
+                <b style={css('color:var(--warn)')}>Already awarded</b> to {lc.lastAward.suppliers.join(', ') || 'a supplier'}{lc.lastAward.decidedAt ? ` on ${new Date(lc.lastAward.decidedAt).toLocaleDateString()}` : ''} ({lc.lastAward.poCount} {lc.lastAward.poCount === 1 ? 'PO' : 'POs'}, {money(lc.lastAward.total)}). Re-awarding issues new POs and emails every supplier again.
+              </div>
+            )}
+            {lc.lastAward && !awarded && !reawardArmed ? (
+              <button onClick={() => setReawardArmed(true)} style={css('width:100%;height:38px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;font-weight:600')}>Re-award this package…</button>
+            ) : (
+            <button onClick={busy || nothingSelected || awarded ? undefined : submit} disabled={busy || nothingSelected || awarded} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected || awarded ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : awarded ? 'Awarded' : nothingSelected ? 'Select at least one line' : `${lc.lastAward ? 'Confirm re-award' : 'Submit award'} · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            )}
           </div>
         </div>
       </div>

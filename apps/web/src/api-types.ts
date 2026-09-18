@@ -1695,6 +1695,34 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /**
+         * LastAward
+         * @description The most recent purchase decision for this package, when there is one.
+         */
+        LastAward: {
+            /** Decidedat */
+            decidedAt?: string | null;
+            /**
+             * Decidedbyemail
+             * @default
+             */
+            decidedByEmail: string;
+            /**
+             * Suppliers
+             * @default []
+             */
+            suppliers: string[];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Pocount
+             * @default 0
+             */
+            poCount: number;
+        };
         /** Lender */
         Lender: {
             /** Id */
@@ -1809,6 +1837,7 @@ export interface components {
              * @default mix
              */
             recommendedOption: string;
+            lastAward?: components["schemas"]["LastAward"] | null;
         };
         /** LineItem */
         LineItem: {
@@ -2059,6 +2088,8 @@ export interface components {
              * @default []
              */
             attachments: components["schemas"]["RfqAttachment"][];
+            /** Sentat */
+            sentAt?: string | null;
         };
         /**
          * PlanType
@@ -2168,6 +2199,11 @@ export interface components {
             sup: string;
             /** Pkg */
             pkg: string;
+            /**
+             * Package
+             * @default
+             */
+            package: string;
             /** Amount */
             amount: string;
             /** Freight */

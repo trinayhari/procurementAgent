@@ -4567,6 +4567,47 @@
         "title": "InvitePreview",
         "description": "What the public accept screen shows before the invitee commits: which org\nthey're joining and at which email. `valid` is false for a revoked, accepted,\nexpired, or unknown token."
       },
+      "LastAward": {
+        "properties": {
+          "decidedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedat"
+          },
+          "decidedByEmail": {
+            "type": "string",
+            "title": "Decidedbyemail",
+            "default": ""
+          },
+          "suppliers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suppliers",
+            "default": []
+          },
+          "total": {
+            "type": "number",
+            "title": "Total",
+            "default": 0
+          },
+          "poCount": {
+            "type": "integer",
+            "title": "Pocount",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "LastAward",
+        "description": "The most recent purchase decision for this package, when there is one."
+      },
       "Lender": {
         "properties": {
           "id": {
@@ -4846,6 +4887,16 @@
             "type": "string",
             "title": "Recommendedoption",
             "default": "mix"
+          },
+          "lastAward": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastAward"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -5329,6 +5380,17 @@
             "type": "array",
             "title": "Attachments",
             "default": []
+          },
+          "sentAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentat"
           }
         },
         "type": "object",
@@ -5605,6 +5667,11 @@
           "pkg": {
             "type": "string",
             "title": "Pkg"
+          },
+          "package": {
+            "type": "string",
+            "title": "Package",
+            "default": ""
           },
           "amount": {
             "type": "string",
