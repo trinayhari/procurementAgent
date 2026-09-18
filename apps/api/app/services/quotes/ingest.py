@@ -8,7 +8,8 @@ sourcing/extraction fall back to mocks.
 """
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,41 @@ logger = logging.getLogger("procureai.quotes.ingest")
 
 # Rough per-package material baseline (USD) for the offline mock.
 _PKG_BASE = {"water": 490_000, "sewer": 215_000, "storm": 260_000, "erosion": 70_000}
+
+
+@dataclass
+class IngestOutcome:
+    """What one ingest pass did. `ingested` counts new comparable quotes;
+    `needs_review` counts replies stored without an amount; `superseded`
+    counts earlier revisions replaced by a newer reply."""
+
+    ingested: int = 0
+    total: int = 0
+    mocked: bool = False
+    needs_review: int = 0
+    superseded: int = 0
+    skipped: List[str] = field(default_factory=list)  # message ids skipped, for logs/tests
+
+    def __iter__(self):
+        # Backwards-compatible unpacking: (ingested, total, mocked).
+        return iter((self.ingested, self.total, self.mocked))
+
+
+def _outbound_message_ids(db: Session, org_id: str, project_id: str) -> Set[str]:
+    """Gmail ids of every message *we* sent for this project's RFQs — the RFQ
+    itself and any award/decline notice threaded on it. Needed because a
+    loop-back setup (supplier address == the workspace mailbox, as in a live
+    test) makes our own outbound match the `from:` query."""
+    ids: Set[str] = set()
+    for rfq in rfqs_repo.list_awaiting_rfqs(db, org_id, project_id):
+        for r in rfq.get("recipients", []):
+            mid = str(r.get("sentMessageId") or "")
+            if mid and not mid.startswith("error"):
+                ids.add(mid)
+            for extra in r.get("outboundMessageIds") or []:
+                if extra:
+                    ids.add(str(extra))
+    return ids
 
 
 def _recipient_index(db: Session, org_id: str, project_id: str) -> Dict[str, List[dict]]:
@@ -91,22 +127,32 @@ def _pair_count(index: Dict[str, List[dict]]) -> int:
     return sum(len(v) for v in index.values())
 
 
-def ingest_quotes(db: Session, org_id: str, project_id: str) -> Tuple[int, int, bool]:
-    """Return (ingested_count, total_recipients, mocked)."""
+def ingest_quotes(db: Session, org_id: str, project_id: str) -> IngestOutcome:
+    """Read supplier replies and store them as quotes. Unpacks as (ingested, total, mocked)."""
     index = _recipient_index(db, org_id, project_id)
     total = _pair_count(index)
     if total == 0:
-        return 0, 0, not (gmail_configured() and parser.is_configured())
+        return IngestOutcome(0, 0, not (gmail_configured() and parser.is_configured()))
 
     if gmail_configured():
         return _ingest_live(db, org_id, project_id, index)
-    return _ingest_mock(db, org_id, project_id, index), total, True
+    return IngestOutcome(_ingest_mock(db, org_id, project_id, index), total, True)
+
+
+def _has_amount(parsed: ParsedQuote) -> bool:
+    """A quote we can rank: a total, a material subtotal, or at least one priced line."""
+    if parsed.total is not None or parsed.material_cost is not None:
+        return True
+    return any(li.extended is not None or li.unit_price is not None for li in parsed.line_items)
 
 
 def _ingest_live(
     db: Session, org_id: str, project_id: str, index: Dict[str, List[dict]]
-) -> Tuple[int, int, bool]:
+) -> IngestOutcome:
+    # Idempotent re-runs: every Gmail message id we've stored a quote for is
+    # skipped, as is every message we sent ourselves.
     seen = quotes_repo.message_ids_for_project(db, org_id, project_id)
+    ours = _outbound_message_ids(db, org_id, project_id)
     try:
         messages = gmail_reader.fetch_replies(
             list(index.keys()), lookback_days=settings.quote_ingest_lookback_days
@@ -115,27 +161,53 @@ def _ingest_live(
         logger.warning("Gmail read unavailable: %s", exc)
         raise
 
-    ingested = 0
+    outcome = IngestOutcome(total=_pair_count(index), mocked=False)
     quoted_rfqs: set = set()
-    for msg in messages:
-        if msg.message_id in seen:
+    # Oldest first so a later revision from the same supplier supersedes the
+    # earlier one, never the other way round.
+    for msg in sorted(messages, key=lambda m: getattr(m, "date_ms", 0) or 0):
+        if msg.message_id in seen or msg.message_id in ours:
+            outcome.skipped.append(msg.message_id)
             continue
         meta = _match_rfq(index.get(msg.from_email) or [], msg)
         if meta is None:
+            outcome.skipped.append(msg.message_id)
             continue
         parsed = parser.parse_quote(msg.combined_text)
         if not parsed.is_quote:
+            logger.info("Reply %s from %s is not a quote; skipped", msg.message_id, msg.from_email)
+            outcome.skipped.append(msg.message_id)
             continue
         finalize_quote(parsed)
-        _persist(db, org_id, project_id, meta, parsed, source="gmail", message_id=msg.message_id, email=msg.from_email)
+        if _has_amount(parsed):
+            status = "received"
+        else:
+            # A real reply from a known supplier, but nothing priced in it (a
+            # scan we couldn't read, a "see attached" with no attachment…).
+            # Store it so the buyer sees it arrived, flagged for review; never
+            # rank it.
+            status = "needs_review"
+            note = "No amount found in this reply — open the conversation and review it."
+            parsed.notes = f"{parsed.notes}\n{note}".strip() if parsed.notes else note
+        created = _persist(
+            db, org_id, project_id, meta, parsed,
+            source="gmail", message_id=msg.message_id, email=msg.from_email, status=status,
+        )
+        outcome.superseded += quotes_repo.supersede_previous(
+            db, org_id, project_id, meta["package"], msg.from_email,
+            rfq_id=meta["rfq_id"], keep_id=created.get("id"),
+        )
         seen.add(msg.message_id)
-        ingested += 1
-        if meta["rfq_id"]:
-            quoted_rfqs.add(meta["rfq_id"])
+        if status == "received":
+            outcome.ingested += 1
+            if meta["rfq_id"]:
+                quoted_rfqs.add(meta["rfq_id"])
+        else:
+            outcome.needs_review += 1
 
     for rfq_id in quoted_rfqs:
         rfqs_repo.mark_rfq_quoted(db, org_id, rfq_id)
-    return ingested, _pair_count(index), False
+    return outcome
 
 
 def _ingest_mock(db: Session, org_id: str, project_id: str, index: Dict[str, List[dict]]) -> int:
@@ -155,7 +227,8 @@ def _ingest_mock(db: Session, org_id: str, project_id: str, index: Dict[str, Lis
     return ingested
 
 
-def _persist(db, org_id, project_id, meta, parsed, *, source, message_id, email=None) -> None:
+def _persist(db, org_id, project_id, meta, parsed, *, source, message_id, email=None,
+             status: str = "received") -> dict:
     # Normalize parsed lines into the shape the comparison engine reads
     # ({name, qty, unitPrice, extended, leadDays} — see line_comparison.py).
     line_items = [
@@ -169,7 +242,7 @@ def _persist(db, org_id, project_id, meta, parsed, *, source, message_id, email=
         for li in parsed.line_items
         if li.name
     ]
-    quotes_repo.create_quote(
+    return quotes_repo.create_quote(
         db,
         org_id,
         project_id=project_id,
@@ -189,7 +262,7 @@ def _persist(db, org_id, project_id, meta, parsed, *, source, message_id, email=
         notes=parsed.notes or "",
         source=source,
         source_message_id=message_id,
-        status="received",
+        status=status,
     )
 
 

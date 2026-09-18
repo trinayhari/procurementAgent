@@ -162,13 +162,23 @@ def notify_award(
         thread_id, in_reply_to, rfq_subject = _thread_ref(db, org_id, quote, sender)
         subj = f"Re: {rfq_subject}" if rfq_subject else subject
         try:
-            sender.send(email, subj, body, from_addr=from_addr, cc=cc,
-                        thread_id=thread_id, in_reply_to=in_reply_to)
+            sent = sender.send(email, subj, body, from_addr=from_addr, cc=cc,
+                               thread_id=thread_id, in_reply_to=in_reply_to)
         except Exception as exc:
             logger.warning("Award %s email to %s failed: %s", kind, email, exc)
             result["failed"].append({"supplier": supplier, "email": email, "kind": kind,
-                                     "error": str(exc)})
+                                     "error": str(exc) or exc.__class__.__name__})
             return
+        # Remember our own message id so quote ingest never reads this notice
+        # back as a supplier reply (it matches `from:` when the supplier address
+        # is the workspace mailbox, e.g. a loop-back test).
+        if quote.get("rfqId") and getattr(sent, "message_id", ""):
+            try:
+                rfqs_repo.record_outbound_message(
+                    db, org_id, quote["rfqId"], email, sent.message_id
+                )
+            except Exception:  # pragma: no cover - bookkeeping must not fail the award
+                logger.exception("Could not record outbound message id for %s", email)
         entry = {"supplier": supplier, "email": email, "threaded": bool(thread_id)}
         result["notified" if kind == "award" else "declined"].append(entry)
 
@@ -188,10 +198,12 @@ def notify_award(
         body = _winner_body(supplier, package_label, lines, subtotal, freight, total, lead, buyer)
         _send(quote, f"Purchase order — {package_label}", body, "award")
 
-    # Losers — suppliers who quoted this package but weren't selected.
+    # Losers — suppliers who quoted this package but weren't selected. One
+    # note per supplier (list_quotes already hides superseded revisions and
+    # amount-less replies, and by_sid collapses any remaining duplicates).
     if notify_declined:
-        for quote in quotes:
-            if _sid(quote) in winners:
+        for sid, quote in by_sid.items():
+            if sid in winners:
                 continue
             supplier = quote.get("supplierName") or quote.get("supplierEmail") or "Supplier"
             body = _decline_body(supplier, package_label, buyer)

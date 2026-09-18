@@ -7,6 +7,8 @@ Two routers with different gating:
   accepts by token, with no account yet. Accepting creates their user IN THE
   INVITING ORG and logs them in.
 """
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -89,24 +91,29 @@ def create_invite(
         raise HTTPException(status_code=409, detail="An invite for that email is already pending.")
 
     invite = invites_repo.create_invite(db, org_id, email, invited_by_user_id=current_user.id)
-    emailed = _email_invite(db, invite, current_user)
+    emailed, email_error = _email_invite(db, invite, current_user)
     audit_repo.log(
         db, org_id, current_user, "team.invited", "organization_invite", invite.id,
-        detail={"email": email, "emailed": emailed},
+        detail={"email": email, "emailed": emailed, "emailError": email_error},
     )
-    return _invite_payload(invite, emailed)
+    return _invite_payload(invite, emailed, email_error)
 
 
-def _email_invite(db: Session, invite, current_user: User) -> bool:
-    """Send the invitation email. Returns True only when a configured provider
-    accepted it. With no provider the send is a logging mock (nothing is
-    delivered) — and a provider failure must not fail the invite: the row
-    exists and the link can be resent or handed over directly."""
+def _email_invite(db: Session, invite, current_user: User):
+    """Send the invitation email. Returns (emailed, error).
+
+    `emailed` is True only when a configured provider accepted it. With no
+    provider the send is a logging mock (nothing is delivered). A provider
+    failure must not fail the invite — the row exists and the link can be
+    resent — but the reason is returned so the UI can show it instead of a
+    silent "not sent"."""
     org = organizations_repo.get_organization(db, invite.organization_id)
     org_name = org.name if org is not None else "your team"
     sender = rfq_sender.get_sender()
     if getattr(sender, "mocked", False):
-        return False
+        return False, None
+    # Same identity rules as an RFQ: the workspace mailbox, the inviter's name
+    # and company as the display name.
     try:
         sender.send(
             invite.email,
@@ -116,20 +123,21 @@ def _email_invite(db: Session, invite, current_user: User) -> bool:
                 f"{org_name} on Proq.\n\nAccept your invitation:\n{_accept_url(invite.token)}\n\n"
                 "This link expires in 7 days.\n\n— Proq"
             ),
-            from_addr=rfq_sender.sender_address(),
+            from_addr=rfq_sender.from_header(current_user),
         )
-        return True
-    except Exception:
-        return False
+        return True, None
+    except Exception as exc:
+        return False, (str(exc) or exc.__class__.__name__)
 
 
-def _invite_payload(invite, emailed: bool) -> dict:
+def _invite_payload(invite, emailed: bool, email_error: Optional[str] = None) -> dict:
     """The invite for the team UI. The accept link is exposed ONLY when no
     email provider is configured — the inviter has to pass it on by hand,
     and the UI would otherwise claim "sent" for a message nobody received.
     With real email configured the token stays private, as before."""
     payload = invite.to_dict()
     payload["emailed"] = emailed
+    payload["emailError"] = email_error
     if not rfq_sender.is_configured():
         payload["acceptUrl"] = _accept_url(invite.token)
     return payload
@@ -147,12 +155,12 @@ def resend_invite(
     invite = invites_repo.get_scoped(db, org_id, invite_id)
     if invite is None or invite.status != "pending":
         raise HTTPException(status_code=404, detail="Invite not found")
-    emailed = _email_invite(db, invite, current_user)
+    emailed, email_error = _email_invite(db, invite, current_user)
     audit_repo.log(
         db, org_id, current_user, "team.invite_resent", "organization_invite", invite.id,
-        detail={"email": invite.email, "emailed": emailed},
+        detail={"email": invite.email, "emailed": emailed, "emailError": email_error},
     )
-    return _invite_payload(invite, emailed)
+    return _invite_payload(invite, emailed, email_error)
 
 
 @router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)

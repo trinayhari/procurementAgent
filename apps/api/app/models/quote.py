@@ -86,6 +86,7 @@ class Quote(Base):
             "logo": _initials(self.supplier_name),
             "logoBg": self._logo_bg(),
             "best": best,
+            "status": self.status,
         }
 
     def to_dict(self) -> dict:

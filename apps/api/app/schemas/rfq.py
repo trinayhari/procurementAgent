@@ -57,6 +57,9 @@ class RfqRecipient(BaseModel):
     threadId: Optional[str] = None  # Gmail thread the send landed in (for conversation fetch)
     sendStatus: Optional[str] = None  # "sent" | "failed" | None (not yet attempted)
     sendError: Optional[str] = None  # human-readable failure reason when sendStatus="failed"
+    # Gmail ids of later messages we sent this recipient on the RFQ thread
+    # (award / decline notices); ingest skips them.
+    outboundMessageIds: List[str] = []
 
 
 class RfqLineItem(BaseModel):
@@ -105,6 +108,11 @@ class RfqConversation(BaseModel):
     status: RfqStatus
     statusTone: Tone
     gmail: bool  # True when messages came from a live Gmail thread
+    # Whether Gmail is configured at all (False → the thread is always local).
+    configured: bool = False
+    # When Gmail is configured but the live read failed, why — the thread
+    # below is then the locally stored copy, not the live conversation.
+    readError: Optional[str] = None
     thread: List[ConversationMessage]
 
 

@@ -19,6 +19,8 @@ class Quote(BaseModel):
     logo: str
     logoBg: str
     best: bool = False
+    # "received" | "selected" | "needs_review" (reply ingested, no amount found)
+    status: str = "received"
 
 
 class ComparisonSupplier(BaseModel):
@@ -123,6 +125,13 @@ class AwardRequest(BaseModel):
     supersede: bool = False
 
 
+class AwardNotifyFailure(BaseModel):
+    supplier: str
+    email: Optional[str] = None
+    kind: str = "award"  # "award" | "decline"
+    error: str
+
+
 class AwardResult(BaseModel):
     status: str
     message: str
@@ -132,6 +141,12 @@ class AwardResult(BaseModel):
     leadDays: Optional[int] = None
     suppliers: List[str]
     poCount: int
+    # Supplier notification outcome. The award itself is committed either way;
+    # a failed notice is reported here (and in `message`) rather than swallowed.
+    notified: int = 0
+    declined: int = 0
+    notifyFailed: List[AwardNotifyFailure] = []
+    notifyMocked: bool = False
 
 
 class SelectResult(BaseModel):
@@ -170,4 +185,9 @@ class QuoteIngestResult(BaseModel):
     mocked: bool = False
     ingested: int = 0
     total: int = 0
+    # Replies from known suppliers that were read but had no price in them —
+    # stored as needs-review quotes, not counted in `ingested`.
+    needsReview: int = 0
+    # Earlier revisions replaced by a newer reply from the same supplier.
+    superseded: int = 0
     error: Optional[str] = None

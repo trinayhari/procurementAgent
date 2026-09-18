@@ -448,6 +448,15 @@ def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payloa
     if n_awarded:
         notice = f" {n_awarded} supplier{'s' if n_awarded != 1 else ''} notified"
         notice += f", {n_declined} not selected." if n_declined else "."
+    if notify["failed"]:
+        who = "; ".join(
+            f"{f.get('supplier') or f.get('email') or 'supplier'} ({f.get('error')})"
+            for f in notify["failed"]
+        )
+        n_failed = len(notify["failed"])
+        notice += (
+            f" {n_failed} notification{'s' if n_failed != 1 else ''} could not be sent: {who}."
+        )
     message = (
         f"Awarded {pkg_label} for "
         f"${summary['total']:,.0f} — {n} {po_word} to {sup_list}." + notice
@@ -471,6 +480,10 @@ def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payloa
         "leadDays": summary["leadDays"],
         "suppliers": summary["suppliers"],
         "poCount": n,
+        "notified": n_awarded,
+        "declined": n_declined,
+        "notifyFailed": notify["failed"],
+        "notifyMocked": notify["mock"],
     }
 
 

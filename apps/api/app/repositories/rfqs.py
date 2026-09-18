@@ -100,6 +100,47 @@ def set_attachments(
     db.commit()
 
 
+def save_recipients(db: Session, org_id: str, rfq_id: str, recipients: List[dict]) -> None:
+    """Persist per-recipient send state mid-send, without touching the status.
+
+    Called after every recipient attempt so a crash halfway through a 10-supplier
+    send leaves an accurate record (who got it, who didn't) instead of a Draft
+    that would re-email the first half on retry."""
+    row = _get_row(db, org_id, rfq_id)
+    if row is None:
+        return
+    row.recipients = json.dumps(recipients)
+    db.commit()
+
+
+def record_outbound_message(
+    db: Session, org_id: str, rfq_id: str, email: str, message_id: str
+) -> None:
+    """Remember a Gmail message id *we* sent to this recipient after the RFQ
+    itself (award / decline notice). Quote ingest skips these ids so our own
+    mail is never parsed as a supplier reply (matters when the supplier
+    address is the workspace mailbox itself, e.g. a loop-back test)."""
+    if not message_id or not email:
+        return
+    row = _get_row(db, org_id, rfq_id)
+    if row is None:
+        return
+    recipients = json.loads(row.recipients or "[]")
+    email = email.strip().lower()
+    changed = False
+    for r in recipients:
+        if (r.get("email") or "").strip().lower() != email:
+            continue
+        ids = list(r.get("outboundMessageIds") or [])
+        if message_id not in ids:
+            ids.append(message_id)
+            r["outboundMessageIds"] = ids
+            changed = True
+    if changed:
+        row.recipients = json.dumps(recipients)
+        db.commit()
+
+
 def mark_rfq_sent(
     db: Session, org_id: str, rfq_id: str, recipients: List[dict], status: str = "Awaiting"
 ) -> Optional[dict]:

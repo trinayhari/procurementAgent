@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -51,12 +51,14 @@ class EmailConfig(BaseModel):
     false `fromAddress` is only a placeholder.
     """
 
-    configured: bool  # all three PROCUREAI_GMAIL_* OAuth vars present
+    configured: bool  # all four PROCUREAI_GMAIL_* vars present → real sends
     mocked: bool  # not configured → sends are logged, never delivered
     senderAddressSet: bool  # PROCUREAI_GMAIL_SENDER_ADDRESS is set
     fromAddress: str  # the workspace mailbox every email is sent from
     fromHeader: str  # how your outgoing mail's From: will read
     ccEmail: Optional[EmailStr] = None  # your Cc address, if set
+    # Which PROCUREAI_GMAIL_* variables are still unset (empty when configured).
+    missing: List[str] = []
 
 
 class TestEmailResult(BaseModel):

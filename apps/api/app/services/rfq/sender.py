@@ -13,6 +13,7 @@ Sender identity (important):
 import base64
 import logging
 import mimetypes
+import time
 import uuid
 from dataclasses import dataclass
 from email import encoders
@@ -38,9 +39,95 @@ _TOKEN_URI = "https://oauth2.googleapis.com/token"
 # reports `senderAddressSet: false` and the UI labels it as unconfigured.
 UNCONFIGURED_SENDER_ADDRESS = "rfq@procureai.local"
 
+# Total attachment budget per email. Gmail's nominal limit is 25 MB, but the
+# raw payload is base64 (~37% inflation) and large JSON `{"raw": ...}` sends via
+# the google-api-python-client are unreliable well below that — 15 MB of source
+# files keeps the encoded message comfortably inside. Enforced here (before any
+# Gmail call) as well as at RFQ save/send time in the route.
+MAX_ATTACHMENT_TOTAL_BYTES = 15 * 1024 * 1024
+
+# Gmail responses worth one more try: rate limiting and transient server errors.
+_RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+_RETRY_DELAYS_S = (1.0, 3.0)
+
 
 class GmailUnavailable(Exception):
-    """Raised when the Gmail API cannot be called (missing creds / deps / error)."""
+    """Raised when the Gmail API cannot be called (missing creds / deps / error).
+
+    The message is written for the person reading it in the UI (per-recipient
+    send status, the Settings test-email result, an award notice failure) —
+    see describe_gmail_error(). `retryable` says whether trying again later is
+    likely to help (rate limit / 5xx) as opposed to a broken configuration.
+    """
+
+    def __init__(self, message: str, *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+def _http_status(exc: Exception) -> Optional[int]:
+    """The HTTP status of a googleapiclient HttpError (or None)."""
+    resp = getattr(exc, "resp", None)
+    status = getattr(resp, "status", None)
+    if status is None:
+        status = getattr(exc, "status_code", None)
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def describe_gmail_error(exc: Exception, *, stage: str = "send") -> str:
+    """A one-line, human-readable reason for a failed Gmail call.
+
+    Raw google-auth / googleapiclient errors read like
+    `('invalid_grant: Token has been expired or revoked.', {'error': ...})` or
+    `<HttpError 429 when requesting ... returned "User-rate limit exceeded">`.
+    Neither tells a buyer what to do; the strings here do.
+    """
+    raw = str(exc) or exc.__class__.__name__
+    low = raw.lower()
+    if "invalid_grant" in low or "token has been expired" in low or "token has been revoked" in low:
+        return (
+            "Gmail connection expired or was revoked (invalid_grant) — re-mint the "
+            "refresh token (docs/email-setup.md, Step 3) and restart the backend."
+        )
+    if "invalid_client" in low or "unauthorized_client" in low:
+        return (
+            "Gmail OAuth client id/secret were rejected (invalid_client) — check "
+            "PROCUREAI_GMAIL_CLIENT_ID / PROCUREAI_GMAIL_CLIENT_SECRET."
+        )
+    if "invalid_scope" in low or "insufficient" in low and "scope" in low:
+        return (
+            "The Gmail token lacks the required scope — re-mint it with "
+            "scripts/mint_gmail_token.py (send + readonly)."
+        )
+    status = _http_status(exc)
+    if status == 429 or "rate limit" in low or "ratelimit" in low or "quota" in low:
+        return "Gmail is rate limiting this mailbox (HTTP 429) — wait a few minutes and retry."
+    if status is not None and status >= 500:
+        return f"Gmail is temporarily unavailable (HTTP {status}) — retry in a few minutes."
+    if status == 400 and ("recipient" in low or "invalid to header" in low or "address" in low):
+        return "Gmail rejected the recipient address — check the email and retry."
+    if status == 401 or status == 403:
+        return (
+            f"Gmail refused the request (HTTP {status}) — the connected account "
+            "may have revoked access; re-mint the token (docs/email-setup.md)."
+        )
+    if "name or service not known" in low or "connection" in low or "timed out" in low:
+        return "Could not reach Gmail (network error) — check connectivity and retry."
+    tail = raw.strip().replace("\n", " ")
+    if len(tail) > 200:
+        tail = tail[:197] + "..."
+    return f"Gmail {stage} failed: {tail}"
+
+
+def _retryable(exc: Exception) -> bool:
+    status = _http_status(exc)
+    if status in _RETRYABLE_HTTP:
+        return True
+    low = str(exc).lower()
+    return "rate limit" in low or "ratelimit" in low or "backend error" in low
 
 
 @dataclass
@@ -209,7 +296,15 @@ class MockSender:
 class GmailSender:
     mocked = False
 
+    def __init__(self):
+        # One token refresh per sender instance (an RFQ send to N suppliers used
+        # to refresh the token N times — and hit the token endpoint N times when
+        # the refresh token was dead).
+        self._svc = None
+
     def _service(self):
+        if self._svc is not None:
+            return self._svc
         try:
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
@@ -229,8 +324,11 @@ class GmailSender:
 
             creds.refresh(Request())
         except Exception as exc:
-            raise GmailUnavailable(f"Gmail token refresh failed: {exc}") from exc
-        return build("gmail", "v1", credentials=creds, cache_discovery=False)
+            raise GmailUnavailable(
+                describe_gmail_error(exc, stage="token refresh"), retryable=_retryable(exc)
+            ) from exc
+        self._svc = build("gmail", "v1", credentials=creds, cache_discovery=False)
+        return self._svc
 
     def send(
         self,
@@ -244,6 +342,21 @@ class GmailSender:
         in_reply_to: Optional[str] = None,
         attachments: Optional[List[EmailAttachment]] = None,
     ) -> SentMessage:
+        # Fail fast, before touching Gmail, on things Gmail would reject (or
+        # accept and deliver as a blank email).
+        if "@" not in _addr_only(to):
+            raise GmailUnavailable(f"No valid recipient address: {to!r}")
+        if not (subject or "").strip():
+            raise GmailUnavailable("Email subject is empty — nothing was sent.")
+        if not (body or "").strip():
+            raise GmailUnavailable("Email body is empty — nothing was sent.")
+        total_bytes = sum(len(a.content) for a in (attachments or []))
+        if total_bytes > MAX_ATTACHMENT_TOTAL_BYTES:
+            limit_mb = MAX_ATTACHMENT_TOTAL_BYTES // (1024 * 1024)
+            raise GmailUnavailable(
+                f"Attachments total {total_bytes / (1024 * 1024):.1f} MB — over the "
+                f"{limit_mb} MB email limit; remove some files."
+            )
         service = self._service()
         # Gmail delivers to every address in the headers, so a Cc: header is all
         # that's needed to copy the buyer.
@@ -254,32 +367,69 @@ class GmailSender:
         message: dict = {"raw": raw}
         if thread_id:
             message["threadId"] = thread_id
-        try:
-            sent = (
-                service.users()
-                .messages()
-                .send(userId="me", body=message)
-                .execute()
-            )
-        except Exception as exc:
-            raise GmailUnavailable(f"Gmail send failed: {exc}") from exc
+        sent = self._execute_send(service, message)
         return SentMessage(
             message_id=sent.get("id", ""),
             thread_id=sent.get("threadId", "") or sent.get("id", ""),
         )
 
+    def _execute_send(self, service, message: dict) -> dict:
+        """messages.send with a short retry on rate limits / 5xx."""
+        attempt = 0
+        while True:
+            try:
+                return (
+                    service.users()
+                    .messages()
+                    .send(userId="me", body=message)
+                    .execute()
+                )
+            except Exception as exc:
+                if _retryable(exc) and attempt < len(_RETRY_DELAYS_S):
+                    delay = _RETRY_DELAYS_S[attempt]
+                    attempt += 1
+                    logger.warning(
+                        "Gmail send attempt %d failed (%s); retrying in %.0fs",
+                        attempt, exc, delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise GmailUnavailable(
+                    describe_gmail_error(exc), retryable=_retryable(exc)
+                ) from exc
+
+
+# The four env vars that together make real delivery possible.
+_REQUIRED_VARS = (
+    ("PROCUREAI_GMAIL_CLIENT_ID", "gmail_client_id"),
+    ("PROCUREAI_GMAIL_CLIENT_SECRET", "gmail_client_secret"),
+    ("PROCUREAI_GMAIL_REFRESH_TOKEN", "gmail_refresh_token"),
+    ("PROCUREAI_GMAIL_SENDER_ADDRESS", "gmail_sender_address"),
+)
+
+
+def missing_config() -> List[str]:
+    """Names of the PROCUREAI_GMAIL_* variables that are unset (empty → all set)."""
+    return [
+        env for env, attr in _REQUIRED_VARS
+        if not (getattr(settings, attr, "") or "").strip()
+    ]
+
 
 def is_configured() -> bool:
-    """True when the three PROCUREAI_GMAIL_* OAuth vars are all set (real sends).
+    """True when all four PROCUREAI_GMAIL_* vars are set (real sends possible).
+
+    The three OAuth vars are what Gmail needs; the sender address is required
+    too because without it every message would carry the placeholder
+    UNCONFIGURED_SENDER_ADDRESS as `From:` — Gmail rewrites that to the
+    connected account, so mail *would* go out, but the app could not say from
+    where, and email_config() would be lying either way. Missing any of the
+    four → MockSender (logged, not delivered) and the UI says so.
 
     Reads app.config.settings, which loads apps/api/.env and is overridden by real
     environment variables (Railway/Render service vars). See docs/email-setup.md.
     """
-    return bool(
-        settings.gmail_refresh_token
-        and settings.gmail_client_id
-        and settings.gmail_client_secret
-    )
+    return not missing_config()
 
 
 def get_sender() -> EmailSender:
@@ -298,7 +448,7 @@ def sender_address() -> str:
     email_config()["senderAddressSet"] so a placeholder is never displayed as if
     it were live.
     """
-    return settings.gmail_sender_address or UNCONFIGURED_SENDER_ADDRESS
+    return (settings.gmail_sender_address or "").strip() or UNCONFIGURED_SENDER_ADDRESS
 
 
 def display_name(user) -> str:
@@ -347,10 +497,14 @@ def email_config() -> dict:
     Surfaced by GET /api/auth/email-config so the UI can say "not configured"
     instead of showing the placeholder From address as if mail were going out.
     """
-    configured = is_configured()
+    missing = missing_config()
+    configured = not missing
     return {
         "configured": configured,
         "mocked": not configured,
-        "senderAddressSet": bool(settings.gmail_sender_address),
+        "senderAddressSet": bool((settings.gmail_sender_address or "").strip()),
         "fromAddress": sender_address(),
+        # Which PROCUREAI_GMAIL_* variables are still unset — so Settings can
+        # name the actual gap instead of a generic "not configured".
+        "missing": missing,
     }

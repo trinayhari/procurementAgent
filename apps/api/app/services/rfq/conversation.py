@@ -51,14 +51,26 @@ def _money(v) -> str:
 
 
 def build_conversation(db: Session, org_id: str, rfq: dict) -> dict:
-    """Return {status, statusTone, gmail, thread} for an RFQ dict (rfqs_repo shape)."""
-    if gmail_configured():
-        emails = _gather_gmail(rfq)
+    """Return {status, statusTone, gmail, configured, readError, thread} for an
+    RFQ dict (rfqs_repo shape).
+
+    `gmail` is True only when the thread below came from a live Gmail read.
+    When it is False the thread is the locally stored copy (the sent RFQ plus
+    any ingested quotes) and `readError` says why the live read didn't happen,
+    if it was attempted and failed — so the UI never presents stale local data
+    as if it were the live conversation.
+    """
+    configured = gmail_configured()
+    read_error: Optional[str] = None
+    if configured:
+        emails, read_error = _gather_gmail(rfq)
         if emails:
             return {
                 "status": rfq["status"],
                 "statusTone": rfq["statusTone"],
                 "gmail": True,
+                "configured": True,
+                "readError": None,
                 "thread": _emails_to_thread(emails, _known_sender_addrs(db, org_id)),
             }
 
@@ -66,36 +78,49 @@ def build_conversation(db: Session, org_id: str, rfq: dict) -> dict:
         "status": rfq["status"],
         "statusTone": rfq["statusTone"],
         "gmail": False,
+        "configured": configured,
+        "readError": read_error,
         "thread": _fallback_thread(db, org_id, rfq),
     }
 
 
-def _gather_gmail(rfq: dict) -> Optional[List[gmail_reader.ThreadEmail]]:
+def _gather_gmail(rfq: dict):
     """Every message in this RFQ's Gmail thread(s), deduped + oldest-first.
 
     Reads only the thread our outbound landed in, so threaded supplier replies
     show up while separate-thread automatic replies stay out of scope.
 
-    Returns None on a Gmail error (caller falls back), [] if nothing was found.
+    Returns (emails, error): `error` is a readable reason when Gmail could not
+    be read (the caller then falls back to the stored copy and says so);
+    `emails` is [] when nothing was found.
     """
     emails: List[gmail_reader.ThreadEmail] = []
     seen = set()
-    try:
-        for r in rfq.get("recipients", []):
-            thread_id = r.get("threadId")
-            if not thread_id:
+    thread_ids: List[str] = []
+    for r in rfq.get("recipients", []):
+        thread_id = r.get("threadId")
+        if not thread_id:
+            try:
                 thread_id = gmail_reader.resolve_thread_id(r.get("sentMessageId") or "")
-            if not thread_id:
-                continue
+            except gmail_reader.GmailReadUnavailable as exc:
+                return [], str(exc)
+        if thread_id and thread_id not in thread_ids and not str(thread_id).startswith("mock"):
+            thread_ids.append(thread_id)
+    if not thread_ids:
+        # Nothing was ever sent through Gmail for this RFQ (mock sends, or a
+        # draft) — not an error, just nothing live to show.
+        return [], None
+    try:
+        for thread_id in thread_ids:
             for e in gmail_reader.fetch_thread(thread_id):
                 if e.message_id not in seen:
                     seen.add(e.message_id)
                     emails.append(e)
     except gmail_reader.GmailReadUnavailable as exc:
         logger.warning("Gmail conversation fetch failed: %s", exc)
-        return None
+        return [], str(exc)
     emails.sort(key=lambda e: e.date_ms)
-    return emails
+    return emails, None
 
 
 def _known_sender_addrs(db: Session, org_id: str) -> set:
@@ -107,19 +132,22 @@ def _known_sender_addrs(db: Session, org_id: str) -> set:
     before that address became a Cc, so old threads carry them — and a user's Cc
     address appears as the sender if they reply into the thread themselves."""
     addrs = {sender_address().lower()}
-    for (cc,) in db.execute(
-        select(User.cc_email).where(
-            User.organization_id == org_id, User.cc_email.is_not(None)
-        )
+    for email, cc in db.execute(
+        select(User.email, User.cc_email).where(User.organization_id == org_id)
     ):
-        addrs.add(cc.lower())
+        # Members' login addresses too: a teammate who answers the supplier
+        # from their own mailbox (Cc'd on the RFQ) is still "us".
+        if email:
+            addrs.add(email.strip().lower())
+        if cc:
+            addrs.add(cc.strip().lower())
     return addrs
 
 
 def _emails_to_thread(emails: List[gmail_reader.ThreadEmail], our_addrs: set) -> List[dict]:
     thread: List[dict] = []
     for i, e in enumerate(emails):
-        is_out = e.from_email in our_addrs
+        is_out = (e.from_email or "").lower() in our_addrs
         who = "You · Proq" if is_out else (e.from_name or e.from_email)
         thread.append({
             "dir": "out" if is_out else "in",
