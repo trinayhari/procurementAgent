@@ -217,11 +217,10 @@ describe('RFQ modal', () => {
     const modal = screen.getByText(/Delivery failed/).closest('[style*="position: relative"]') as HTMLElement
     expect(within(modal).getByText('Sent')).toBeTruthy()
     expect(within(modal).getByText('Failed')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Retry send \(1\)/ }))
-    // Two-step: the confirm names the unsent count, then retries.
-    const bar = await screen.findByRole('alertdialog')
-    expect(bar.textContent).toContain('1 supplier')
-    fireEvent.click(within(bar).getByRole('button', { name: 'Retry now' }))
+    // Single step: the retry button names the unsent count and re-attempts
+    // only those recipients (the footer says so) — no second confirm.
+    expect(screen.getByText(/1 recipient still unsent — retry only re-attempts those/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Retry send to 1 supplier/ }))
     await waitFor(() => expect(sends).toHaveLength(1))
     // Modal badge and the list row behind it both pick up the new status.
     await waitFor(() => expect(screen.getAllByText('Awaiting').length).toBeGreaterThan(0))
@@ -259,7 +258,7 @@ describe('RFQ modal', () => {
 
     // Drop the only recipient: Send is disabled and the footer says why.
     fireEvent.click(screen.getByTitle('Remove recipient'))
-    const send = screen.getByRole('button', { name: /Send RFQ \(0\)/ }) as HTMLButtonElement
+    const send = screen.getByRole('button', { name: /Send to 0 suppliers/ }) as HTMLButtonElement
     expect(send.disabled).toBe(true)
     expect(screen.getByText(/Add at least one supplier with an email address/)).toBeTruthy()
     expect(screen.getByText('Nothing can be sent without a recipient.')).toBeTruthy()

@@ -11,7 +11,7 @@ const USER = { id: 'u-pm', email: 'pm@acmebuild.com', name: 'PM', company: 'Acme
 const PROJECT = {
   id: 'p-1', name: 'Riverside Yard', loc: 'Austin, TX', stage: 'Plans Review',
   stageTone: 'gray', value: '$1.0M', progress: 0, suppliers: 0, rfqs: 0, quotes: 0,
-  risk: 'Low', riskTone: 'success', barColor: 'var(--primary)',
+  barColor: 'var(--primary)',
 }
 
 // Two quotes for a custom BOM whose package key is its document id.
@@ -193,8 +193,8 @@ describe('RFQ modal status', () => {
     await openProject()
     fireEvent.click(screen.getByRole('button', { name: /^RFQs$/ }))
     fireEvent.click(await screen.findByText(DRAFT_RFQ.subject))
-    fireEvent.click(await screen.findByRole('button', { name: /Send RFQ/ }))
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Send now' }))
+    // Single step: the review modal's primary button is the send.
+    fireEvent.click(await screen.findByRole('button', { name: /Send to 1 supplier/ }))
     await waitFor(() => expect(rfqs[0]).toMatchObject({ status: 'Awaiting' }))
     await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/conversation')).length).toBeGreaterThan(0))
     await new Promise((r) => setTimeout(r, 50))
@@ -209,8 +209,8 @@ describe('RFQs tab', () => {
     await openProject()
     fireEvent.click(screen.getByRole('button', { name: /^RFQs$/ }))
     fireEvent.click(await screen.findByText(DRAFT_RFQ.subject))
-    fireEvent.click(await screen.findByRole('button', { name: /Send RFQ/ }))
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Send now' }))
+    // Single step: the review modal's primary button is the send.
+    fireEvent.click(await screen.findByRole('button', { name: /Send to 1 supplier/ }))
     // The modal is still open; the list behind it already shows the new status.
     await waitFor(() => expect(screen.getAllByText('Awaiting').length).toBeGreaterThan(0))
     expect(screen.queryByText('Draft')).toBeNull()

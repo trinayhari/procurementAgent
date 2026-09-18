@@ -6,9 +6,12 @@ from app.schemas.common import Tone
 
 
 class Metric(BaseModel):
+    """A dashboard KPI tile. Computed from real rows (services/metrics.py);
+    `delta` is empty unless a period-over-period figure can be derived."""
+
     label: str
     value: str
-    delta: str
+    delta: str = ""
     sub: str = ""
     up: bool = False
     down: bool = False

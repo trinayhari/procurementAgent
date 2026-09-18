@@ -7,9 +7,11 @@ AI-native procurement OS for construction — frontend implemented from the
 ## Stack
 
 - **Frontend:** React 18 + Vite + **TypeScript**. Styling is plain CSS variables
-  (light/dark + accent themes) plus inline styles, ported verbatim from the design
-  prototype. The API client is **type-safe end-to-end**: TS types are generated
-  from the backend's OpenAPI schema (see [Type generation](#type-generation)).
+  (a single light theme; `[data-accent]` overrides exist in the CSS but the app
+  is pinned to the blue accent — there is no theme or accent toggle) plus inline
+  styles, ported from the design prototype. The API client is **type-safe
+  end-to-end**: TS types are generated from the backend's OpenAPI schema (see
+  [Type generation](#type-generation)).
 - **Backend:** FastAPI + Pydantic v2 (Python 3.8+) serving a REST/JSON API. See
   [`apps/api/README.md`](apps/api/README.md).
 
@@ -81,9 +83,9 @@ Workspaces live under `apps/`; the repo root holds only shared config
 
 | File | Purpose |
 | --- | --- |
-| `apps/web/src/index.css` | Design tokens (`:root`, `[data-theme=dark]`, accents) and base styles. |
+| `apps/web/src/index.css` | Design tokens (`:root` light theme, `[data-accent]` variants) and base styles. |
 | `apps/web/src/lib.tsx` | `css()` string→style helper, `Box` (hover-aware element), icon map, badge/chip/bar/logo style helpers. |
-| `apps/web/src/model.ts` | `buildModel(state, set, props)` — mirrors the prototype's `renderVals()`, producing all computed data and styles each render. Prefers `props.data` (from the API), falling back to baked-in literals. Exports the `State`, `ModelProps`, and `Model` types. |
+| `apps/web/src/model.ts` | `buildModel(state, set, props)` — mirrors the prototype's `renderVals()`, producing all computed data and styles each render from `props.data` (the API bundle); an absent key renders its empty state, never placeholder data. Exports the `State`, `ModelProps`, and `Model` types. |
 | `apps/web/src/api.ts` | Backend client — `loadModelData()` fetches and reshapes the API payload into the keys `buildModel` consumes. Typed against `apps/web/src/api-types.ts`. |
 | `apps/web/src/api-types.ts` | **Generated** from the backend OpenAPI schema (`npm run gen:api`). Do not edit by hand. |
 | `apps/api/` | FastAPI REST API (see its own README). Serves the same data as pure JSON. |
@@ -91,13 +93,18 @@ Workspaces live under `apps/`; the repo root holds only shared config
 
 ## Screens
 
-- **Dashboard** — portfolio metrics, project overview table, recent activity.
+- **Dashboard** — KPI tiles computed from the organization's own data (active
+  projects, RFQs out, quotes received, spend committed, savings once a package
+  is awarded), project overview table, recent activity.
 - **Projects / Suppliers / Settings** — top-level sections.
 - **Project workspace** (open any project) — tabbed:
-  Overview · Documents (AI-extracted materials + subcontractor trade scopes) ·
-  Suppliers · RFQs (email thread view; material RFQs and subcontractor bid
-  requests) · Quotes table · **Quote Comparison** (flagship, with AI
-  recommendation) · Timeline (gantt + milestones).
+  Overview (real-data checklist, document/RFQ/quote counts and per-package
+  progress computed from the project's own rows) · Documents (AI-extracted
+  materials + subcontractor trade scopes) · Suppliers · RFQs (email thread
+  view; material RFQs and subcontractor bid requests, sent in one step from the
+  review modal) · Quotes table (awarded packages badged) · **Quote Comparison**
+  (flagship: line-by-line grid, mix-and-match award strategies, an optional
+  per-package budget set inline) · Timeline (gantt + milestones).
 
-State (active tab, selected document/RFQ, theme, supplier drawer, mobile nav)
-lives in `App`'s `useState` and flows through `buildModel`.
+State (active tab, selected document/RFQ, supplier drawer, mobile nav) lives in
+`App`'s `useState` and flows through `buildModel`.
