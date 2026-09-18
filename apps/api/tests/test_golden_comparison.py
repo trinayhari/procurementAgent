@@ -41,16 +41,34 @@ GOLDEN = [
         "$10,000",
     ),
     (
-        "KNOWN WEAKNESS: 1% cheaper beats 25 days faster (min-max is scale-blind)",
-        # Min-max normalisation makes the cheapest quote cost 0.0 and the dearest
-        # 1.0 whatever the gap, so with two quotes cost's 0.6 weight ALWAYS beats
-        # lead's 0.3 + risk's 0.1 — a $1 saving outranks a month of lead time.
-        # Pinned so a fix (e.g. normalise on relative spread) is a deliberate,
-        # visible change; see the eval report's recommendations.
+        "25 days faster beats 1% cheaper (deltas are measured, not min-maxed)",
+        # Min-max normalisation used to make the cheapest quote cost 0.0 and the
+        # dearest 1.0 whatever the gap, so with two quotes cost's 0.6 weight
+        # ALWAYS beat lead's 0.3 + risk's 0.1 — a $1 saving outranked a month
+        # of lead time. Penalties are now relative (% over the cheapest, days
+        # behind the fastest), so a 1% premium is a small cost and 25 days a
+        # large one. (Savings is measured off the recommended quote: Beta IS
+        # the highest bid here, hence $0.)
         [_quote("Alpha", 99_000, 35), _quote("Beta", 100_000, 10)],
+        "Beta",
+        ["Fastest lead time at 10 days", "Lowest delivery risk (score 90)"],
+        "$0",
+    ),
+    (
+        "a clearly cheaper quote still wins over a slightly faster one",
+        # 8% dearer for 3 days sooner is not worth it.
+        [_quote("Alpha", 100_000, 17), _quote("Beta", 108_000, 14)],
         "Alpha",
         ["Lowest total bid"],
-        "$1,000",
+        "$8,000",
+    ),
+    (
+        "a trivial lead-time edge does not overturn a real price gap",
+        # Beta is 1 day faster (under the 2-day floor) and 3% dearer.
+        [_quote("Alpha", 100_000, 15), _quote("Beta", 103_000, 14)],
+        "Alpha",
+        ["Lowest total bid"],
+        "$3,000",
     ),
     (
         "a quote with no total is never recommended over a complete one",
@@ -112,3 +130,36 @@ def test_single_quote_has_no_savings_claim(monkeypatch):
     assert out["recommendation"] == "Alpha"
     assert out["savings"] == "—"
     assert out["savingsNote"] == "Awaiting more quotes to compute savings"
+
+
+def test_recommendation_is_scale_independent(monkeypatch):
+    """The same relative trade-off must resolve the same way at $10K and $10M:
+    the score reads a price premium as a fraction of the cheapest total, not as
+    a position on a min-max range."""
+    for scale in (1, 1_000, 1_000_000):
+        out = _run(monkeypatch, [
+            _quote("Alpha", 99 * scale, 35), _quote("Beta", 100 * scale, 10),
+        ])
+        assert out["recommendation"] == "Beta", scale
+        out = _run(monkeypatch, [
+            _quote("Alpha", 90 * scale, 35), _quote("Beta", 100 * scale, 10),
+        ])
+        assert out["recommendation"] == "Alpha", scale  # 10% is worth 25 days
+
+
+def test_one_dollar_cheaper_does_not_beat_a_month_faster(monkeypatch):
+    out = _run(monkeypatch, [_quote("Alpha", 99_999, 40), _quote("Beta", 100_000, 10)])
+    assert out["recommendation"] == "Beta"
+    # …but with equal lead times the $1 still breaks the tie the cheap way.
+    out = _run(monkeypatch, [_quote("Alpha", 99_999, 10), _quote("Beta", 100_000, 10)])
+    assert out["recommendation"] == "Alpha"
+
+
+def test_penalty_floors_and_missing_values():
+    pen = comparison._relative_penalties([100.0, 100.4, 110.0, None], 0.10, 0.005, relative=True)
+    assert pen[0] == 0.0 and pen[1] == 0.0  # within the 0.5% floor
+    assert abs(pen[2] - 0.95) < 1e-9  # (10% − 0.5%) / 10%
+    assert pen[3] == pen[2] + 1.0  # missing is always worse than every present value
+    lead = comparison._relative_penalties([10.0, 12.0, 40.0], 30.0, 2.0, relative=False)
+    assert lead == [0.0, 0.0, 28.0 / 30.0]
+    assert comparison._relative_penalties([None, None], 1.0, 0.0, relative=False) == [0.0, 0.0]

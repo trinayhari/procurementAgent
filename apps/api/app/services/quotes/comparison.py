@@ -17,6 +17,19 @@ _W_COST = 0.6
 _W_LEAD = 0.3
 _W_RISK = 0.1
 
+# Cost and lead deltas are measured against the best quote in units a buyer
+# would recognise, NOT min-max normalised: min-max makes the dearest quote
+# score 1.0 whatever the gap, so with two quotes cost's 0.6 weight always beat
+# lead's 0.3 — a $1 saving outranked a month of lead time. Now a price premium
+# is a fraction of the cheapest total and a lead delta is days behind the
+# fastest, each scaled so that PRICE_SCALE (10% dearer) and LEAD_SCALE (30
+# days slower) are "one unit" of penalty. Deltas under the floors are treated
+# as zero so a trivial difference can never decide an award.
+_PRICE_SCALE = 0.10  # +10% over the cheapest total = 1.0 penalty unit
+_PRICE_FLOOR = 0.005  # ≤0.5% dearer counts as "same price"
+_LEAD_SCALE = 30.0  # 30 days behind the fastest = 1.0 penalty unit
+_LEAD_FLOOR = 2.0  # ≤2 days slower counts as "same lead time"
+
 
 def _money(v: Optional[float]) -> str:
     return f"${v:,.0f}" if v is not None else "—"
@@ -57,11 +70,32 @@ def _best_min(vals: List[Optional[float]]) -> int:
     return best_i
 
 
-def _norm(v: Optional[float], lo: float, hi: float) -> float:
-    """0 (best) .. 1 (worst), lower-is-better. Null → worst (1.0)."""
-    if v is None or hi <= lo:
-        return 1.0 if v is None else 0.0
-    return (v - lo) / (hi - lo)
+def _relative_penalties(
+    vals: List[Optional[float]], scale: float, floor: float, relative: bool
+) -> List[float]:
+    """Penalty per value: how far it sits behind the best, in `scale` units.
+
+    `relative=True` measures the delta as a fraction of the best (prices);
+    `relative=False` measures it in absolute units (days). Deltas within
+    `floor` count as zero. A missing value is always worse than every present
+    one (one full unit beyond the worst), so an incomplete quote can never be
+    recommended over a complete one on that axis.
+    """
+    present = [v for v in vals if v is not None]
+    if not present:
+        return [0.0 for _ in vals]
+    best = min(present)
+    out: List[Optional[float]] = []
+    for v in vals:
+        if v is None:
+            out.append(None)
+            continue
+        delta = v - best
+        if relative:
+            delta = delta / best if best > 0 else 0.0
+        out.append(max(0.0, delta - floor) / scale)
+    worst = max(x for x in out if x is not None)
+    return [x if x is not None else worst + 1.0 for x in out]
 
 
 def build_comparison(
@@ -79,17 +113,12 @@ def build_comparison(
     risks = [_risk_score(q) for q in quotes]
 
     # --- recommendation: weighted blend (lower total/lead better, higher risk better)
-    valid_totals = [t for t in totals if t is not None]
-    valid_leads = [l for l in leads if l is not None]
-    t_lo, t_hi = (min(valid_totals), max(valid_totals)) if valid_totals else (0, 0)
-    l_lo, l_hi = (min(valid_leads), max(valid_leads)) if valid_leads else (0, 0)
-
+    cost_pen = _relative_penalties(totals, _PRICE_SCALE, _PRICE_FLOOR, relative=True)
+    lead_pen = _relative_penalties(leads, _LEAD_SCALE, _LEAD_FLOOR, relative=False)
     scores = []
     for i in range(len(quotes)):
-        cost = _norm(totals[i], t_lo, t_hi)
-        lead = _norm(leads[i], l_lo, l_hi)
         risk = 1.0 - (risks[i] / 100.0)
-        scores.append(_W_COST * cost + _W_LEAD * lead + _W_RISK * risk)
+        scores.append(_W_COST * cost_pen[i] + _W_LEAD * lead_pen[i] + _W_RISK * risk)
     rec_idx = scores.index(min(scores)) if scores else 0
 
     suppliers = [
