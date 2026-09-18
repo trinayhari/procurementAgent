@@ -77,6 +77,7 @@ class Quote(Base):
             "id": self.id,
             "sup": self.supplier_name or "Unknown supplier",
             "pkg": self.package_label or self.package,
+            "package": self.package,
             "amount": _money(self.material_cost),
             "freight": _money(self.freight),
             "total": _money(self.total),

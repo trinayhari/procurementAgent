@@ -18,6 +18,10 @@ apps/api/procureai.db
 
 # uploaded plan sets
 apps/api/uploads/
+
+# eval bench corpus PDFs — large, and some sources are local-use-only.
+# The manifest, ground truth, and variants ARE committed (docs/eval-harness.md).
+bench-corpus/docs/
 .vercel
 
 # Claude Code session data & agent worktrees

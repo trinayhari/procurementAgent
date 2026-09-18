@@ -3,8 +3,9 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core import locks
 from app.core.security import get_current_user
-from app.db import get_db
+from app.db import DEMO_ORG_ID, get_db
 from app.models.user import User
 from app.repositories import audit as audit_repo
 from app.repositories import documents as documents_repo
@@ -30,6 +31,7 @@ from app.schemas.quote import (
     AwardResult,
     Comparison,
     LineComparison,
+    PurchaseDecision,
     Quote,
 )
 from app.schemas.rfq import Rfq, RfqFolder
@@ -107,10 +109,13 @@ def get_project(
 ):
     org_id = current_user.organization_id
     project = _require_project(org_id, project_id, db)
+    demo = _is_demo_org(org_id)
     return {
         **project,
-        "overviewCards": reference_repo.list_overview_cards(db),
-        "packages": reference_repo.list_packages(db),
+        # Overview cards / package progress are seeded prototype literals —
+        # demo org only (they were identical for every project of every tenant).
+        "overviewCards": reference_repo.list_overview_cards(db) if demo else [],
+        "packages": reference_repo.list_packages(db) if demo else [],
         "activity": events_repo.list_for_project(db, org_id, project_id),
     }
 
@@ -138,8 +143,11 @@ def list_line_items(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _require_project(current_user.organization_id, project_id, db)
-    return reference_repo.list_line_item_groups(db)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    # The project-wide seed BOM is prototype material for the demo org only;
+    # a real tenant's project has no "project-wide" items outside its documents.
+    return reference_repo.list_line_item_groups(db) if _is_demo_org(org_id) else []
 
 
 @router.get("/{project_id}/suppliers", response_model=List[Supplier])
@@ -161,10 +169,15 @@ def list_quotes(
 ):
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
-    # Prefer real ingested quotes; fall back to the demo quotes when none exist
-    # (keeps the Riverside demo populated before any quotes are ingested).
+    # Only this project's own (ingested or seeded) quote rows. The demo org
+    # alone may fall back to the seeded Riverside quotes (keeps the demo
+    # populated before any quotes are ingested); every other tenant used to see
+    # the same five Riverside quotes under every project that had none of its
+    # own, and "Compare" on those rows 404'd because no real quote backed them.
     rows = quotes_repo.list_quote_rows(db, org_id, project_id)
-    return rows if rows else reference_repo.list_demo_quotes(db)
+    if rows or not _is_demo_org(org_id):
+        return rows
+    return reference_repo.list_demo_quotes(db)
 
 
 @router.get("/{project_id}/rfqs", response_model=List[Rfq])
@@ -173,8 +186,9 @@ def list_rfqs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _require_project(current_user.organization_id, project_id, db)
-    return reference_repo.list_demo_rfqs(db)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    return reference_repo.list_demo_rfqs(db) if _is_demo_org(org_id) else []
 
 
 @router.get("/{project_id}/rfq-folders", response_model=List[RfqFolder])
@@ -183,8 +197,9 @@ def list_rfq_folders(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _require_project(current_user.organization_id, project_id, db)
-    return reference_repo.list_rfq_folders(db)
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    return reference_repo.list_rfq_folders(db) if _is_demo_org(org_id) else []
 
 
 # Lenders: the project's financing contacts. Stored per-project so timeline
@@ -260,7 +275,9 @@ def get_timeline(
     )
     if built is not None:
         return built
-    return reference_repo.get_timeline(db)
+    if _is_demo_org(org_id):
+        return reference_repo.get_timeline(db)
+    return {"milestones": [], "gantt": [], "ganttCols": []}
 
 
 @router.get("/{project_id}/packages/{pkg}/comparison", response_model=Comparison)
@@ -280,10 +297,13 @@ def get_comparison(
         dynamic = comparison_service.build_comparison(db, org_id, project_id, key, label)
         if dynamic is not None:
             return dynamic
-    # No ingested quotes yet → prototype demo comparison (keyed by label).
-    comparison = reference_repo.get_comparison(db, pkg) or (
-        reference_repo.get_comparison(db, label) if key else None
-    )
+    # No ingested quotes yet → prototype demo comparison (keyed by label),
+    # for the demo org only.
+    comparison = None
+    if _is_demo_org(org_id):
+        comparison = reference_repo.get_comparison(db, pkg) or (
+            reference_repo.get_comparison(db, label) if key else None
+        )
     if comparison is None:
         raise HTTPException(status_code=404, detail="No comparison for package")
     return comparison
@@ -301,13 +321,21 @@ def get_line_comparison(
     """Line-by-line quote grid + freight-aware mix-and-match award strategies."""
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
-    key = pkg if packages.is_valid(pkg) else packages.category_for_label(pkg)
-    label = packages.label_for(key) if key else pkg
+    key, label = _resolve_package(db, org_id, project_id, pkg)
     result = line_comparison_service.build_line_comparison(
         db, org_id, project_id, key or pkg, label
     )
     if result is None:
         raise HTTPException(status_code=404, detail="No quotes to compare for package")
+    last = purchase_decisions_repo.latest_for_package(db, org_id, project_id, key or pkg)
+    if last is not None:
+        result["lastAward"] = {
+            "decidedAt": last.get("createdAt"),
+            "decidedByEmail": last.get("decidedByEmail") or "",
+            "suppliers": last.get("suppliers") or [],
+            "total": last.get("total") or 0,
+            "poCount": last.get("poCount") or 0,
+        }
     return result
 
 
@@ -319,10 +347,36 @@ def award_package(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Submit a (possibly split) award for a package and issue the purchase orders."""
+    """Submit a (possibly split) award for a package and issue the purchase orders.
+
+    Exactly-once: the whole award — the already-awarded check, the decision
+    row, the quote flips and the supplier notifications — runs under a lock
+    keyed by (org, project, package). Overlapping requests (a triple-clicked
+    confirm) used to all pass the check-then-insert and each issue POs and
+    email every supplier; now the losers answer 409 immediately.
+    """
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
-    key = pkg if packages.is_valid(pkg) else packages.category_for_label(pkg)
+    key, pkg_label_for_record = _resolve_package(db, org_id, project_id, pkg)
+    with locks.exclusive(
+        f"award:{org_id}:{project_id}:{key or pkg}",
+        f"{pkg_label_for_record} is being awarded right now — wait for it to finish",
+    ):
+        return _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payload, current_user)
+
+
+def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payload, current_user):
+    previous = purchase_decisions_repo.latest_for_package(db, org_id, project_id, key or pkg)
+    if previous is not None and not payload.supersede:
+        who = ", ".join(previous.get("suppliers") or []) or "a supplier"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{pkg_label_for_record} was already awarded to {who}. "
+                "Re-awarding issues new purchase orders and emails every supplier "
+                "again — confirm the re-award to proceed."
+            ),
+        )
     summary = line_comparison_service.compute_award(
         db, org_id, project_id, key or pkg, payload.selections
     )
@@ -333,12 +387,6 @@ def award_package(
             status_code=409,
             detail="Nothing to award — the quotes for this package have no priced line items",
         )
-    if key:
-        pkg_label_for_record = packages.label_for(key)
-    else:
-        # A custom BOM's package key is its document id — record its name.
-        bom_doc = documents_repo.get(db, org_id, pkg)
-        pkg_label_for_record = bom_doc.name if bom_doc is not None else pkg
     # Stage the decision + audit record on the session, then let award_package's
     # commit persist everything atomically with the quote status flips.
     decision = purchase_decisions_repo.add_decision(
@@ -360,6 +408,7 @@ def award_package(
             "suppliers": summary["suppliers"],
             "total": summary["total"],
             "strategy": payload.strategy,
+            "supersedes": previous["id"] if previous is not None else None,
         },
         commit=False,
     )
@@ -425,7 +474,7 @@ def award_package(
     }
 
 
-@router.get("/{project_id}/purchase-decisions")
+@router.get("/{project_id}/purchase-decisions", response_model=List[PurchaseDecision])
 def list_purchase_decisions(
     project_id: str,
     db: Session = Depends(get_db),
@@ -435,6 +484,31 @@ def list_purchase_decisions(
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
     return purchase_decisions_repo.list_for_project(db, org_id, project_id)
+
+
+def _is_demo_org(org_id: str) -> bool:
+    """Only the seeded demo organization gets the prototype's demo data
+    (quotes, RFQ inbox, comparisons, project-wide BOM) in place of empty
+    per-project data. Real tenants see their own data or an empty state."""
+    return org_id == DEMO_ORG_ID
+
+
+def _resolve_package(db: Session, org_id: str, project_id: str, pkg: str):
+    """(key, label) for a package reference from the URL.
+
+    `pkg` may be a preset key ("water"), a preset label ("Water Utilities"),
+    or — for a custom BOM / subcontractor trade — the document id or its
+    name. The Quotes table groups by label, so the compare link used to 404
+    for every custom package ("No quotes to compare") because only preset
+    labels were mapped back to a key. Returns (None, pkg) when nothing matches.
+    """
+    key = pkg if packages.is_valid(pkg) else packages.category_for_label(pkg)
+    if key:
+        return key, packages.label_for(key)
+    doc = documents_repo.find_package_doc(db, org_id, project_id, pkg)
+    if doc is not None:
+        return doc.id, doc.name
+    return None, pkg
 
 
 def _require_project(org_id: str, project_id: str, db: Session) -> dict:

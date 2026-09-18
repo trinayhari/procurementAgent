@@ -20,7 +20,36 @@ export function css(str?: string): CSSProperties {
     // would mangle it into "-Panel-2" and the declaration would be dropped.
     o[k.startsWith('--') ? k : k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = v
   }
-  return o as CSSProperties
+  return expandBorder(o) as CSSProperties
+}
+
+// React warns (and drops the shorthand, leaving e.g. a spinner as a faint
+// arc) when a style object mixes a `border` shorthand with a per-side colour
+// such as `border-top-color`. Rewrite that combination as longhands so the
+// declaration is unambiguous: borderWidth/borderStyle from the shorthand and a
+// four-value borderColor with the side override folded in.
+const SIDE_COLORS = ['borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'] as const
+const BORDER_STYLES = new Set(['none', 'solid', 'dashed', 'dotted', 'double', 'hidden'])
+function expandBorder(o: Record<string, string>): Record<string, string> {
+  const border = o.border
+  const hasSide = SIDE_COLORS.some((k) => k in o) || 'borderColor' in o
+  if (!border || !hasSide) return o
+  const tokens = border.trim().split(/\s+/)
+  let width = '', style = ''
+  const colorTokens: string[] = []
+  for (const t of tokens) {
+    if (!width && /^[\d.]+(px|em|rem|%)?$|^(thin|medium|thick)$/.test(t)) width = t
+    else if (!style && BORDER_STYLES.has(t)) style = t
+    else colorTokens.push(t)
+  }
+  const base = o.borderColor || colorTokens.join(' ') || 'currentColor'
+  const sides = [base, base, base, base]
+  SIDE_COLORS.forEach((k, i) => { if (k in o) { sides[i] = o[k]; delete o[k] } })
+  delete o.border
+  if (width) o.borderWidth = width
+  if (style) o.borderStyle = style
+  o.borderColor = sides.join(' ')
+  return o
 }
 
 // Polymorphic element with optional hover styles (replaces the design's `style-hover`).
@@ -39,7 +68,21 @@ type BoxProps = {
 
 export function Box({ as = 'div', css: base, hover, style, children, ...rest }: BoxProps) {
   const [h, setH] = useState(false)
-  const merged: CSSProperties = { ...toStyle(base), ...toStyle(style), ...(h && hover ? toStyle(hover) : {}) }
+  const merged: CSSProperties = { ...toStyle(base), ...toStyle(style) }
+  if (h && hover) {
+    const hov = toStyle(hover)
+    // A hover `border-color` on top of a base `border` shorthand makes React
+    // warn on every re-render ("Removing a style property during rerender
+    // (borderColor) when a conflicting property is set (border)") and can
+    // leave the wrong colour behind. Fold the colour into the shorthand instead.
+    if (hov.borderColor !== undefined && typeof merged.border === 'string') {
+      const parts = merged.border.trim().split(/\s+/)
+      parts[parts.length - 1] = String(hov.borderColor)
+      merged.border = parts.join(' ')
+      delete hov.borderColor
+    }
+    Object.assign(merged, hov)
+  }
   const Tag = as
   const hoverProps = hover
     ? { onMouseEnter: () => setH(true), onMouseLeave: () => setH(false) }
@@ -138,4 +181,21 @@ export function lb(bg: string, size?: number): CSSProperties {
     justifyContent: 'center', fontWeight: 700, fontSize: size && size <= 34 ? 11 : 13,
     flex: 'none', letterSpacing: '-.02em',
   }
+}
+
+
+// ---- Navigation guards -------------------------------------------------
+// A screen with unsaved work (the RFQ review modal) registers a guard; every
+// in-app navigation (sidebar, project tabs, hash/Back) asks the guards first
+// and is refused while any of them says no. The guard itself is responsible
+// for showing the "discard?" prompt. Module-level so model.ts and App.tsx
+// share one registry without threading a ref through the model.
+const navGuards = new Set<() => boolean>()
+export function registerNavGuard(guard: () => boolean): () => void {
+  navGuards.add(guard)
+  return () => { navGuards.delete(guard) }
+}
+export function canNavigate(): boolean {
+  for (const g of navGuards) if (!g()) return false
+  return true
 }

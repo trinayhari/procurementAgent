@@ -28,7 +28,13 @@ SYSTEM_PROMPT = (
     "keep end-unit vs interior-unit variants separate when the plans distinguish them. "
     "Do NOT collapse eight repeated units into a count for one. Conversely, when the set "
     "draws a single unit or building with no stated repetition, extract as drawn — do "
-    "not scale anything."
+    "not scale anything.\n"
+    "EXISTING vs NEW: list only what the contractor must furnish and install under this "
+    "set. Equipment marked (E), EXISTING, TO REMAIN, BY OTHERS, BY UTILITY, N.I.C. or "
+    "FUTURE, and items drawn on a one-line / riser diagram only for context (the utility "
+    "transformer, the existing switchboard a new feeder lands in, an existing transfer "
+    "switch that is only reconnected) are NOT materials — list the new connection "
+    "materials instead. Demolition and removal are not materials either."
 )
 
 
@@ -156,25 +162,31 @@ def build_timeline_vision_prompt() -> str:
     )
 
 
+# Module-level so the eval bench can override it per variant (docs/eval-harness.md).
+# The consolidation pass is where merge-vs-sum errors are made, so it is one of the
+# prompts most worth A/B testing; `build_*` reads the global at call time.
+CONSOLIDATION_SYSTEM_PROMPT = (
+    "You are a construction estimator. You are given the materials extracted from each "
+    "sheet of one plan set. Combine them into a single Bill of Materials: merge "
+    "duplicate materials into one line and sum the quantities of the same material; "
+    "keep different sizes and materials separate. The same element often appears on "
+    "several sheets (plan + schedule + detail) — that is ONE element, not a sum. "
+    "When per-sheet items describe a typical unit of a multi-unit building, the "
+    "combined line must cover ALL units (scale and say so in `assumptions`). Prefer "
+    "specific plan/schedule callouts over general-notes minimums for the same "
+    "element, and never emit a design alternate as a second line item. When two "
+    "lines describe the SAME element with conflicting values (e.g. two anchor-bolt "
+    "specs, two slab strengths), keep ONE line — the clearest, most specific "
+    "callout — and record the conflicting reading in `assumptions` instead of "
+    "keeping both. But do NOT over-merge: lines the plans distinguish by circuit, "
+    "use, or rating (kitchen small-appliance vs dishwasher vs bathroom GFCI "
+    "receptacles; beams by mark) are SEPARATE line items — preserve that "
+    "breakdown. Return the final Bill of Materials."
+)
+
+
 def build_consolidation_system_prompt() -> str:
-    return (
-        "You are a construction estimator. You are given the materials extracted from each "
-        "sheet of one plan set. Combine them into a single Bill of Materials: merge "
-        "duplicate materials into one line and sum the quantities of the same material; "
-        "keep different sizes and materials separate. The same element often appears on "
-        "several sheets (plan + schedule + detail) — that is ONE element, not a sum. "
-        "When per-sheet items describe a typical unit of a multi-unit building, the "
-        "combined line must cover ALL units (scale and say so in `assumptions`). Prefer "
-        "specific plan/schedule callouts over general-notes minimums for the same "
-        "element, and never emit a design alternate as a second line item. When two "
-        "lines describe the SAME element with conflicting values (e.g. two anchor-bolt "
-        "specs, two slab strengths), keep ONE line — the clearest, most specific "
-        "callout — and record the conflicting reading in `assumptions` instead of "
-        "keeping both. But do NOT over-merge: lines the plans distinguish by circuit, "
-        "use, or rating (kitchen small-appliance vs dishwasher vs bathroom GFCI "
-        "receptacles; beams by mark) are SEPARATE line items — preserve that "
-        "breakdown. Return the final Bill of Materials."
-    )
+    return CONSOLIDATION_SYSTEM_PROMPT
 
 
 def build_consolidation_user_prompt(

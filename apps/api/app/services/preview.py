@@ -31,8 +31,10 @@ logger = logging.getLogger("procureai.preview")
 
 # Uploads we can turn into a page image. Anything else (CSV/XLSX) has no visual
 # form and falls back to "open the original" in the UI.
-_IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
-_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+_MEDIA_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+}
 
 
 class RenderFailed(Exception):

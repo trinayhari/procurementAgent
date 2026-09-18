@@ -483,6 +483,12 @@ export interface paths {
         /**
          * Award Package
          * @description Submit a (possibly split) award for a package and issue the purchase orders.
+         *
+         *     Exactly-once: the whole award — the already-awarded check, the decision
+         *     row, the quote flips and the supplier notifications — runs under a lock
+         *     keyed by (org, project, package). Overlapping requests (a triple-clicked
+         *     confirm) used to all pass the check-then-insert and each issue POs and
+         *     email every supplier; now the losers answer 409 immediately.
          */
         post: operations["award_package_api_projects__project_id__packages__pkg__award_post"];
         delete?: never;
@@ -775,6 +781,9 @@ export interface paths {
          *       double-click or replayed request never re-emails suppliers.
          *     - Recipients who already received the RFQ successfully are always skipped;
          *       a retry only attempts the failed/unsent ones.
+         *     - Two overlapping sends of the same RFQ (two tabs, a replayed request) are
+         *       serialised by a per-RFQ lock: the second one gets a 409 rather than
+         *       reading the still-'Draft' status and emailing every supplier twice.
          */
         post: operations["send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post"];
         delete?: never;
@@ -1254,6 +1263,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/team/invites/{invite_id}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend Invite
+         * @description Re-send a pending invitation (or, with no email provider, hand back
+         *     the accept link again).
+         */
+        post: operations["resend_invite_api_team_invites__invite_id__resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/team/invites/{invite_id}": {
         parameters: {
             query?: never;
@@ -1269,6 +1299,178 @@ export interface paths {
          * @description Cancel a pending invitation. 404 for an unknown id or another org's.
          */
         delete: operations["revoke_invite_api_team_invites__invite_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bench/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Status
+         * @description Liveness + whether a run would produce real (non-mocked) numbers.
+         */
+        get: operations["status_bench_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bench/corpus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Corpus
+         * @description Every corpus document, plus the problems `validate` would report.
+         *
+         *     A corpus that is not populated on this machine is an empty list and one
+         *     explanatory problem — not an error. The corpus is gitignored and owned by
+         *     another track, so "not there yet" is a normal state.
+         */
+        get: operations["get_corpus_bench_corpus_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bench/plan-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Plan Types
+         * @description Registered plan types with their category keys — the run panel's selector.
+         */
+        get: operations["list_plan_types_bench_plan_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bench/variants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Variants
+         * @description Every variant on disk, baseline first, each with its validation problems.
+         */
+        get: operations["list_variants_bench_variants_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bench/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description Recent runs, newest first. Summary rows only — no trials.
+         */
+        get: operations["list_runs_bench_runs_get"];
+        put?: never;
+        /**
+         * Create Runs
+         * @description Queue one run per variant. Returns immediately; the worker executes them.
+         *
+         *     Everything that can be checked without an extraction is checked here, so a
+         *     bad request costs nothing.
+         */
+        post: operations["create_runs_bench_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bench/runs/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare
+         * @description Metric deltas between two runs, overall and per document.
+         */
+        get: operations["compare_bench_runs_compare_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bench/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run
+         * @description One run with its trials, per-doc scores, and match lists (the diff view).
+         */
+        get: operations["get_run_bench_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Run */
+        delete: operations["delete_run_bench_runs__run_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bench/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Run
+         * @description Ask a queued/running run to stop. The runner checks between trials.
+         */
+        post: operations["cancel_run_bench_runs__run_id__cancel_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1346,6 +1548,11 @@ export interface components {
             };
             /** Strategy */
             strategy?: string | null;
+            /**
+             * Supersede
+             * @default false
+             */
+            supersede: boolean;
         };
         /** AwardResult */
         AwardResult: {
@@ -1366,6 +1573,32 @@ export interface components {
             /** Pocount */
             poCount: number;
         };
+        /**
+         * BenchStatus
+         * @description Is the bench usable here, and would a run produce real numbers?
+         */
+        BenchStatus: {
+            /** Enabled */
+            enabled: boolean;
+            /** Corpus Dir */
+            corpus_dir: string;
+            /** Docs */
+            docs: number;
+            /** Labelled */
+            labelled: number;
+            /** Live Extraction */
+            live_extraction: boolean;
+            /**
+             * Present
+             * @default 0
+             */
+            present: number;
+            /**
+             * Populated
+             * @default false
+             */
+            populated: boolean;
+        };
         /** Body_upload_document_api_documents_post */
         Body_upload_document_api_documents_post: {
             /**
@@ -1380,6 +1613,33 @@ export interface components {
              * @default riverside
              */
             project_id: string;
+        };
+        /** CancelResult */
+        CancelResult: {
+            /** Cancelled */
+            cancelled: boolean;
+        };
+        /** CompareOut */
+        CompareOut: {
+            a: components["schemas"]["RunSummaryOut"];
+            b: components["schemas"]["RunSummaryOut"];
+            /**
+             * Deltas
+             * @default {}
+             */
+            deltas: {
+                [key: string]: components["schemas"]["MetricDeltaOut"];
+            };
+            /**
+             * Per Doc
+             * @default []
+             */
+            per_doc: components["schemas"]["PerDocCompareOut"][];
+            /**
+             * Mocked
+             * @default false
+             */
+            mocked: boolean;
         };
         /** Comparison */
         Comparison: {
@@ -1445,6 +1705,58 @@ export interface components {
             /** Logobg */
             logoBg?: string | null;
         };
+        /** CorpusDocOut */
+        CorpusDocOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Plan Type */
+            plan_type: string;
+            /** Path */
+            path: string;
+            /** Exists */
+            exists: boolean;
+            /** Source Url */
+            source_url?: string | null;
+            /** Source Name */
+            source_name?: string | null;
+            /** License */
+            license: string;
+            /** Retrieved At */
+            retrieved_at?: string | null;
+            /** Sha256 */
+            sha256?: string | null;
+            /** Bytes */
+            bytes?: number | null;
+            /** Pages */
+            pages?: number | null;
+            /** Has Text Layer */
+            has_text_layer?: boolean | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /**
+             * Has Truth
+             * @default false
+             */
+            has_truth: boolean;
+        };
+        /** CorpusOut */
+        CorpusOut: {
+            /**
+             * Documents
+             * @default []
+             */
+            documents: components["schemas"]["CorpusDocOut"][];
+            /**
+             * Problems
+             * @default []
+             */
+            problems: string[];
+        };
         /**
          * CustomBomSummary
          * @description A hand-built custom BOM, surfaced as a selectable package in the
@@ -1469,6 +1781,53 @@ export interface components {
             metrics: components["schemas"]["Metric"][];
             /** Activity */
             activity: components["schemas"]["Activity"][];
+        };
+        /** DeleteResult */
+        DeleteResult: {
+            /** Deleted */
+            deleted: boolean;
+        };
+        /** DocScoreOut */
+        DocScoreOut: {
+            /** Doc Id */
+            doc_id: string;
+            /** Plan Type */
+            plan_type: string;
+            /** Completeness */
+            completeness?: string | null;
+            /** Precision */
+            precision?: number | null;
+            /** Recall */
+            recall?: number | null;
+            /** F1 */
+            f1?: number | null;
+            /** Optional Recall */
+            optional_recall?: number | null;
+            /** Quantity Accuracy */
+            quantity_accuracy?: number | null;
+            /** Unit Accuracy */
+            unit_accuracy?: number | null;
+            /** Category Accuracy */
+            category_accuracy?: number | null;
+            /** Usable Recall */
+            usable_recall?: number | null;
+            /**
+             * Hallucinations
+             * @default 0
+             */
+            hallucinations: number;
+            /**
+             * Counts
+             * @default {}
+             */
+            counts: {
+                [key: string]: number;
+            };
+            /**
+             * Matches
+             * @default []
+             */
+            matches: components["schemas"]["MatchOut"][];
         };
         /**
          * DocStatus
@@ -1501,6 +1860,11 @@ export interface components {
              * @default false
              */
             hasFile: boolean;
+            /**
+             * Filemissing
+             * @default false
+             */
+            fileMissing: boolean;
             /** Plantype */
             planType?: string | null;
             /** Summary */
@@ -1662,6 +2026,13 @@ export interface components {
             expiresAt?: string | null;
             /** Acceptedat */
             acceptedAt?: string | null;
+            /**
+             * Emailed
+             * @default true
+             */
+            emailed: boolean;
+            /** Accepturl */
+            acceptUrl?: string | null;
         };
         /** InviteCreateRequest */
         InviteCreateRequest: {
@@ -1686,6 +2057,34 @@ export interface components {
             email?: string | null;
             /** Reason */
             reason?: string | null;
+        };
+        /**
+         * LastAward
+         * @description The most recent purchase decision for this package, when there is one.
+         */
+        LastAward: {
+            /** Decidedat */
+            decidedAt?: string | null;
+            /**
+             * Decidedbyemail
+             * @default
+             */
+            decidedByEmail: string;
+            /**
+             * Suppliers
+             * @default []
+             */
+            suppliers: string[];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Pocount
+             * @default 0
+             */
+            poCount: number;
         };
         /** Lender */
         Lender: {
@@ -1801,6 +2200,7 @@ export interface components {
              * @default mix
              */
             recommendedOption: string;
+            lastAward?: components["schemas"]["LastAward"] | null;
         };
         /** LineItem */
         LineItem: {
@@ -1847,6 +2247,61 @@ export interface components {
             /** Projectid */
             projectId: string;
         };
+        /**
+         * MatchOut
+         * @description One truth/extracted pairing — the diff view's row.
+         */
+        MatchOut: {
+            /** Kind */
+            kind: string;
+            /** Truth Index */
+            truth_index?: number | null;
+            /** Extracted Index */
+            extracted_index?: number | null;
+            /**
+             * Score
+             * @default 0
+             */
+            score: number;
+            /**
+             * Category Ok
+             * @default false
+             */
+            category_ok: boolean;
+            /** Quantity Ok */
+            quantity_ok?: boolean | null;
+            /** Unit Ok */
+            unit_ok?: boolean | null;
+            /** Truth Name */
+            truth_name?: string | null;
+            /** Extracted Name */
+            extracted_name?: string | null;
+            /** Quantity Got */
+            quantity_got?: number | null;
+            /** Quantity Want */
+            quantity_want?: number | null;
+            /** Unit Got */
+            unit_got?: string | null;
+            /** Unit Want */
+            unit_want?: string | null;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+            /** Truth Category */
+            truth_category?: string | null;
+            /** Extracted Category */
+            extracted_category?: string | null;
+            /** Truth Source */
+            truth_source?: string | null;
+            /** Qty Tolerance */
+            qty_tolerance?: number | null;
+            /** Forbidden Why */
+            forbidden_why?: string | null;
+            /** Quantity Ratio */
+            quantity_ratio?: number | null;
+        };
         /** MessageCreate */
         MessageCreate: {
             /** Body */
@@ -1885,6 +2340,61 @@ export interface components {
              * @default false
              */
             risk: boolean;
+        };
+        /** MetricDeltaOut */
+        MetricDeltaOut: {
+            /** A */
+            a?: number | null;
+            /** B */
+            b?: number | null;
+            /** Delta */
+            delta?: number | null;
+        };
+        /**
+         * MetricsOut
+         * @description `scoring.aggregate()` — macro-averaged across the run's documents.
+         */
+        MetricsOut: {
+            /**
+             * Documents
+             * @default 0
+             */
+            documents: number;
+            /** Precision */
+            precision?: number | null;
+            /** Recall */
+            recall?: number | null;
+            /** F1 */
+            f1?: number | null;
+            /** Optional Recall */
+            optional_recall?: number | null;
+            /** Quantity Accuracy */
+            quantity_accuracy?: number | null;
+            /** Unit Accuracy */
+            unit_accuracy?: number | null;
+            /** Category Accuracy */
+            category_accuracy?: number | null;
+            /** Usable Recall */
+            usable_recall?: number | null;
+            /**
+             * Hallucinations
+             * @default 0
+             */
+            hallucinations: number;
+            /**
+             * Defined
+             * @default {}
+             */
+            defined: {
+                [key: string]: number;
+            };
+            /**
+             * Counts
+             * @default {}
+             */
+            counts: {
+                [key: string]: number;
+            };
         };
         /** Milestone */
         Milestone: {
@@ -1995,6 +2505,37 @@ export interface components {
             q: string;
         };
         /**
+         * PerDocCompareOut
+         * @description One document, scored on both sides — WITH the match lists.
+         *
+         *     The item-level lists are the point of compare: they say which materials a
+         *     variant started finding and which it stopped finding, which no metric delta
+         *     can tell you. Each side is the document's first live, scored trial in that
+         *     run (`trials_a`/`trials_b` say how many there were), or null when the run
+         *     produced no live score for it.
+         */
+        PerDocCompareOut: {
+            /** Doc Id */
+            doc_id: string;
+            a?: components["schemas"]["DocScoreOut"] | null;
+            b?: components["schemas"]["DocScoreOut"] | null;
+            /**
+             * Mocked
+             * @default false
+             */
+            mocked: boolean;
+            /**
+             * Trials A
+             * @default 0
+             */
+            trials_a: number;
+            /**
+             * Trials B
+             * @default 0
+             */
+            trials_b: number;
+        };
+        /**
          * PersistedRfq
          * @description An RFQ generated from a buy-package, stored per project.
          */
@@ -2051,6 +2592,8 @@ export interface components {
              * @default []
              */
             attachments: components["schemas"]["RfqAttachment"][];
+            /** Sentat */
+            sentAt?: string | null;
         };
         /**
          * PlanType
@@ -2072,6 +2615,31 @@ export interface components {
              * @default true
              */
             singleton: boolean;
+        };
+        /** PlanTypeCategoryOut */
+        PlanTypeCategoryOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Tone */
+            tone: string;
+        };
+        /** PlanTypeOut */
+        PlanTypeOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: components["schemas"]["PlanTypeCategoryOut"][];
         };
         /** Project */
         Project: {
@@ -2152,6 +2720,66 @@ export interface components {
             /** Activity */
             activity: components["schemas"]["Activity"][];
         };
+        /**
+         * PurchaseDecision
+         * @description A recorded award for a package — who bought what, from whom, decided by
+         *     whom. Surfaced on the comparison screen so a package that was already
+         *     awarded is never re-awarded (and suppliers re-notified) by accident.
+         */
+        PurchaseDecision: {
+            /** Id */
+            id: string;
+            /** Projectid */
+            projectId: string;
+            /** Package */
+            package: string;
+            /** Packagelabel */
+            packageLabel: string;
+            /** Strategy */
+            strategy?: string | null;
+            /**
+             * Selections
+             * @default {}
+             */
+            selections: {
+                [key: string]: string;
+            };
+            /**
+             * Supplierids
+             * @default []
+             */
+            supplierIds: string[];
+            /**
+             * Suppliers
+             * @default []
+             */
+            suppliers: string[];
+            /** Total */
+            total: number;
+            /**
+             * Material
+             * @default 0
+             */
+            material: number;
+            /**
+             * Freight
+             * @default 0
+             */
+            freight: number;
+            /** Leaddays */
+            leadDays?: number | null;
+            /**
+             * Pocount
+             * @default 0
+             */
+            poCount: number;
+            /** Decidedby */
+            decidedBy?: string | null;
+            /** Decidedbyemail */
+            decidedByEmail?: string | null;
+            /** Createdat */
+            createdAt?: string | null;
+        };
         /** Quote */
         Quote: {
             /** Id */
@@ -2160,6 +2788,11 @@ export interface components {
             sup: string;
             /** Pkg */
             pkg: string;
+            /**
+             * Package
+             * @default
+             */
+            package: string;
             /** Amount */
             amount: string;
             /** Freight */
@@ -2365,6 +2998,181 @@ export interface components {
          * @enum {string}
          */
         Risk: "Low" | "Medium" | "High";
+        /**
+         * RunCreate
+         * @description A run request. Every field is a cost multiplier — see §6 of the contract.
+         */
+        RunCreate: {
+            /** Doc Ids */
+            doc_ids: string[];
+            /** Variant Ids */
+            variant_ids: string[];
+            /** Plan Type */
+            plan_type?: string | null;
+            /**
+             * Trials
+             * @default 1
+             */
+            trials: number;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** RunCreated */
+        RunCreated: {
+            /** Run Ids */
+            run_ids: string[];
+            /** Extractions */
+            extractions: number;
+            /** Docs */
+            docs: number;
+            /** Variants */
+            variants: number;
+            /** Trials */
+            trials: number;
+        };
+        /** RunDetailOut */
+        RunDetailOut: {
+            /** Id */
+            id: string;
+            /** Created At */
+            created_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Status */
+            status: string;
+            /** Variant Id */
+            variant_id: string;
+            /** Plan Type */
+            plan_type?: string | null;
+            /**
+             * Doc Ids
+             * @default []
+             */
+            doc_ids: string[];
+            /**
+             * Trials
+             * @default 1
+             */
+            trials: number;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Progress Done
+             * @default 0
+             */
+            progress_done: number;
+            /**
+             * Progress Total
+             * @default 0
+             */
+            progress_total: number;
+            /** Error */
+            error?: string | null;
+            summary?: components["schemas"]["RunSummaryBlock"] | null;
+            /** Mocked Trials */
+            mocked_trials?: number | null;
+            /**
+             * Trials Detail
+             * @default []
+             */
+            trials_detail: components["schemas"]["TrialOut"][];
+        };
+        /**
+         * RunSummaryBlock
+         * @description The summary the runner stores on a finished run.
+         */
+        RunSummaryBlock: {
+            /** Variant Id */
+            variant_id: string;
+            /**
+             * Trials Total
+             * @default 0
+             */
+            trials_total: number;
+            /**
+             * Trials Run
+             * @default 0
+             */
+            trials_run: number;
+            /**
+             * Trials Ok
+             * @default 0
+             */
+            trials_ok: number;
+            /**
+             * Trials Failed
+             * @default 0
+             */
+            trials_failed: number;
+            /**
+             * Trials Mocked
+             * @default 0
+             */
+            trials_mocked: number;
+            /**
+             * Trials Unlabelled
+             * @default 0
+             */
+            trials_unlabelled: number;
+            /**
+             * Trials Scored
+             * @default 0
+             */
+            trials_scored: number;
+            /**
+             * Mocked
+             * @default false
+             */
+            mocked: boolean;
+            /** Latency Ms Avg */
+            latency_ms_avg?: number | null;
+            metrics?: components["schemas"]["MetricsOut"] | null;
+            mocked_metrics?: components["schemas"]["MetricsOut"] | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** RunSummaryOut */
+        RunSummaryOut: {
+            /** Id */
+            id: string;
+            /** Created At */
+            created_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Status */
+            status: string;
+            /** Variant Id */
+            variant_id: string;
+            /** Plan Type */
+            plan_type?: string | null;
+            /**
+             * Doc Ids
+             * @default []
+             */
+            doc_ids: string[];
+            /**
+             * Trials
+             * @default 1
+             */
+            trials: number;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Progress Done
+             * @default 0
+             */
+            progress_done: number;
+            /**
+             * Progress Total
+             * @default 0
+             */
+            progress_total: number;
+            /** Error */
+            error?: string | null;
+            summary?: components["schemas"]["RunSummaryBlock"] | null;
+            /** Mocked Trials */
+            mocked_trials?: number | null;
+        };
         /** SelectResult */
         SelectResult: {
             /** Quote Id */
@@ -2673,6 +3481,42 @@ export interface components {
             /** Scope */
             scope: string;
         };
+        /** TrialOut */
+        TrialOut: {
+            /** Id */
+            id: string;
+            /** Run Id */
+            run_id: string;
+            /** Doc Id */
+            doc_id: string;
+            /** Variant Id */
+            variant_id: string;
+            /**
+             * Trial Index
+             * @default 0
+             */
+            trial_index: number;
+            /** Status */
+            status: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Error */
+            error?: string | null;
+            /** Groups */
+            groups?: Record<string, never>[] | null;
+            /** Summary Text */
+            summary_text?: string | null;
+            /**
+             * Mocked
+             * @default false
+             */
+            mocked: boolean;
+            score?: components["schemas"]["DocScoreOut"] | null;
+        };
         /**
          * UpdateMeRequest
          * @description Editable account settings. `ccEmail` is the address copied on outgoing
@@ -2714,6 +3558,35 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VariantOut */
+        VariantOut: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Settings
+             * @default {}
+             */
+            settings: Record<string, never>;
+            /**
+             * Prompts
+             * @default {}
+             */
+            prompts: Record<string, never>;
+            /**
+             * Spec Overrides
+             * @default {}
+             */
+            spec_overrides: Record<string, never>;
+            /**
+             * Problems
+             * @default []
+             */
+            problems: string[];
         };
     };
     responses: never;
@@ -3599,7 +4472,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PurchaseDecision"][];
                 };
             };
             /** @description Validation Error */
@@ -4965,6 +5838,37 @@ export interface operations {
             };
         };
     };
+    resend_invite_api_team_invites__invite_id__resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     revoke_invite_api_team_invites__invite_id__delete: {
         parameters: {
             query?: never;
@@ -4982,6 +5886,275 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    status_bench_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchStatus"];
+                };
+            };
+        };
+    };
+    get_corpus_bench_corpus_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorpusOut"];
+                };
+            };
+        };
+    };
+    list_plan_types_bench_plan_types_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanTypeOut"][];
+                };
+            };
+        };
+    };
+    list_variants_bench_variants_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VariantOut"][];
+                };
+            };
+        };
+    };
+    list_runs_bench_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSummaryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_runs_bench_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_bench_runs_compare_get: {
+        parameters: {
+            query: {
+                a: string;
+                b: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompareOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_bench_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_run_bench_runs__run_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_run_bench_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelResult"];
+                };
             };
             /** @description Validation Error */
             422: {

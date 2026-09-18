@@ -10,9 +10,11 @@ from another organization resolves to None (and the route 404s).
 """
 import json
 import os
+import uuid
 from typing import List, Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
@@ -80,8 +82,66 @@ def is_custom_bom(db: Session, org_id: str, project_id: str, doc_id: str) -> boo
     )
 
 
+def find_package_doc(db: Session, org_id: str, project_id: str, ref: str) -> Optional[Document]:
+    """The custom BOM or trade scope on `project_id` that `ref` names — by
+    document id, or by display name (the Quotes table and older compare
+    URLs carry the label rather than the key)."""
+    doc = get(db, org_id, ref)
+    if (
+        doc is not None
+        and doc.project_id == project_id
+        and doc.plan_type in (CUSTOM_BOM_PLAN_TYPE, TRADE_SCOPE_PLAN_TYPE)
+    ):
+        return doc
+    return db.scalars(
+        select(Document)
+        .where(
+            Document.organization_id == org_id,
+            Document.project_id == project_id,
+            Document.plan_type.in_([CUSTOM_BOM_PLAN_TYPE, TRADE_SCOPE_PLAN_TYPE]),
+            Document.name == ref,
+        )
+        .order_by(Document.seq.desc())
+    ).first()
+
+
 def _next_seq(db: Session) -> int:
     return (db.scalar(select(func.max(Document.seq))) or 0) + 1
+
+
+def _new_id(seq: int) -> str:
+    """A document id that is never reused.
+
+    `seq` is max+1, so after deleting the newest document the next upload
+    got the same number — and the same id. Anything still holding the old
+    id (an RFQ's attachment list, a signed 15-minute file token, an open
+    tab) then silently pointed at the new document, which could even belong
+    to another organization (seq is global, and the token-authorized file
+    routes are unscoped). The random suffix makes the id unique while the
+    seq prefix keeps upload order readable (services/schedule.py parses it).
+    """
+    return f"upload-{seq}-{uuid.uuid4().hex[:6]}"
+
+
+def _insert_with_fresh_seq(db: Session, build) -> Document:
+    """Insert a document row, retrying with a fresh seq on a unique collision.
+
+    `seq` is computed as max+1 without a lock, so two concurrent uploads can
+    pick the same number; the UNIQUE constraint then failed the second one
+    with a 500. A short retry turns that into the ordinary next number.
+    """
+    for _attempt in range(5):
+        seq = _next_seq(db)
+        doc = build(seq)
+        db.add(doc)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            continue
+        db.refresh(doc)
+        return doc
+    raise RuntimeError("Could not allocate a unique document sequence number")
 
 
 def list_for_project(db: Session, org_id: str, project_id: str) -> List[dict]:
@@ -91,7 +151,27 @@ def list_for_project(db: Session, org_id: str, project_id: str) -> List[dict]:
         .where(Document.organization_id == org_id, Document.project_id == project_id)
         .order_by(Document.seq.desc())
     ).all()
-    return [d.to_dict() for d in rows]
+    return [annotate_file_state(d.to_dict(), d.source_path) for d in rows]
+
+
+def annotate_file_state(payload: dict, source_path: Optional[str]) -> dict:
+    """Set ``fileMissing`` on a document payload.
+
+    Uploaded files live on local disk by default, and in some deployments that
+    disk is ephemeral (a redeploy wipes it) while the document rows survive in
+    the database. Without this flag the UI offers previews/attachments for a
+    file that is gone and every attempt ends in a bare 404. The check is a
+    single stat, and only for the local backend — an S3 HEAD per document on
+    every list would be a request storm, and object storage doesn't lose files
+    on redeploy.
+    """
+    from app.services import storage
+
+    missing = False
+    if payload.get("hasFile") and source_path and not storage.is_remote(source_path):
+        missing = not os.path.exists(source_path)
+    payload["fileMissing"] = missing
+    return payload
 
 
 def get(db: Session, org_id: str, doc_id: str) -> Optional[Document]:
@@ -129,11 +209,10 @@ def add(
     checksum_sha256: Optional[str] = None,
 ) -> Document:
     """Register an uploaded document and return the persisted row."""
-    seq = _next_seq(db)
-    doc = Document(
+    return _insert_with_fresh_seq(db, lambda seq: Document(
         organization_id=org_id,
         seq=seq,
-        id=f"upload-{seq}",
+        id=_new_id(seq),
         project_id=project_id,
         name=name,
         type=doc_type,
@@ -149,11 +228,7 @@ def add(
         plan_type=plan_type,
         reviewed=False,
         edited=False,
-    )
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
-    return doc
+    ))
 
 
 def delete(db: Session, org_id: str, doc_id: str) -> Optional[Document]:
@@ -368,7 +443,7 @@ def rehydrate_uploads(
             Document(
                 organization_id=org_id,
                 seq=seq,
-                id=f"upload-{seq}",
+                id=_new_id(seq),
                 project_id=project_id,
                 name=os.path.splitext(fname)[0],
                 type="Uploaded",

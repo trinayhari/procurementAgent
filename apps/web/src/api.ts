@@ -85,12 +85,43 @@ function onUnauthorized(status: number): void {
   if (status === 401) setToken(null)
 }
 
+// The backend's human-readable reason for a failed response, or null.
+//
+// FastAPI puts a string in `detail` for HTTPException (e.g. "RFQ was already
+// sent", the BOM approval gate, "File exceeds 100MB limit") and a list of
+// `{loc, msg}` objects for a 422 validation error — take the first message so
+// a rejected field ("'x' is not a valid email address") reads as a sentence.
+export function errorDetail(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null
+  const detail = (data as { detail?: unknown }).detail
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail) && detail.length) {
+    const first = detail[0] as { msg?: unknown }
+    if (first && typeof first.msg === 'string') {
+      // Pydantic prefixes custom validator messages with "Value error, ".
+      return first.msg.replace(/^Value error, /, '')
+    }
+  }
+  return null
+}
+
+// Build the Error for a failed response: the backend's reason when it gave
+// one, else `fallback` (a "<path> -> <status>" code the UI can recognise as
+// generic and replace with its own hint).
+export async function responseError(res: Response, fallback: string): Promise<Error> {
+  onUnauthorized(res.status)
+  const data = await res.json().catch(() => null)
+  return new Error(errorDetail(data) || fallback)
+}
+
+// True when an error carries a backend reason (vs. a bare "<path> -> <status>").
+export function hasDetail(e: unknown): e is Error {
+  return e instanceof Error && !!e.message && !e.message.includes('->')
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { headers: { ...authHeaders() } })
-  if (!res.ok) {
-    onUnauthorized(res.status)
-    throw new Error(`${path} -> ${res.status}`)
-  }
+  if (!res.ok) throw await responseError(res, `${path} -> ${res.status}`)
   return res.json() as Promise<T>
 }
 
@@ -100,14 +131,9 @@ export function post<T = unknown>(path: string, body?: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   }).then(async (r) => {
-    if (!r.ok) {
-      onUnauthorized(r.status)
-      // Surface the backend's human-readable reason (e.g. "RFQ was already
-      // sent", BOM approval gate) instead of a bare status code.
-      const data = await r.json().catch(() => null)
-      const detail = data && typeof data.detail === 'string' ? data.detail : null
-      throw new Error(detail || `${path} -> ${r.status}`)
-    }
+    // Surface the backend's human-readable reason (e.g. "RFQ was already
+    // sent", BOM approval gate) instead of a bare status code.
+    if (!r.ok) throw await responseError(r, `${path} -> ${r.status}`)
     return r.json() as Promise<T>
   })
 }
@@ -115,6 +141,28 @@ export function post<T = unknown>(path: string, body?: unknown): Promise<T> {
 // ------------------------------------------------------------------ auth API
 export type AuthUser = Schemas['User']
 type TokenResponse = Schemas['TokenResponse']
+
+// Turn a FastAPI error body into one readable sentence. A plain `detail`
+// string comes through as-is; a Pydantic validation error (422) arrives as a
+// list of `{loc, msg}` objects, which would otherwise render as
+// "[object Object]" on the auth screen.
+export function describeApiError(data: unknown, fallback: string): string {
+  const detail = data && typeof data === 'object' ? (data as { detail?: unknown }).detail : undefined
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((d) => {
+        if (!d || typeof d !== 'object') return ''
+        const { loc, msg } = d as { loc?: unknown[]; msg?: string }
+        const field = Array.isArray(loc) ? loc.filter((x) => x !== 'body').map(String).join('.') : ''
+        const text = (msg || '').replace(/^Value error, /, '').replace(/^value is not a valid email address: /, '')
+        return field ? `${field[0].toUpperCase()}${field.slice(1)}: ${text}` : text
+      })
+      .filter(Boolean)
+    if (parts.length) return parts.join(' · ')
+  }
+  return fallback
+}
 
 // Surface a friendly message for the auth screen rather than a bare status code.
 async function authRequest(path: string, body: unknown): Promise<TokenResponse> {
@@ -125,7 +173,7 @@ async function authRequest(path: string, body: unknown): Promise<TokenResponse> 
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error((data && data.detail) || `Request failed (${res.status})`)
+    throw new Error(describeApiError(data, `Request failed (${res.status})`))
   }
   return data as TokenResponse
 }
@@ -205,6 +253,12 @@ export function createInvite(email: string): Promise<Invite> {
   return post<Invite>('/api/team/invites', { email })
 }
 
+// Re-send a pending invitation. With no email provider the response carries
+// the accept link again instead (emailed: false).
+export function resendInvite(inviteId: string): Promise<Invite> {
+  return post<Invite>(`/api/team/invites/${inviteId}/resend`)
+}
+
 // Cancel a pending invitation.
 export async function revokeInvite(inviteId: string): Promise<void> {
   const res = await fetch(`${BASE}/api/team/invites/${inviteId}`, {
@@ -252,10 +306,17 @@ export function uploadDocument(
   form.append('file', file)
   if (planType) form.append('plan_type', planType)
   if (projectId) form.append('project_id', projectId)
-  return fetch(`${BASE}/api/documents`, { method: 'POST', headers: { ...authHeaders() }, body: form }).then((r) => {
-    if (!r.ok) throw new Error(`upload -> ${r.status}`)
+  return fetch(`${BASE}/api/documents`, { method: 'POST', headers: { ...authHeaders() }, body: form }).then(async (r) => {
+    // The backend explains rejections (unsupported type, empty/corrupt file,
+    // size limit) — pass that through rather than a bare status code.
+    if (!r.ok) throw await responseError(r, `upload -> ${r.status}`)
     return r.json() as Promise<Document>
   })
+}
+
+// Re-run extraction for an uploaded document (e.g. after a failed run).
+export function analyzeDocument(docId: string): Promise<Document> {
+  return post<Document>(`/api/documents/${docId}/analyze`)
 }
 
 // Page count + signed URLs for the document preview. Pages are rendered to
@@ -293,8 +354,8 @@ export function saveDocumentLineItems(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ groups }),
-  }).then((r) => {
-    if (!r.ok) throw new Error(`save line-items -> ${r.status}`)
+  }).then(async (r) => {
+    if (!r.ok) throw await responseError(r, `save line-items -> ${r.status}`)
     return r.json() as Promise<LineItemGroup[]>
   })
 }
@@ -514,13 +575,9 @@ export function saveRfq(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   }).then(async (r) => {
-    if (!r.ok) {
-      // Surface the backend's reason (e.g. "Attachments exceed the 15 MB email
-      // limit") instead of a bare status code.
-      const data = await r.json().catch(() => null)
-      const detail = data && typeof data.detail === 'string' ? data.detail : null
-      throw new Error(detail || `save rfq -> ${r.status}`)
-    }
+    // Surface the backend's reason (e.g. "Attachments exceed the 15 MB email
+    // limit", an invalid recipient email) instead of a bare status code.
+    if (!r.ok) throw await responseError(r, `save rfq -> ${r.status}`)
     return r.json() as Promise<PersistedRfq>
   })
 }
@@ -586,16 +643,28 @@ export function getLineComparison(
   )
 }
 
+// Award records for a project, newest first. The comparison screen reads these
+// so an already-awarded package is flagged before anyone re-awards it (which
+// would re-notify every supplier).
+export type PurchaseDecision = Schemas['PurchaseDecision']
+export function listPurchaseDecisions(projectId: string): Promise<PurchaseDecision[]> {
+  return get<PurchaseDecision[]>(`/api/projects/${projectId}/purchase-decisions`)
+}
+
 // Submit a (possibly split) award — selections map each line name to a supplier id.
+// `supersede` must be true to award a package that already has a purchase
+// decision — the backend refuses a repeat award (409) otherwise, since every
+// award issues POs and emails every supplier again.
 export function awardPackage(
   projectId: string,
   pkg: string,
   selections: Record<string, string>,
   strategy?: string,
+  supersede = false,
 ): Promise<AwardResult> {
   return post<AwardResult>(
     `/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/award`,
-    { selections, strategy },
+    { selections, strategy, supersede },
   )
 }
 
@@ -652,7 +721,6 @@ export function emptyProjectSlices(): Pick<ModelData,
 // error so a single missing sub-resource (or zero projects) can never blank the
 // whole UI.
 export async function loadModelData(projectId?: string): Promise<ModelData> {
-  const pkg = encodeURIComponent('Water Utilities')
   const safe = <T>(p: Promise<T>, fb: T): Promise<T> => p.catch(() => fb)
 
   const [dashboard, projects, suppliers] = await Promise.all([
@@ -677,7 +745,10 @@ export async function loadModelData(projectId?: string): Promise<ModelData> {
       proj(`/api/projects/${pid}/documents`, [] as Document[]),
       proj(`/api/projects/${pid}/line-items`, [] as LineItemGroup[]),
       proj(`/api/projects/${pid}/quotes`, [] as Quote[]),
-      proj(`/api/projects/${pid}/packages/${pkg}/comparison`, emptyComparison),
+      // The prototype comparison summary for a fixed package: nothing on
+      // screen reads it any more (the compare view fetches its own
+      // line-comparison), and the request 404'd on every workspace load.
+      Promise.resolve(emptyComparison),
       proj(`/api/projects/${pid}/rfqs`, [] as Rfq[]),
       proj(`/api/projects/${pid}/rfq-folders`, [] as RfqFolder[]),
       proj(`/api/projects/${pid}/timeline`, emptyTimeline),

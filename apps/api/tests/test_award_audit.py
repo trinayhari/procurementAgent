@@ -45,12 +45,22 @@ def test_line_comparison_and_award_records_decision(project):
     assert d["poCount"] >= 1
     assert d["suppliers"]
 
-    # Awarding is deterministic/idempotent in effect: a repeat award writes a
-    # second decision record (history) but the same winning selection.
+    # A repeat award is refused unless explicitly superseded: every award
+    # issues POs and emails suppliers, so a replayed request must not.
     r = client.post(
         f"/api/projects/{pid}/packages/{bom_id}/award",
         headers=headers,
         json={"selections": {}, "strategy": "mix"},
+    )
+    assert r.status_code == 409
+    assert "already awarded" in r.json()["detail"]
+    assert len(client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers).json()) == 1
+    # An explicit supersede writes a second decision record (history) with the
+    # same winning selection.
+    r = client.post(
+        f"/api/projects/{pid}/packages/{bom_id}/award",
+        headers=headers,
+        json={"selections": {}, "strategy": "mix", "supersede": True},
     )
     assert r.status_code == 200
     r = client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers)

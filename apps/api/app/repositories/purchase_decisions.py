@@ -55,3 +55,19 @@ def list_for_project(db: Session, org_id: str, project_id: str) -> List[dict]:
         .order_by(PurchaseDecision.created_at.desc())
     ).all()
     return [r.to_dict() for r in rows]
+
+
+def latest_for_package(
+    db: Session, org_id: str, project_id: str, package: str
+) -> Optional[dict]:
+    """The most recent award for one package on a project, or None."""
+    row = db.scalars(
+        select(PurchaseDecision)
+        .where(
+            PurchaseDecision.organization_id == org_id,
+            PurchaseDecision.project_id == project_id,
+            PurchaseDecision.package == package,
+        )
+        .order_by(PurchaseDecision.created_at.desc())
+    ).first()
+    return row.to_dict() if row else None

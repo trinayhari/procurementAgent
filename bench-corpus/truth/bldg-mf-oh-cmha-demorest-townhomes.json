@@ -1,0 +1,141 @@
+{
+  "doc_id": "bldg-mf-oh-cmha-demorest-townhomes",
+  "plan_type": "building_plan",
+  "authored_by": "agent:corpus-acquisition",
+  "authored_at": "2026-08-12",
+  "completeness": "partial",
+  "notes": "MULTIFAMILY REPEATED-UNIT CASE, and the multiplier here is NOT the dwelling-unit count. The RFQ narrative on page 1 states the project outright: \"Demorest Townhomes Phase II is 102 units with 13 townhome-style buildings and a clubhouse.\" The structural sheets draw ONE representative townhome building (sheet S101 foundation plan, a 128'-0\" x 36'-0\" eight-plex) plus the clubhouse (a separate 52'-0\" foundation plan later in the set) — every other building is a repeat. So a whole-project BOM must scale the townhome-building quantities by 13 BUILDINGS, not by 102 units and not by 1; the clubhouse is a single, separate building and must not be multiplied. Sheet A-series notes reinforce the repetition from the architectural side: \"SOME UNITS OCCUR IN THE BUILDING MULTIPLE TIMES AND THEIR ORIENTATION IN PLAN MAY VARY. SEE A100'S FOR UNIT TYPE LOCATIONS AND ORIENTATION.\" Truth is transcribed from the CONT. WALL FOOTING SCHEDULE and SPREAD FOOTING SCHEDULE on S101, the WOOD BEAM SCHEDULE on S102, and the WOOD HEADER SCHEDULE on S102 — sizes and reinforcing verbatim. Footing lengths and member counts are not tabulated anywhere in this excerpt, so quantities are null; the only stated count in what was read is the clubhouse's \"12\\\"Ø PIER, TYP. OF 4\". Not enumerated, hence partial: the roof framing plan, general structural notes sheet (concrete strengths, lumber grades, sheathing), shear-wall and holdown schedules, the architectural unit plans, and the door/window schedules. Two extra facts a reviewer should fold in: exterior-wall headers are Southern Pine #2, fire-retardant treated (S102 header note 5), and 'H1' is the default header for any opening not designated on the framing plans (note 4), so H1 counts are open-ended. The clubhouse foundation plan also tags a footing mark TS16 that does not appear in the S101 schedule read here — it is deliberately not listed rather than guessed. The first ~8 pages of the PDF are RFQ procurement narrative, not drawings.",
+  "items": [
+    {
+      "category": "concrete",
+      "name": "F16 Continuous Wall Footing, 1'-4\" x 2'-6\" deep",
+      "aliases": ["F16 footing", "1'-4\" x 2'-6\" continuous wall footing", "16 inch wide continuous footing"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S101, CONT. WALL FOOTING SCHEDULE — mark F16"
+    },
+    {
+      "category": "concrete",
+      "name": "TS18 Continuous Wall Footing, 1'-6\" x 1'-0\" deep",
+      "aliases": ["TS18 footing", "1'-6\" x 1'-0\" continuous wall footing", "18 inch wide thickened slab footing"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S101, CONT. WALL FOOTING SCHEDULE — mark TS18"
+    },
+    {
+      "category": "concrete",
+      "name": "TS3.5 Spread Footing, 3'-6\" x 3'-6\" x 1'-0\" deep",
+      "aliases": ["TS3.5 spread footing", "3'-6\" square spread footing", "3.5 ft square pad footing"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S101, SPREAD FOOTING SCHEDULE — mark TS3.5"
+    },
+    {
+      "category": "concrete",
+      "name": "12\" Dia. Concrete Pier",
+      "aliases": ["12 inch diameter pier", "12\"Ø pier", "12\" round concrete pier"],
+      "quantity": 4,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Clubhouse foundation plan (S101 series) — \"12\\\"Ø PIER, TYP. OF 4\"; four per clubhouse, and there is one clubhouse"
+    },
+    {
+      "category": "rebar",
+      "name": "#5 Rebar — Continuous wall footing, (2) continuous top & bottom",
+      "aliases": ["(2) #5 continuous top and bottom", "#5 rebar continuous in wall footing", "no. 5 bar footing longitudinal"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S101, CONT. WALL FOOTING SCHEDULE — reinforcing for both F16 and TS18 is (2) #5 CONT. T&B"
+    },
+    {
+      "category": "rebar",
+      "name": "#4 Ties @ 48\" O.C. — F16 footing",
+      "aliases": ["#4 ties at 48 inches on center", "#4 tie bars in continuous footing", "no. 4 transverse ties"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S101, CONT. WALL FOOTING SCHEDULE — F16 reinforcing includes #4 TIES @ 48\" O.C."
+    },
+    {
+      "category": "rebar",
+      "name": "#5 Rebar — Spread footing TS3.5, (3) each way",
+      "aliases": ["(3) #5 each way", "#5 rebar spread footing", "no. 5 bar each way in pad footing"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S101, SPREAD FOOTING SCHEDULE — TS3.5 reinforcing (3) #5 E.W."
+    },
+    {
+      "category": "framing",
+      "name": "(2) 1-3/4\" x 14\" LVL Beam (B1)",
+      "aliases": ["(2) 1 3/4 x 14 LVL", "double 1-3/4\"x14\" laminated veneer lumber beam", "B1 beam"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S102, WOOD BEAM SCHEDULE — mark B1"
+    },
+    {
+      "category": "framing",
+      "name": "(3) 1-3/4\" x 14\" LVL Beam (B2)",
+      "aliases": ["(3) 1 3/4 x 14 LVL", "triple 1-3/4\"x14\" laminated veneer lumber beam", "B2 beam"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S102, WOOD BEAM SCHEDULE — mark B2"
+    },
+    {
+      "category": "framing",
+      "name": "(3) 2x8 Pressure-Treated Beam (B3)",
+      "aliases": ["(3) 2 x 8 P.T. beam", "triple 2x8 pressure treated beam", "B3 beam"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S102, WOOD BEAM SCHEDULE — mark B3"
+    },
+    {
+      "category": "framing",
+      "name": "(3) 2x6 Header (H1)",
+      "aliases": ["(3) 2 x 6 header", "triple 2x6 header", "H1 header"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S102, WOOD HEADER SCHEDULE — mark H1, with (1) 2x jack stud and (2) 2x king studs; H1 is the default header for undesignated openings"
+    },
+    {
+      "category": "framing",
+      "name": "(3) 2x10 Header (H2)",
+      "aliases": ["(3) 2 x 10 header", "triple 2x10 header", "H2 header"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S102, WOOD HEADER SCHEDULE — mark H2, with (2) 2x jack studs and (2) 2x king studs"
+    },
+    {
+      "category": "framing",
+      "name": "(2) 2x10 Header (H3)",
+      "aliases": ["(2) 2 x 10 header", "double 2x10 header", "H3 header"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S102, WOOD HEADER SCHEDULE — mark H3, with (2) 2x jack studs and (3) 2x king studs"
+    }
+  ],
+  "forbidden": []
+}

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { tone, badge, chip, bar, ic, lb } from './lib'
+import { tone, badge, chip, bar, ic, lb, canNavigate } from './lib'
 import { post, deleteProject as apiDeleteProject, deleteSupplier as apiDeleteSupplier, updateSupplier as apiUpdateSupplier } from './api'
 import type { SupplierUpdate } from './api'
 import type { ModelData, PlanType, LineItemGroup, AuthUser, SupplierComm } from './api'
@@ -25,7 +25,14 @@ export interface State {
   docLineItems: { id: string; groups: LineItemGroup[] } | null
   editBom: boolean
   bomDraft: LineItemGroup[] | null
+  // The document the open editor belongs to. Save always targets this id —
+  // never "whatever is selected now" — so a list reorder (the processing
+  // poll reloads docs newest-first) or a stray click can't write one
+  // document's draft over another document's BOM.
+  bomEditDocId?: string | null
   bomBusy: boolean
+  // Inline notice for the BOM editor (e.g. "save or cancel before switching").
+  bomEditNotice?: string | null
   projectId?: string
   comparePkg?: string
   newProjOpen?: boolean
@@ -58,8 +65,9 @@ export interface ModelProps {
   docLineItems?: { id: string; groups: LineItemGroup[] } | null
   onUpload?: (file: File, planType?: string) => void
   onDeleteDoc?: (id: string) => void
-  onCreateBom?: () => void
-  onCreateTradeScope?: () => void
+  onReanalyzeDoc?: (id: string) => void
+  onCreateBom?: (name: string) => void | Promise<void>
+  onCreateTradeScope?: (name: string) => void | Promise<void>
   editBom?: boolean
   bomDraft?: LineItemGroup[] | null
   bomBusy?: boolean
@@ -86,9 +94,12 @@ interface DocInput {
   id?: string; name: string; type: string; date: string; status: string; statusTone: string
   items: string; pages: number; processing?: boolean; hasFile?: boolean; planType?: string | null
   reviewed?: boolean; reviewedAt?: string | null; summary?: string | null; edited?: boolean
-  timelineEvents?: number
+  timelineEvents?: number; fileMissing?: boolean
+  // Extraction provenance: a mocked (no AI key) run, and the failure reason
+  // when status is 'Failed'.
+  mocked?: boolean; error?: string | null
 }
-interface QuoteInput { id?: string; sup: string; pkg: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
+interface QuoteInput { id?: string; sup: string; pkg: string; package?: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }
 interface ThreadInput { dir: string; who: string; initials: string; time: string; body: string; subject?: string; attach?: string; logoBg?: string }
 interface MilestoneInput { id?: number | null; name: string; date: string; status: string; desc: string; tone: string; done?: boolean; active?: boolean; conflict?: boolean }
@@ -107,8 +118,10 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   // back to its baked-in literal when a key is absent, so the UI renders fully
   // even if the API is unavailable.
   const D: Partial<ModelData> = (props && props.data) || {}
-  const go = (n: string) => set({ nav: n, mnav: false, compare: false, supplierId: null })
-  const setTab = (t: string) => set({ tab: t, compare: false, supplierId: null })
+  // In-app navigation is refused while a guard (an RFQ modal with unsaved
+  // edits) says no — see lib.tsx registerNavGuard.
+  const go = (n: string) => { if (!canNavigate()) return; set({ nav: n, mnav: false, compare: false, supplierId: null }) }
+  const setTab = (t: string) => { if (!canNavigate()) return; set({ tab: t, compare: false, supplierId: null }) }
 
   const desktop = s.vw > 860
   const isProject = s.nav === 'project'
@@ -206,8 +219,16 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   const supComms = (s.activeSupplierComms || []).map((c) => ({ ...c, chipStyle: chip(c.tone), iconHtml: ic(c.icon) }))
 
   const docRaw: DocInput[] = D.docs || []
+  // While a BOM edit is open, switching documents is blocked: `saveBom` writes
+  // the draft onto whichever document is current at save time, so edit A →
+  // click B → Save would overwrite B's BOM with A's draft.
+  const openDoc = (i: number) => {
+    if (i === s.docIdx) return
+    if (s.editBom) { set({ bomEditNotice: 'Save or cancel your BOM edits before switching documents.' }); return }
+    set({ docIdx: i })
+  }
   const docs = docRaw.map((d, i) => ({
-    ...d, onOpen: () => set({ docIdx: i }), active: i === s.docIdx, statusBadge: badge(d.statusTone),
+    ...d, onOpen: () => openDoc(i), active: i === s.docIdx, statusBadge: badge(d.statusTone),
     rowStyle: sx({
       display: 'grid', gridTemplateColumns: 'minmax(150px,2fr) 124px 116px 104px', gap: 10,
       padding: '12px 16px', alignItems: 'center', cursor: 'pointer', borderBottom: '1px solid var(--border)',
@@ -252,16 +273,24 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
   )
   const additionalSpec = specFor('other')
 
-  // Per-document BOM groups (props.docLineItems, fetched when a doc is selected)
-  // take precedence; then the project-wide line items; then baked-in literals.
+  // The BOM panel shows ONLY the selected document's own line items
+  // (props.docLineItems, fetched when a doc is selected). There is
+  // deliberately no fallback to the project-wide `/line-items` feed: that
+  // endpoint returns the shared demo BOM for every project, and rendering it
+  // under a failed or unselected document presented placeholder items as real,
+  // with live Edit / Confirm buttons.
   const dli = props && props.docLineItems
   const perDoc = dli && doc && dli.id === doc.id ? dli.groups : null
-  const extracted = (perDoc || D.lineItems || []).map((g) => {
+  const extractedLoading = !!(doc && doc.id) && !perDoc
+  const extracted = (perDoc || []).map((g) => {
     const { fg } = tone(g.tone)
     return { ...g, dotStyle: sx({ width: 8, height: 8, borderRadius: 2, background: fg, flex: 'none' }), countBadge: badge(g.tone, { fontSize: 11, padding: '1px 8px' }) }
   })
 
-  const quotes = ((D.quotes || []) as QuoteInput[]).map((q) => ({ ...q, onOpen: () => set({ compare: true, comparePkg: q.pkg }), logoStyle: lb(q.logoBg, 30) }))
+  // Compare by package KEY (a custom BOM / trade scope's key is its document
+  // id, which the label alone can't recover); the seeded demo quotes carry no
+  // key, and their label maps to one server-side.
+  const quotes = ((D.quotes || []) as QuoteInput[]).map((q) => ({ ...q, onOpen: () => set({ compare: true, comparePkg: q.package || q.pkg }), logoStyle: lb(q.logoBg, 30) }))
 
   const cmpSup = ((D.comparison && D.comparison.suppliers) || []).map((c) => ({ ...c, logoStyle: lb(c.logoBg, 40) }))
   const cmpRowsRaw: CmpRowInput[] = (D.comparison && D.comparison.rows) || []
@@ -410,8 +439,12 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       set({ customProjects: (s.customProjects || []).filter((p) => p.id !== id) })
       try {
         await apiDeleteProject(id)
-        if (props && props.reload) await props.reload()
+        // Leave the deleted project's route BEFORE refetching: a reload that
+        // resolves while it is still the project on screen is treated as a
+        // stale deep link (see App.reload), which would also flash a
+        // "no longer exists" notice the user doesn't need after their own delete.
         if (wasActive) set({ nav: 'projects', projectId: undefined, tab: 'overview', compare: false, supplierId: null, mnav: false })
+        if (props && props.reload) await props.reload(wasActive ? '' : undefined)
       } catch {
         set({ projError: 'Couldn’t delete the project — is the backend running?' })
         if (props && props.reload) await props.reload()
@@ -419,7 +452,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     },
     goDashboard: () => go('dashboard'), goProjects: () => go('projects'),
     goSuppliers: () => go('suppliers'), goSettings: () => go('settings'),
-    openProject: (p?: { id?: string }) => set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }),
+    openProject: (p?: { id?: string }) => { if (!canNavigate()) return; set({ nav: 'project', projectId: (p && p.id) || s.projectId, tab: 'overview', compare: false, supplierId: null, mnav: false }) },
     toggleMnav: () => set({ mnav: !s.mnav }),
     mnavOpen: s.mnav, closeMnav: () => set({ mnav: false }),
     activeProject, tabStyle,
@@ -427,15 +460,17 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     tabRfqs: s.tab === 'rfqs', tabQuotesTable: s.tab === 'quotes' && !s.compare, tabCompare: s.tab === 'quotes' && s.compare, tabTimeline: s.tab === 'timeline',
     overviewCards, packages,
     suppliers, supplierOpen, activeSupplier, supComms, supCommsLoading,
-    docs, doc, extracted,
+    docs, doc, extracted, extractedLoading,
+    bomEditNotice: s.bomEditNotice || null,
+    dismissBomEditNotice: () => set({ bomEditNotice: null }),
     // Plan slots + additional documents (see App.tsx + TabDocuments).
     docSlots, additionalDocs, customBoms, tradeScopes,
     additionalLabel: (additionalSpec && additionalSpec.label) || 'Additional Document',
     additionalKey: 'other',
     customBomType: CUSTOM_BOM_TYPE,
     tradeScopeType: TRADE_SCOPE_TYPE,
-    createBom: (props && props.onCreateBom) || (() => {}),
-    createTradeScope: (props && props.onCreateTradeScope) || (() => {}),
+    createBom: props?.onCreateBom ?? ((_name: string) => {}),
+    createTradeScope: props?.onCreateTradeScope ?? ((_name: string) => {}),
     // Upload / extraction wiring (see App.tsx + TabDocuments).
     planTypes: (props && props.planTypes) || null,
     planType: (props && props.planType) || 'site_plan',
@@ -444,6 +479,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
     uploadError: (props && props.uploadError) || null,
     onUpload: props?.onUpload ?? ((_file: File, _planType?: string) => {}),
     onDeleteDoc: props?.onDeleteDoc ?? ((_id: string) => {}),
+    onReanalyzeDoc: props?.onReanalyzeDoc ?? ((_id: string) => {}),
     // Human-in-the-loop BOM review (see App.tsx + ExtractedPanel).
     bomEditing: !!(props && props.editBom),
     bomDraft: (props && props.bomDraft) || [],

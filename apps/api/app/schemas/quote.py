@@ -6,7 +6,11 @@ from pydantic import BaseModel
 class Quote(BaseModel):
     id: str
     sup: str
-    pkg: str
+    pkg: str  # display label
+    # Package key ("water", or a custom BOM / trade scope document id) — what
+    # the comparison + award routes take. Empty for the seeded demo quotes,
+    # whose label maps to a key server-side.
+    package: str = ""
     amount: str
     freight: str
     total: str
@@ -86,6 +90,16 @@ class AwardOption(BaseModel):
     selections: Dict[str, str] = {}  # lineName -> supplierId
 
 
+class LastAward(BaseModel):
+    """The most recent purchase decision for this package, when there is one."""
+
+    decidedAt: Optional[str] = None
+    decidedByEmail: str = ""
+    suppliers: List[str] = []
+    total: float = 0
+    poCount: int = 0
+
+
 class LineComparison(BaseModel):
     pkg: str
     package: str
@@ -94,11 +108,19 @@ class LineComparison(BaseModel):
     lines: List[LineCompareRow]
     options: List[AwardOption]
     recommendedOption: str = "mix"
+    # Set when the package was already awarded: the UI shows it and asks for
+    # an explicit re-award rather than re-issuing (and re-emailing) the POs
+    # on a stray click.
+    lastAward: Optional[LastAward] = None
 
 
 class AwardRequest(BaseModel):
     selections: Dict[str, str]  # lineName -> supplierId
     strategy: Optional[str] = None
+    # A package that already has a purchase decision is refused (409) unless
+    # the caller explicitly supersedes it: every award issues POs and emails
+    # every supplier, so a replayed or double-submitted request must not.
+    supersede: bool = False
 
 
 class AwardResult(BaseModel):
@@ -116,6 +138,29 @@ class SelectResult(BaseModel):
     quote_id: str
     status: str
     message: str
+
+
+class PurchaseDecision(BaseModel):
+    """A recorded award for a package — who bought what, from whom, decided by
+    whom. Surfaced on the comparison screen so a package that was already
+    awarded is never re-awarded (and suppliers re-notified) by accident."""
+
+    id: str
+    projectId: str
+    package: str
+    packageLabel: str
+    strategy: Optional[str] = None
+    selections: Dict[str, str] = {}
+    supplierIds: List[str] = []
+    suppliers: List[str] = []
+    total: float
+    material: float = 0.0
+    freight: float = 0.0
+    leadDays: Optional[int] = None
+    poCount: int = 0
+    decidedBy: Optional[str] = None
+    decidedByEmail: Optional[str] = None
+    createdAt: Optional[str] = None
 
 
 class QuoteIngestResult(BaseModel):

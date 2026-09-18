@@ -1,0 +1,38 @@
+{
+  "id": "civil-storm-sharpened",
+  "label": "Sharpened storm-drainage category for civil sets",
+  "description": "Hypothesis: the `storm` category description is written around pipe and catch basins, but a real storm drainage sheet is mostly short segment callouts, uniquely-tagged structures, and small appurtenances the description never names — so the model under-reports fittings and mis-handles per-segment lengths. Grounded in sheet C124 of site-wa-mi-pae19-001-01, where the drawn storm scope is 23 individually stationed items: ten separate 6\" segment callouts as short as 2 LF, three pipe sizes that must each be summed independently (12\" = 198 LF over six segments, 8\" = 66 LF over three, 6\" = 75 LF over ten), a 6\" subsurface/footing drain line (176 LF) that is a different product from the storm main, six catch basins carrying unique tags (SEP333101-SEP333105) that appear again on the profile sheet, two 18\" yard drains, five cleanouts, six wyes, four bends at three different angles, two outfalls and an inlet. Almost none of that vocabulary appears in the shipped category description or examples. This variant rewrites the description and examples in that vocabulary and adds guidance on summing segments per size while counting tagged structures once. If storm recall and quantity accuracy do not improve, the loss is in reading the sheet, not in describing the category.",
+  "settings": {},
+  "prompts": {},
+  "spec_overrides": {
+    "site_plan": {
+      "categories": {
+        "storm": {
+          "description": "Storm drainage AND subsurface drainage. Read the plan-view segment callouts, which look like 'nn LF (12\" STD)' strung along the pipe run — SUM them PER PIPE SIZE into one line item per size, and keep a size you have seen only once as its own line rather than folding it into a neighbouring size. A short 2 LF stub is a real segment; do not drop it. Subsurface drain / footing drain / wall drain (labelled SSD) is a SEPARATE line item from the storm main even at the same diameter, because it is perforated pipe bought as a different product. Structures carry unique tags (e.g. SEP333101, YD #2, CO #3) and each tag is ONE structure no matter how many sheets it appears on — count tags, not symbols, and never add the profile sheet's copy to the plan sheet's. Break out catch basins by their agency type AND barrel size ('Type 1', 'Type 1L', 'Type 2-48\"', 'Type 2-54\"' are four separate line items). Capture the appurtenances as well as the pipe: yard drains by grate size, cleanouts by size, wyes and tees, every bend by its angle (11.25 deg, 22.5 deg, 45 deg are separate lines), inlets, outfalls and their beveled end sections, energy dissipation pads, vaned grates, spill-control tees, and concrete or vegetated swales. Pipe and swale are LF; structures, fittings, grates and outfalls are EA.",
+          "examples": [
+            "12\" Storm Drain Pipe (STD)",
+            "8\" Storm Drain Pipe (STD)",
+            "6\" Storm Drain Pipe (STD)",
+            "6\" Subsurface Drain (SSD) / Wall Drain",
+            "24\" RCP, Class III",
+            "Type 1 Catch Basin",
+            "Type 1L Catch Basin",
+            "Type 2 Catch Basin, 48\" Diameter",
+            "Type 2 Catch Basin, 54\" Diameter",
+            "18\" Yard Drain",
+            "6\" Cleanout",
+            "6\" Wye",
+            "11.25 Degree Horizontal Bend",
+            "45 Degree Horizontal Bend",
+            "Storm Outfall with Outfall Protection",
+            "Beveled End Pipe Section",
+            "Energy Dissipation Pad",
+            "Vaned Grate",
+            "Roof Downspout Connection",
+            "Concrete Swale"
+          ]
+        }
+      }
+    }
+  }
+}

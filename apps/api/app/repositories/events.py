@@ -112,7 +112,9 @@ def list_recent(db: Session, org_id: str, limit: int = 8) -> List[dict]:
             "icon": e.icon,
             "tone": e.tone,
             "title": e.title,
-            "meta": f"{name} · {e.meta}" if e.meta else name,
+            # "Project created" logs the project name as its meta — don't
+            # render that as "Rex Job · Rex Job".
+            "meta": f"{name} · {e.meta}" if e.meta and e.meta != name else name,
             "time": _relative_time(e.created_at, now),
         }
         for e, name in rows

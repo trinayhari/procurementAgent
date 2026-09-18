@@ -1,27 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, FormEvent, MouseEvent, ReactNode } from 'react'
-import { Box, DcIcon, css, ic, lb } from './lib'
+import { Box, DcIcon, css, ic, lb, canNavigate, registerNavGuard } from './lib'
 import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
 import AcceptInvite from './AcceptInvite'
 import {
-  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems,
-  saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone,
+  loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, analyzeDocument,
+  saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone, hasDetail,
   searchSuppliers, getFoundSuppliers, getPackageBom, generateRfq, listGeneratedRfqs, saveRfq, sendRfq, deleteRfq,
   getDocumentPreview, sendTestEmail, getEmailConfig,
   listProjectBoms, createSupplier, getSupplierDetail,
   listTradeScopes, createTradeScope, updateTradeScope,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
-  getLineComparison, awardPackage,
+  getLineComparison, awardPackage, listPurchaseDecisions,
   getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
-  getTeam, createInvite, revokeInvite,
+  getTeam, createInvite, revokeInvite, resendInvite,
   TOKEN_KEY, emptyProjectSlices,
 } from './api'
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
   CustomBomSummary, TradeScopeSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers, EmailConfig,
+  PurchaseDecision,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -90,7 +91,9 @@ const PIN = 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" c
 function hashFor(s: Pick<State, 'nav' | 'projectId' | 'tab' | 'compare' | 'comparePkg'>): string {
   if (s.nav === 'project' && s.projectId) {
     if (s.tab === 'quotes' && s.compare) {
-      return `#/project/${s.projectId}/quotes/compare${s.comparePkg ? `/${s.comparePkg}` : ''}`
+      // Package labels carry spaces ("Water Utilities"); encode so the hash
+      // round-trips through reload/back without a second encoding downstream.
+      return `#/project/${s.projectId}/quotes/compare${s.comparePkg ? `/${encodeURIComponent(s.comparePkg)}` : ''}`
     }
     return `#/project/${s.projectId}/${s.tab || 'overview'}`
   }
@@ -112,7 +115,9 @@ function parseHash(): Partial<State> {
   const seg = raw.split('/').filter(Boolean)
   if (seg[0] === 'project' && seg[1]) {
     if (seg[2] === 'quotes' && seg[3] === 'compare') {
-      return { nav: 'project', projectId: seg[1], tab: 'quotes', compare: true, comparePkg: seg[4] || undefined }
+      let pkg: string | undefined
+      try { pkg = seg[4] ? decodeURIComponent(seg[4]) : undefined } catch { pkg = seg[4] || undefined }
+      return { nav: 'project', projectId: seg[1], tab: 'quotes', compare: true, comparePkg: pkg }
     }
     // Reset compare/comparePkg explicitly: each branch must return the full
     // nav slice, or going Back from the compare view would leave `compare`
@@ -208,6 +213,9 @@ export default function App() {
   // Hydrate the backend bundle for one project. On failure the previous bundle
   // (or the empty state) is left in place. Pass an explicit id (e.g. right
   // after creating a project) to avoid the stale-closure value of s.projectId.
+  // Pass '' to say "no project is on screen any more" (after a delete): the
+  // bundle is then applied for whichever project the API falls back to, even
+  // if the route change that left the project hasn't rendered yet.
   // Resolves to whether the response was APPLIED: it is dropped unless it is
   // still the newest load, fetched for the account AND credentials still signed
   // in, and for the project still on screen — a late response must never
@@ -230,7 +238,26 @@ export default function App() {
         // optimistic not-yet-saved id, or a stale hash) — never paint that
         // fallback under a different project's route.
         const eff = pid && data.projects.some((p) => p.id === pid) ? pid : data.projects[0] ? data.projects[0].id : ''
-        if (projectIdRef.current && eff !== projectIdRef.current) return false
+        if (pid && eff !== pid && !pid.startsWith('proj-')) {
+          // The requested project no longer exists (deleted — here or in
+          // another tab — or a stale deep link). Dropping the response left
+          // the old list on screen after a delete and a stale #/project/…
+          // hash on the loading splash forever. Apply the fresh bundle; if
+          // that project is still the one on screen, leave it for the
+          // projects list and say why. (Optimistic 'proj-…' ids are the
+          // create flow's own placeholder — the real id follows.)
+          bundleForRef.current = { uid, pid: eff }
+          const onIt = projectIdRef.current === pid
+          set({
+            data,
+            ...(onIt ? {
+              nav: 'projects', projectId: undefined, tab: 'overview', compare: false, comparePkg: undefined,
+              supplierId: null, projError: 'That project no longer exists — it may have been deleted.',
+            } : {}),
+          })
+          return true
+        }
+        if (pid !== '' && projectIdRef.current && eff !== projectIdRef.current) return false
         bundleForRef.current = { uid, pid: eff }
         set({ data })
         return true
@@ -258,7 +285,7 @@ export default function App() {
         loadSeqRef.current++ // invalidate any in-flight load
         set({
           data: null, docLineItems: null, customProjects: [], bomDraft: null,
-          editBom: false, bomBusy: false, uploadError: null, projError: null,
+          editBom: false, bomEditDocId: null, bomBusy: false, uploadError: null, projError: null,
         })
       }
       return
@@ -304,7 +331,7 @@ export default function App() {
     // render's closure, so it can't clobber a bundle applied in between.
     setS((prev) =>
       prev.data && bundleForRef.current.pid !== pid
-        ? { ...prev, data: { ...prev.data, ...emptyProjectSlices() }, docLineItems: null, docIdx: 0, rfqIdx: 0 }
+        ? { ...prev, data: { ...prev.data, ...emptyProjectSlices() }, docLineItems: null, docIdx: 0, rfqIdx: 0, editBom: false, bomDraft: null, bomEditDocId: null }
         : prev,
     )
     reload(pid)
@@ -343,8 +370,15 @@ export default function App() {
   // Honour manual hash edits and browser back/forward by re-syncing state.
   // Transient chrome (mobile drawer, open supplier) is dropped so arriving at
   // a page via history behaves like navigating to it.
+  const hashRef = useRef('')
+  hashRef.current = hashFor(s)
   useEffect(() => {
-    const onHash = () => set({ mnav: false, supplierId: null, ...parseHash() })
+    const onHash = () => {
+      // A screen with unsaved work refuses the navigation: put the URL back
+      // (the guard has shown its own "discard?" prompt).
+      if (!canNavigate()) { window.history.replaceState(null, '', hashRef.current); return }
+      set({ mnav: false, supplierId: null, ...parseHash() })
+    }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -366,9 +400,23 @@ export default function App() {
       set({ docIdx: 0 }) // newest doc lands at the top
       await reload()
     } catch (e) {
-      set({ uploadError: 'Upload failed. Is the backend running?' })
+      // The backend says why it refused (unsupported type, empty/corrupt
+      // file, size limit) — show that; the generic hint is for no response.
+      set({ uploadError: hasDetail(e) ? e.message : 'Upload failed. Is the backend running?' })
     } finally {
       set({ uploading: false })
+    }
+  }
+
+  // Re-run extraction for a document whose last run failed. The document goes
+  // back to 'Processing' and the poll below picks up the outcome.
+  const reanalyzeDoc = async (id: string) => {
+    set({ uploadError: null })
+    try {
+      await analyzeDocument(id)
+      await reload()
+    } catch (e) {
+      set({ uploadError: hasDetail(e) ? e.message : 'Could not restart the analysis. Is the backend running?' })
     }
   }
 
@@ -387,11 +435,9 @@ export default function App() {
   // then select it and drop straight into the BOM editor so the user can start
   // adding line items. It sorts newest-first, so it lands at docIdx 0.
   const activePid = () => s.projectId || (s.data && s.data.projects[0] && s.data.projects[0].id) || ''
-  const createBom = async () => {
+  const createBom = async (name: string) => {
     const pid = activePid()
     if (!pid) { set({ uploadError: 'Open a project before creating a BOM.' }); return }
-    const name = window.prompt('Name this bill of materials', 'Custom BOM')
-    if (name === null) return
     const uid = user && user.id
     try {
       const doc = await createManualBom(pid, name.trim() || 'Custom BOM')
@@ -403,7 +449,7 @@ export default function App() {
       set({
         tab: 'documents', docIdx: 0, uploadError: null,
         docLineItems: { id: doc.id, groups },
-        editBom: true,
+        editBom: true, bomEditDocId: doc.id,
         bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })),
       })
     } catch (e) {
@@ -414,11 +460,9 @@ export default function App() {
   // Create a subcontractor trade scope (no file). We name the trade, create the
   // document, then select it so the user can write the scope of work in its
   // editor. It sorts newest-first, so it lands at docIdx 0.
-  const createTrade = async () => {
+  const createTrade = async (name: string) => {
     const pid = activePid()
     if (!pid) { set({ uploadError: 'Open a project before creating a trade scope.' }); return }
-    const name = window.prompt('Which trade do you need bids for?', 'Concrete flatwork')
-    if (name === null) return
     try {
       await createTradeScope(pid, name.trim() || 'Trade')
       await reload()
@@ -443,6 +487,15 @@ export default function App() {
     // Skip the no-op write when already null (the purge/blank paths set it),
     // so those paths don't trigger a second identical render commit.
     if (!doc || !doc.id) { if (s.docLineItems !== null) set({ docLineItems: null }); return }
+    // The editor is pinned to a document id, but docIdx is a list position and
+    // the list is refetched (newest-first) while anything is processing. If a
+    // reload moved the edited document, follow it; if it's gone, close the
+    // editor rather than leave it hovering over some other document.
+    if (s.editBom && s.bomEditDocId && doc.id !== s.bomEditDocId) {
+      const at = docs.findIndex((d) => d.id === s.bomEditDocId)
+      set(at >= 0 ? { docIdx: at } : { editBom: false, bomDraft: null, bomEditDocId: null })
+      return
+    }
     let alive = true
     getDocumentLineItems(doc.id)
       .then((groups) => { if (alive) set({ docLineItems: { id: doc.id, groups } }) })
@@ -456,10 +509,14 @@ export default function App() {
     return docs && docs[s.docIdx]
   }
   const startBomEdit = () => {
-    const groups = (s.docLineItems && s.docLineItems.groups) || []
-    set({ editBom: true, bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })) })
+    const doc = currentDoc()
+    if (!doc || !doc.id) return
+    // Edit the groups loaded FOR THIS document; an in-flight load for another
+    // document must not seed the draft.
+    const groups = (s.docLineItems && s.docLineItems.id === doc.id && s.docLineItems.groups) || []
+    set({ editBom: true, bomEditDocId: doc.id, bomEditNotice: null, bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })) })
   }
-  const cancelBomEdit = () => set({ editBom: false, bomDraft: null })
+  const cancelBomEdit = () => set({ editBom: false, bomDraft: null, bomEditDocId: null, bomEditNotice: null })
   const editBomItem = (gi: number, ii: number, field: string, value: string) =>
     set({ bomDraft: (s.bomDraft ?? []).map((g, i) => (i !== gi ? g : { ...g, items: g.items.map((it, j) => (j !== ii ? it : { ...it, [field]: value })) })) })
   const addBomItem = (gi: number) =>
@@ -467,20 +524,29 @@ export default function App() {
   const deleteBomItem = (gi: number, ii: number) =>
     set({ bomDraft: (s.bomDraft ?? []).map((g, i) => (i !== gi ? g : { ...g, items: g.items.filter((_, j) => j !== ii) })) })
   const saveBom = async () => {
+    // Save to the document the editor was opened for — NOT the currently
+    // selected one. They can differ if the list re-ordered under the editor
+    // (see the effect above); writing the draft to the wrong id replaced
+    // another document's extracted BOM with no way back.
     const doc = currentDoc()
-    if (!doc) return
+    const targetId = s.bomEditDocId || (doc && doc.id)
+    if (!targetId) return
+    if (doc && doc.id !== targetId) {
+      set({ uploadError: 'The BOM editor lost track of its document — reopen it and try again.', editBom: false, bomDraft: null, bomEditDocId: null })
+      return
+    }
     const uid = user && user.id
     set({ bomBusy: true })
     try {
-      await saveDocumentLineItems(doc.id, s.bomDraft ?? [])
-      const groups = await getDocumentLineItems(doc.id)
+      await saveDocumentLineItems(targetId, s.bomDraft ?? [])
+      const groups = await getDocumentLineItems(targetId)
       // Same guard as reload: never write a previous session's data back into
       // state after the account changed mid-flight.
       if (!userRef.current || userRef.current.id !== uid) return
-      set({ editBom: false, bomDraft: null, docLineItems: { id: doc.id, groups } })
+      set({ editBom: false, bomDraft: null, bomEditDocId: null, bomEditNotice: null, docLineItems: { id: targetId, groups } })
       await reload()
     } catch (e) {
-      set({ uploadError: 'Could not save BOM edits.' })
+      set({ uploadError: hasDetail(e) ? e.message : 'Could not save BOM edits.' })
     } finally {
       set({ bomBusy: false })
     }
@@ -488,8 +554,17 @@ export default function App() {
   const confirmBom = async () => {
     const doc = currentDoc()
     if (!doc) return
-    set({ bomBusy: true })
-    try { await confirmDocument(doc.id); await reload() } finally { set({ bomBusy: false }) }
+    set({ bomBusy: true, uploadError: null })
+    try {
+      await confirmDocument(doc.id)
+      await reload()
+    } catch (e) {
+      // Previously an unhandled rejection: the button just un-busied and the
+      // BOM silently stayed unconfirmed.
+      set({ uploadError: hasDetail(e) ? e.message : 'Could not confirm the BOM. Is the backend running?' })
+    } finally {
+      set({ bomBusy: false })
+    }
   }
 
   // Until the stored token is validated, render nothing (avoids a login flash).
@@ -528,7 +603,7 @@ export default function App() {
     user, onLogout: handleLogout, onUserUpdated: setUser,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
-    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onCreateBom: createBom,
+    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onReanalyzeDoc: reanalyzeDoc, onCreateBom: createBom,
     onCreateTradeScope: createTrade,
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
@@ -555,6 +630,57 @@ export default function App() {
       {m.supplierOpen && m.activeSupplier && <SupplierDrawer m={m} />}
       {m.mnavOpen && <MobileNav m={m} />}
       {m.newProjOpen && <NewProjectModal m={m} />}
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------- Confirm */
+// Inline confirmation for destructive or irreversible actions. Replaces
+// window.confirm, which embedded/webview hosts auto-dismiss (the action then
+// silently never happens — or, in some hosts, always happens). Renders in
+// place so the user sees exactly what they are about to do, with the
+// consequence spelled out, and can back out.
+function ConfirmBar({
+  message, confirmLabel = 'Delete', onConfirm, onCancel, busy, tone = 'danger', compact,
+}: {
+  message: ReactNode
+  confirmLabel?: string
+  onConfirm: () => void
+  onCancel: () => void
+  busy?: boolean
+  tone?: 'danger' | 'primary'
+  compact?: boolean
+}) {
+  const color = tone === 'danger' ? 'var(--danger,#dc2626)' : 'var(--primary)'
+  // One shot: after the confirm is clicked, further clicks are ignored until
+  // the caller reports the request finished (`busy` back to false) or the bar
+  // is unmounted. A rapid double/triple click used to fire the DELETE/POST
+  // that many times — React's disabled re-render doesn't land between clicks
+  // dispatched in the same task.
+  const fired = useRef(false)
+  useEffect(() => { if (!busy) fired.current = false }, [busy])
+  const confirm = () => { if (fired.current || busy) return; fired.current = true; onConfirm() }
+  // Escape dismisses the prompt, like any dialog.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onCancel() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, onCancel])
+  return (
+    <div
+      role="alertdialog"
+      onClick={(e) => e.stopPropagation()}
+      style={css(`display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:${compact ? '8px 10px' : '11px 13px'};border-radius:10px;border:1px solid ${color};background:${tone === 'danger' ? 'var(--danger-soft,rgba(220,38,38,.08))' : 'var(--primary-softer)'}`)}
+    >
+      <span style={css(`flex:1;min-width:160px;font-size:${compact ? '12px' : '12.5px'};color:var(--text);line-height:1.4`)}>{message}</span>
+      <div style={css('display:flex;gap:7px;flex:none')}>
+        <Box as="button" type="button" onClick={onCancel} disabled={busy}
+          style={css(`height:${compact ? '28px' : '32px'};padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;font-weight:600`)}
+          hover="background:var(--panel-2)">Cancel</Box>
+        <Box as="button" type="button" onClick={confirm} disabled={busy}
+          style={css(`height:${compact ? '28px' : '32px'};padding:0 12px;border-radius:8px;border:1px solid ${color};background:${color};color:#fff;font-size:12px;font-weight:600;opacity:${busy ? '.6' : '1'}`)}
+          hover="opacity:.9">{busy ? 'Working…' : confirmLabel}</Box>
+      </div>
     </div>
   )
 }
@@ -720,6 +846,8 @@ function Dashboard({ m }: MProps) {
 
 /* ----------------------------------------------------------------- Projects */
 function Projects({ m }: MProps) {
+  // Which project card is showing its inline delete confirmation (by id).
+  const [confirming, setConfirming] = useState<string | null>(null)
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
@@ -748,17 +876,14 @@ function Projects({ m }: MProps) {
       ) : (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px')}>
         {m.projects.map((p, i) => (
-          <Box as="button" key={i} onClick={() => m.openProject(p)} style={css('text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:14px;transition:box-shadow .15s,transform .15s,border-color .15s')} hover="box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:var(--border-strong)">
+          <Box as="button" key={i} onClick={() => { if (confirming !== p.id) m.openProject(p) }} style={css('text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:14px;transition:box-shadow .15s,transform .15s,border-color .15s')} hover="box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:var(--border-strong)">
             <div style={css('display:flex;align-items:flex-start;justify-content:space-between;gap:10px')}>
               <div style={css('min-width:0')}>
                 <div style={css('font-size:15.5px;font-weight:600;letter-spacing:-.01em;line-height:1.25')}>{p.name}</div>
                 <div style={css('display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-3);margin-top:3px')}><Svg size={13} d={PIN} />{p.loc}</div>
               </div>
               <Box
-                onClick={(e: MouseEvent) => {
-                  e.stopPropagation()
-                  if (window.confirm(`Delete “${p.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(p.id)
-                }}
+                onClick={(e: MouseEvent) => { e.stopPropagation(); setConfirming(p.id) }}
                 title="Delete project"
                 style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none')}
                 hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger)"
@@ -766,6 +891,13 @@ function Projects({ m }: MProps) {
                 <Svg size={15} sw={1.9} d={TRASH} />
               </Box>
             </div>
+            {confirming === p.id && (
+              <ConfirmBar compact
+                message={<>Delete <b>{p.name}</b>? This permanently removes its documents, quotes and RFQs.</>}
+                confirmLabel="Delete project"
+                onConfirm={() => { setConfirming(null); m.deleteProject(p.id) }}
+                onCancel={() => setConfirming(null)} />
+            )}
             <div>
               <div style={css('display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-bottom:6px')}><span style={css('color:var(--text-2);font-weight:500')}>Procurement progress</span><span style={css("font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.progress}%</span></div>
               <div style={css('height:7px;border-radius:999px;background:var(--panel-3);overflow:hidden')}><div style={p.barStyle}></div></div>
@@ -954,7 +1086,6 @@ function EditSupplierModal({ m, onClose }: { m: Model; onClose: () => void }) {
 
 /* ----------------------------------------------------------------- Settings */
 function Settings({ m }: MProps) {
-  const toggleOn = css('width:38px;height:22px;border-radius:999px;background:var(--primary);position:relative;flex:none')
   // Your CC address — the one writable setting; saves via PATCH /api/auth/me.
   // It is never a From address: all mail leaves the workspace mailbox below.
   const [ccEmail, setCcEmail] = useState(m.userCcEmail)
@@ -1053,18 +1184,18 @@ function Settings({ m }: MProps) {
               {testing ? 'Sending…' : 'Send test email'}
             </Box>
           </div>
-          <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
-            <div><div style={css('font-size:13.5px;font-weight:600')}>Default RFQ due window</div><div style={css('font-size:12px;color:var(--text-3)')}>Days suppliers get to respond</div></div>
-            <span style={css("font-size:13px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border)")}>7 days</span>
-          </div>
-          <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
-            <div><div style={css('font-size:13.5px;font-weight:600')}>AI auto-follow-up</div><div style={css('font-size:12px;color:var(--text-3)')}>Nudge non-responsive suppliers automatically</div></div>
-            <span style={toggleOn}><span style={css('position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff')}></span></span>
-          </div>
-          <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--border)')}>
-            <div><div style={css('font-size:13.5px;font-weight:600')}>Email notifications</div><div style={css('font-size:12px;color:var(--text-3)')}>Quote received & risk alerts</div></div>
-            <span style={toggleOn}><span style={css('position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff')}></span></span>
-          </div>
+          {/* Not wired up yet. Shown as roadmap rows, explicitly marked, rather
+              than as live toggles that silently do nothing. */}
+          {[
+            { title: 'Default RFQ due window', sub: 'Days suppliers get to respond — RFQs currently ask for quotes within 7 days.' },
+            { title: 'AI auto-follow-up', sub: 'Nudge non-responsive suppliers automatically.' },
+            { title: 'Email notifications', sub: 'Quote received & risk alerts.' },
+          ].map((row) => (
+            <div key={row.title} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border);opacity:.7')}>
+              <div><div style={css('font-size:13.5px;font-weight:600')}>{row.title}</div><div style={css('font-size:12px;color:var(--text-3)')}>{row.sub}</div></div>
+              <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-2);border:1px dashed var(--border-strong);padding:4px 10px;border-radius:999px;white-space:nowrap')}>Coming soon</span>
+            </div>
+          ))}
         </div>
       </div>
       <TeamPanel currentEmail={m.userEmail} />
@@ -1089,9 +1220,13 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
     if (!target || busy) return
     setBusy(true); setErr(null); setNote(null)
     try {
-      await createInvite(target)
+      const inv = await createInvite(target)
       setEmail('')
-      setNote(`Invitation sent to ${target}.`)
+      // Only claim "sent" when a real provider accepted it. With email
+      // unconfigured the accept link is handed back for the inviter to share.
+      setNote(inv.emailed
+        ? `Invitation sent to ${target}.`
+        : `Invitation created for ${target}. Email isn’t configured, so nothing was delivered — copy the invite link below and send it yourself.`)
       load()
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Could not send the invite')
@@ -1100,10 +1235,33 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
     }
   }
 
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
+  const [busyInvite, setBusyInvite] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
   const revoke = async (id: string) => {
-    setErr(null); setNote(null)
-    try { await revokeInvite(id); load() }
+    setErr(null); setNote(null); setBusyInvite(id)
+    try { await revokeInvite(id); setConfirmRevoke(null); load() }
     catch (ex) { setErr(ex instanceof Error ? ex.message : 'Could not revoke') }
+    finally { setBusyInvite(null) }
+  }
+  const resend = async (id: string, to: string) => {
+    setErr(null); setNote(null); setBusyInvite(id)
+    try {
+      const inv = await resendInvite(id)
+      setNote(inv.emailed ? `Invitation re-sent to ${to}.` : `Email isn’t configured — copy the invite link for ${to} and send it yourself.`)
+      load()
+    } catch (ex) { setErr(ex instanceof Error ? ex.message : 'Could not resend') }
+    finally { setBusyInvite(null) }
+  }
+  const copyLink = async (id: string, url: string) => {
+    setErr(null)
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(id)
+      setTimeout(() => setCopied((c) => (c === id ? null : c)), 2000)
+    } catch {
+      setErr(`Copy failed — the link is: ${url}`)
+    }
   }
 
   const rowStyle = css('display:flex;align-items:center;gap:12px;padding:12px 18px;border-top:1px solid var(--border)')
@@ -1137,9 +1295,23 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{inv.email}</div>
-            <div style={css('font-size:12px;color:var(--text-3)')}>Invitation pending</div>
+            <div style={css('font-size:12px;color:var(--text-3)')}>{inv.acceptUrl ? 'Invitation pending — not emailed (email isn’t configured); share the link' : 'Invitation pending'}</div>
           </div>
-          <Box as="button" onClick={() => revoke(inv.id)} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);flex:none')} hover="background:var(--panel-2)">Revoke</Box>
+          {confirmRevoke === inv.id ? (
+            <ConfirmBar compact busy={busyInvite === inv.id}
+              message={<>Revoke the invitation for <b>{inv.email}</b>? The link stops working.</>}
+              confirmLabel="Revoke"
+              onConfirm={() => revoke(inv.id)}
+              onCancel={() => setConfirmRevoke(null)} />
+          ) : (
+            <div style={css('display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end')}>
+              {inv.acceptUrl && (
+                <Box as="button" onClick={() => copyLink(inv.id, inv.acceptUrl!)} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)')} hover="background:var(--panel-2)">{copied === inv.id ? 'Copied ✓' : 'Copy invite link'}</Box>
+              )}
+              <Box as="button" onClick={() => resend(inv.id, inv.email)} disabled={busyInvite === inv.id} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)')} hover="background:var(--panel-2)">Resend</Box>
+              <Box as="button" onClick={() => { setErr(null); setConfirmRevoke(inv.id) }} style={css('height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)')} hover="background:var(--danger-soft);color:var(--danger)">Revoke</Box>
+            </div>
+          )}
         </div>
       ))}
 
@@ -1164,6 +1336,8 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
 
 /* -------------------------------------------------- Project workspace shell */
 function ProjectWorkspace({ m }: MProps) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  useEffect(() => { setConfirmDelete(false) }, [m.projectId])
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px')}>
@@ -1178,10 +1352,22 @@ function ProjectWorkspace({ m }: MProps) {
         </div>
         <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
           <Box as="button" onClick={m.setDocuments} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)"><Svg size={15} d='M12 16V4M7 9l5-5 5 5" /><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2' />Upload</Box>
-          <Box as="button" onClick={m.setRfqs} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />Generate RFQs</Box>
-          <Box as="button" onClick={() => { if (window.confirm(`Delete “${m.activeProject.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(m.projectId) }} title="Delete project" style={css('display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3)')} hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)"><Svg size={15} sw={1.9} d={TRASH} /></Box>
+          {/* RFQs are generated from Supplier Search (pick a package, pick
+              suppliers, generate) — send the primary CTA there, not to the
+              RFQ list, which only shows what already exists. */}
+          <Box as="button" onClick={m.setSuppliers} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />Find suppliers & RFQ</Box>
+          <Box as="button" onClick={() => setConfirmDelete(true)} title="Delete project" style={css('display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3)')} hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)"><Svg size={15} sw={1.9} d={TRASH} /></Box>
         </div>
       </div>
+      {confirmDelete && (
+        <div style={css('margin-bottom:16px')}>
+          <ConfirmBar
+            message={<>Delete <b>{m.activeProject.name}</b>? This permanently removes its documents, quotes and RFQs. Sent RFQs cannot be recalled.</>}
+            confirmLabel="Delete project"
+            onConfirm={() => { setConfirmDelete(false); m.deleteProject(m.projectId) }}
+            onCancel={() => setConfirmDelete(false)} />
+        </div>
+      )}
 
       <div style={css('display:flex;border-bottom:1px solid var(--border);margin-bottom:22px;overflow-x:auto')}>
         <button onClick={m.setOverview} style={m.tabStyle.overview}><Svg size={15} sw={1.9} d='<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' />Overview</button>
@@ -1204,6 +1390,115 @@ function ProjectWorkspace({ m }: MProps) {
 }
 
 /* ------------------------------------------------------------ Overview tab */
+// The procurement journey as a checklist computed from this project's real
+// state (documents, generated RFQs, quotes, purchase decisions), so the next
+// action is always obvious — especially on a brand-new project, where the
+// overview otherwise shows only "Project created".
+type Step = { key: string; title: string; detail: string; state: 'done' | 'current' | 'todo'; cta?: string; go?: () => void }
+
+export function computeSteps(input: {
+  docs: { planType?: string | null; hasFile?: boolean; reviewed?: boolean; processing?: boolean; status: string; items: string }[]
+  rfqs: { status: string }[] | null
+  quotes: number
+  decisions: number | null
+  nav: { documents: () => void; suppliers: () => void; rfqs: () => void; quotes: () => void }
+}): Step[] {
+  const { docs, rfqs, quotes, decisions, nav } = input
+  const plans = docs.filter((d) => d.planType !== 'custom_bom' && d.planType !== 'trade_scope')
+  const customWithItems = docs.filter((d) => d.planType === 'custom_bom' && d.items !== '—' && Number(d.items) > 0)
+  const trades = docs.filter((d) => d.planType === 'trade_scope')
+  const hasSource = plans.length > 0 || customWithItems.length > 0 || trades.length > 0
+  const processing = plans.filter((d) => d.processing).length
+  const failed = plans.filter((d) => d.status === 'Failed').length
+  const reviewable = plans.filter((d) => !d.processing && d.status !== 'Failed' && d.items !== '—').length + customWithItems.length
+  const reviewed = docs.filter((d) => d.reviewed).length
+  const sent = (rfqs || []).filter((r) => r.status !== 'Draft').length
+  const drafts = (rfqs || []).filter((r) => r.status === 'Draft').length
+  const awarded = (decisions || 0) > 0
+
+  const steps: Step[] = []
+  steps.push({
+    key: 'source', title: 'Upload plans or build a BOM',
+    detail: hasSource
+      ? `${plans.length} plan${plans.length === 1 ? '' : 's'}${customWithItems.length ? `, ${customWithItems.length} custom BOM${customWithItems.length === 1 ? '' : 's'}` : ''}${trades.length ? `, ${trades.length} trade${trades.length === 1 ? '' : 's'}` : ''}${processing ? ` · ${processing} still analyzing` : ''}${failed ? ` · ${failed} failed` : ''}`
+      : 'Upload a site, building or electrical plan — or hand-build a BOM / name a trade for sub bids.',
+    state: hasSource ? 'done' : 'current', cta: hasSource ? undefined : 'Go to Documents', go: nav.documents,
+  })
+  const reviewState: Step['state'] = reviewed > 0 || trades.length > 0 && reviewable === 0 ? 'done' : hasSource ? 'current' : 'todo'
+  steps.push({
+    key: 'review', title: 'Review & confirm the bill of materials',
+    detail: reviewed > 0
+      ? `${reviewed} confirmed${reviewable > reviewed ? ` · ${reviewable - reviewed} awaiting review` : ''}`
+      : reviewable > 0
+        ? `${reviewable} document${reviewable === 1 ? '' : 's'} awaiting your review — only confirmed items are quoted.`
+        : processing ? 'Extraction in progress — review the items when it finishes.' : trades.length && !plans.length ? 'Not needed for subcontractor bids.' : 'Nothing to review yet.',
+    state: reviewState, cta: reviewState === 'current' && reviewable > 0 ? 'Review BOM' : undefined, go: nav.documents,
+  })
+  const rfqState: Step['state'] = sent > 0 ? 'done' : reviewState === 'done' ? 'current' : 'todo'
+  steps.push({
+    key: 'rfq', title: 'Find suppliers & send RFQs',
+    detail: sent > 0
+      ? `${sent} sent${drafts ? ` · ${drafts} draft${drafts === 1 ? '' : 's'} not sent yet` : ''}`
+      : drafts > 0 ? `${drafts} draft${drafts === 1 ? '' : 's'} waiting to be sent.` : 'Pick a package, search nearby suppliers, generate and send the RFQ.',
+    state: rfqState, cta: rfqState === 'current' ? (drafts > 0 ? 'Open drafts' : 'Find suppliers') : undefined, go: drafts > 0 && sent === 0 ? nav.rfqs : nav.suppliers,
+  })
+  const quoteState: Step['state'] = quotes > 0 ? 'done' : sent > 0 ? 'current' : 'todo'
+  steps.push({
+    key: 'quotes', title: 'Collect quotes',
+    detail: quotes > 0 ? `${quotes} quote${quotes === 1 ? '' : 's'} received` : sent > 0 ? 'Waiting on supplier replies — pull them in with “Check for replies”.' : 'Quotes arrive once RFQs are out.',
+    state: quoteState, cta: quoteState === 'current' ? 'Check for replies' : undefined, go: nav.quotes,
+  })
+  const awardState: Step['state'] = awarded ? 'done' : quotes > 0 ? 'current' : 'todo'
+  steps.push({
+    key: 'award', title: 'Compare & award',
+    detail: awarded ? `${decisions} award${decisions === 1 ? '' : 's'} recorded` : quotes > 0 ? 'Compare line by line and issue the POs.' : 'Needs at least one quote.',
+    state: awardState, cta: awardState === 'current' ? 'Compare quotes' : undefined, go: nav.quotes,
+  })
+  return steps
+}
+
+function NextStepsCard({ m }: MProps) {
+  const projectId = m.activeProject.id
+  const [rfqs, setRfqs] = useState<{ status: string }[] | null>(null)
+  const [decisions, setDecisions] = useState<number | null>(null)
+  useEffect(() => {
+    let alive = true
+    setRfqs(null); setDecisions(null)
+    listGeneratedRfqs(projectId).then((r) => { if (alive) setRfqs(r) }).catch(() => { if (alive) setRfqs([]) })
+    listPurchaseDecisions(projectId).then((d) => { if (alive) setDecisions(d.length) }).catch(() => { if (alive) setDecisions(0) })
+    return () => { alive = false }
+  }, [projectId, m.docs.length, m.quotes.length])
+  const steps = computeSteps({
+    docs: m.docs, rfqs, quotes: m.quotes.length, decisions,
+    nav: { documents: m.setDocuments, suppliers: m.setSuppliers, rfqs: m.setRfqs, quotes: m.setQuotes },
+  })
+  const done = steps.filter((st) => st.state === 'done').length
+  return (
+    <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:16px')}>
+      <div style={css('display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--border)')}>
+        <h2 style={css('margin:0;font-size:15px;font-weight:600;flex:1')}>Where this project stands</h2>
+        <span style={css("font-size:12px;font-weight:600;color:var(--text-3);font-family:'JetBrains Mono',monospace")}>{done}/{steps.length}</span>
+      </div>
+      <div>
+        {steps.map((st, i) => (
+          <div key={st.key} data-step-state={st.state} style={css(`display:flex;align-items:center;gap:13px;padding:11px 18px;${i ? 'border-top:1px solid var(--border);' : ''}${st.state === 'current' ? 'background:var(--primary-softer)' : ''}`)}>
+            <span style={css(`width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;${st.state === 'done' ? 'background:var(--success);color:#fff' : st.state === 'current' ? 'background:var(--primary);color:#fff' : 'background:var(--panel-3);color:var(--text-3)'}`)}>
+              {st.state === 'done' ? <Svg size={12} sw={3} d="M20 6 9 17l-5-5" /> : i + 1}
+            </span>
+            <div style={css('flex:1;min-width:0')}>
+              <div style={css(`font-size:13px;font-weight:600;${st.state === 'todo' ? 'color:var(--text-2)' : ''}`)}>{st.title}</div>
+              <div style={css('font-size:12px;color:var(--text-3);margin-top:1px')}>{st.detail}</div>
+            </div>
+            {st.cta && st.go && (
+              <Box as="button" onClick={st.go} style={css('height:30px;padding:0 12px;border-radius:8px;background:var(--primary);color:var(--on-primary);font-size:12px;font-weight:600;white-space:nowrap;flex:none')} hover="background:var(--primary-2)">{st.cta} →</Box>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function TabOverview({ m }: MProps) {
   // In-place refresh of the activity stream (re-fetches the workspace bundle and
   // re-renders — no full page reload). Spins the icon while the fetch is in flight.
@@ -1215,6 +1510,7 @@ function TabOverview({ m }: MProps) {
   }
   return (
     <>
+      <NextStepsCard m={m} />
       {m.overviewCards.length > 0 && (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fit,minmax(162px,1fr));gap:13px;margin-bottom:18px')}>
         {m.overviewCards.map((c, i) => (
@@ -1288,6 +1584,11 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
   }
   const d = slot.doc
   const active = !!(d && d.active)
+  // 'remove' | 'replace' | null — replacing a plan the user has already
+  // reviewed or edited throws that work away, so it asks first too.
+  const [confirming, setConfirming] = useState<'remove' | 'replace' | null>(null)
+  useEffect(() => { setConfirming(null) }, [d && d.id])
+  const reviewedWork = !!(d && (d.reviewed || d.edited))
   const btn = css('flex:1;height:30px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center')
   return (
     <div style={css(`background:var(--panel);border:1px solid ${active ? 'var(--primary)' : 'var(--border)'};border-radius:14px;box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:10px;min-height:140px`)}>
@@ -1304,11 +1605,25 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
             <span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span>
             <span style={css('font-size:11.5px;color:var(--text-3)')}>{d.date}{slot.categories.length ? ` · ${d.items} line items` : ''}</span>
           </Box>
+          {confirming === 'remove' ? (
+            <ConfirmBar compact
+              message={<>Remove <b>{d.name}</b>{d.reviewed ? ' and its confirmed BOM' : d.items && d.items !== '—' ? ' and its extracted BOM' : ''}?</>}
+              confirmLabel="Remove"
+              onConfirm={() => { setConfirming(null); d.id && m.onDeleteDoc(d.id) }}
+              onCancel={() => setConfirming(null)} />
+          ) : confirming === 'replace' ? (
+            <ConfirmBar compact
+              message={<>Replace <b>{d.name}</b>? Its {d.reviewed ? 'confirmed' : 'edited'} BOM is discarded and the new plan is extracted from scratch.</>}
+              confirmLabel="Choose file"
+              onConfirm={() => { setConfirming(null); pick() }}
+              onCancel={() => setConfirming(null)} />
+          ) : (
           <div style={css('display:flex;gap:6px')}>
             <Box as="button" onClick={d.onOpen} style={btn} hover="background:var(--panel-2)">View</Box>
-            <Box as="button" onClick={pick} disabled={m.uploading} style={btn} hover="background:var(--panel-2)">Replace</Box>
-            <Box as="button" onClick={() => d.id && m.onDeleteDoc(d.id)} title="Remove" style={css('width:30px;height:30px;flex:none;border-radius:7px;border:1px solid var(--border);color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={reviewedWork ? () => setConfirming('replace') : pick} disabled={m.uploading} style={btn} hover="background:var(--panel-2)">Replace</Box>
+            <Box as="button" onClick={() => setConfirming('remove')} title="Remove" style={css('width:30px;height:30px;flex:none;border-radius:7px;border:1px solid var(--border);color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
           </div>
+          )}
         </>
       ) : (
         <Box as="button" onClick={pick} disabled={m.uploading}
@@ -1324,7 +1639,18 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
 
 // The non-slot bucket: any number of supporting reference documents. No BOM is
 // extracted for these — they're stored as attachments.
+// A list row's inline "remove?" confirmation, shared by the three document
+// list cards below. Rendered under the row it belongs to.
+function DocRemoveConfirm({ name, what, onConfirm, onCancel }: { name: string; what: string; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div style={css('padding:0 16px 10px;border-bottom:1px solid var(--border)')}>
+      <ConfirmBar compact message={<>Remove {what} <b>{name}</b>? This can’t be undone.</>} confirmLabel="Remove" onConfirm={onConfirm} onCancel={onCancel} />
+    </div>
+  )
+}
+
 function AdditionalDocsCard({ m }: MProps) {
+  const [confirmId, setConfirmId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const pick = () => inputRef.current && inputRef.current.click()
   const onFiles = (fl: FileList | null) => {
@@ -1333,12 +1659,17 @@ function AdditionalDocsCard({ m }: MProps) {
   }
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
-      <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }}
+      {/* Reference documents aren't extracted, so spreadsheets are fine here
+          (the BOM plan slots above take only PDFs/images — same as the API). */}
+      <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xls,.xlsx" style={{ display: 'none' }}
         onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} />
-      <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
-        <div style={css('display:flex;align-items:center;gap:8px')}>
+      <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border)')}>
+        <div style={css('display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap')}>
           <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Additional documents</h2>
           <span style={css('font-size:12px;color:var(--text-3)')}>{m.additionalDocs.length} files</span>
+          {/* Repeat the upload outcome here: this card sits well below the
+              top-of-tab status line, so a rejection was scrolled out of view. */}
+          {m.uploadError && <span style={css('font-size:12px;color:var(--danger)')}>{m.uploadError}</span>}
         </div>
         <Box as="button" onClick={pick} disabled={m.uploading}
           style={css(`display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600;opacity:${m.uploading ? '.6' : '1'}`)}
@@ -1348,11 +1679,14 @@ function AdditionalDocsCard({ m }: MProps) {
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No additional documents — add specs, geotech reports, or addenda for reference.</div>
       ) : (
         m.additionalDocs.map((d, i) => (
-          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+          <div key={d.id || i}>
+          <div onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--panel-3);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={FILE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{d.date}</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); setConfirmId(d.id || null) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+          {d.id && confirmId === d.id && <DocRemoveConfirm name={d.name} what="document" onConfirm={() => { setConfirmId(null); m.onDeleteDoc(d.id!) }} onCancel={() => setConfirmId(null)} />}
           </div>
         ))
       )}
@@ -1360,10 +1694,39 @@ function AdditionalDocsCard({ m }: MProps) {
   )
 }
 
+// Inline "name it and create" row, used by the New BOM / New trade buttons in
+// place of window.prompt (which embedded webviews auto-dismiss, leaving the
+// button apparently dead).
+function InlineCreate({ placeholder, defaultValue, cta, onCreate, onCancel }: { placeholder: string; defaultValue: string; cta: string; onCreate: (name: string) => void | Promise<void>; onCancel: () => void }) {
+  const [name, setName] = useState(defaultValue)
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    const n = name.trim()
+    if (!n || busy) return
+    setBusy(true)
+    try { await onCreate(n) } finally { setBusy(false) }
+  }
+  return (
+    <form onSubmit={submit} style={css('display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--primary-softer)')}>
+      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder} aria-label={placeholder}
+        style={css('flex:1;min-width:160px;height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px')} />
+      <Box as="button" type="submit" disabled={busy || !name.trim()}
+        style={css(`height:32px;padding:0 13px;border-radius:8px;background:var(--primary);color:var(--on-primary);font-size:12.5px;font-weight:600;opacity:${busy || !name.trim() ? '.6' : '1'}`)}
+        hover="background:var(--primary-2)">{busy ? 'Creating…' : cta}</Box>
+      <Box as="button" type="button" onClick={onCancel} disabled={busy}
+        style={css('height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
+        hover="background:var(--panel-2)">Cancel</Box>
+    </form>
+  )
+}
+
 // Hand-built bills of materials: create a named BOM, fill it in with the same
 // editor the extracted BOMs use, then quote it from the Suppliers tab. Replaces
 // the old throwaway free-text ad-hoc RFQ with a saved, viewable BOM.
 function CustomBomsCard({ m }: MProps) {
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [naming, setNaming] = useState(false)
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
       <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
@@ -1371,19 +1734,26 @@ function CustomBomsCard({ m }: MProps) {
           <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Custom bills of materials</h2>
           <span style={css('font-size:12px;color:var(--text-3)')}>{m.customBoms.length}</span>
         </div>
-        <Box as="button" onClick={m.createBom}
+        <Box as="button" onClick={() => setNaming(true)}
           style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
           hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New BOM</Box>
       </div>
+      {naming && (
+        <InlineCreate placeholder="Name this bill of materials" defaultValue="Custom BOM" cta="Create BOM"
+          onCreate={async (name) => { await m.createBom(name); setNaming(false) }} onCancel={() => setNaming(false)} />
+      )}
       {m.customBoms.length === 0 ? (
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No custom BOMs yet — build one by hand for items not on a plan, then quote it from the Suppliers tab.</div>
       ) : (
         m.customBoms.map((d, i) => (
-          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+          <div key={d.id || i}>
+          <div onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d='M9 3H5a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 5 21h14a1.5 1.5 0 0 0 1.5-1.5V4.5A1.5 1.5 0 0 0 19 3h-4" /><path d="M8 8h8M8 12h8M8 16h5' /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{d.items === '—' ? '0' : d.items} items</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); setConfirmId(d.id || null) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+          {d.id && confirmId === d.id && <DocRemoveConfirm name={d.name} what="BOM" onConfirm={() => { setConfirmId(null); m.onDeleteDoc(d.id!) }} onCancel={() => setConfirmId(null)} />}
           </div>
         ))
       )}
@@ -1399,6 +1769,8 @@ const TRADE_ICON = 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a
 const PAPERCLIP = 'M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8'
 
 function TradeScopesCard({ m }: MProps) {
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [naming, setNaming] = useState(false)
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
       <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
@@ -1406,19 +1778,26 @@ function TradeScopesCard({ m }: MProps) {
           <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Subcontractor trades</h2>
           <span style={css('font-size:12px;color:var(--text-3)')}>{m.tradeScopes.length}</span>
         </div>
-        <Box as="button" onClick={m.createTradeScope}
+        <Box as="button" onClick={() => setNaming(true)}
           style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
           hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New trade</Box>
       </div>
+      {naming && (
+        <InlineCreate placeholder="Which trade do you need bids for?" defaultValue="Concrete flatwork" cta="Create trade"
+          onCreate={async (name) => { await m.createTradeScope(name); setNaming(false) }} onCancel={() => setNaming(false)} />
+      )}
       {m.tradeScopes.length === 0 ? (
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No trades yet — name a trade you need bids for (e.g. concrete flatwork), write its scope of work, then find subcontractors from the Suppliers tab.</div>
       ) : (
         m.tradeScopes.map((d, i) => (
-          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+          <div key={d.id || i}>
+          <div onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--violet-soft);color:var(--violet);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={TRADE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{(d.summary || '').trim() ? 'Scope written' : 'No scope yet'}</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); setConfirmId(d.id || null) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+          {d.id && confirmId === d.id && <DocRemoveConfirm name={d.name} what="trade scope" onConfirm={() => { setConfirmId(null); m.onDeleteDoc(d.id!) }} onCancel={() => setConfirmId(null)} />}
           </div>
         ))
       )}
@@ -1554,17 +1933,28 @@ function TabDocuments({ m }: MProps) {
           ) : m.doc ? (
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
-              <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.pages} pages</span></div>
-              <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><Svg size={12} fill d={SPARKLE_SM} />AI Analysis</span>
+              <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.pages} {m.doc.pages === 1 ? 'page' : 'pages'}</span></div>
+              {m.doc.status === 'Failed'
+                ? <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--danger);background:var(--danger-soft,rgba(220,38,38,.1));padding:3px 9px;border-radius:999px')}>Analysis failed</span>
+                : m.doc.processing
+                  ? <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><span style={css('width:9px;height:9px;border:1.5px solid var(--primary);border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>Analyzing…</span>
+                  : m.doc.mocked
+                    ? <span title={m.doc.summary || 'No AI key is configured — these are example items, not read from this document'} style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warn-soft);padding:3px 9px;border-radius:999px')}>Sample extraction</span>
+                    : <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><Svg size={12} fill d={SPARKLE_SM} />AI Analysis</span>}
             </div>
             <div style={css('position:relative;height:560px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
-              {m.doc.hasFile && m.doc.id ? (
+              {m.doc.fileMissing ? (
+                <div style={css('display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;max-width:360px;padding:0 16px')}>
+                  <PreviewNote>File no longer available</PreviewNote>
+                  <span style={css('font-size:12.5px;color:var(--text-3)')}>The uploaded file is no longer on this server (uploads are not kept across redeploys). The extracted materials are kept — re-upload the file to preview, attach, or re-analyze it.</span>
+                </div>
+              ) : m.doc.hasFile && m.doc.id ? (
                 <DocPreview docId={m.doc.id} title={m.doc.name} />
               ) : (
                 <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
               )}
-              {m.doc.items && m.doc.items !== '—' && (
-              <div style={css('position:absolute;left:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:8px 12px;border-radius:10px;pointer-events:none')}><span style={css('width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={13} fill d={SPARKLE_SM} /></span><span style={css('font-size:12.5px;font-weight:600')}>AI detected <span style={css('color:var(--primary)')}>{m.doc.items}</span> line items</span></div>
+              {m.doc.items && m.doc.items !== '—' && m.doc.status !== 'Failed' && (
+              <div style={css('position:absolute;left:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:8px 12px;border-radius:10px;pointer-events:none')}><span style={css('width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={13} fill d={SPARKLE_SM} /></span><span style={css('font-size:12.5px;font-weight:600')}>{m.doc.mocked ? <>Sample: <span style={css('color:var(--primary)')}>{m.doc.items}</span> example items</> : <>AI detected <span style={css('color:var(--primary)')}>{m.doc.items}</span> line items{m.doc.edited ? ' · edited by you' : ''}</>}</span></div>
               )}
             </div>
           </div>
@@ -1592,7 +1982,8 @@ type PreviewInfo = { pages: number; pageUrl: (page: number) => string; fileUrl: 
 
 function DocPreview({ docId, title }: { docId: string; title: string }) {
   const [info, setInfo] = useState<PreviewInfo | null>(null)
-  const [failed, setFailed] = useState(false)
+  // The reason the preview couldn't load (e.g. the stored file is gone), or ''.
+  const [failed, setFailed] = useState('')
   const [page, setPage] = useState(0)
   // Rendering a page runs a subprocess on the backend the first time (it's
   // cached after), so a page can take a beat — show its own loading state.
@@ -1601,17 +1992,17 @@ function DocPreview({ docId, title }: { docId: string; title: string }) {
 
   useEffect(() => {
     let alive = true
-    setInfo(null); setFailed(false); setPage(0)
+    setInfo(null); setFailed(''); setPage(0)
     getDocumentPreview(docId).then(
       (r) => { if (alive) setInfo(r) },
-      () => { if (alive) setFailed(true) },
+      (e) => { if (alive) setFailed(hasDetail(e) ? e.message : 'Preview unavailable') },
     )
     return () => { alive = false }
   }, [docId])
 
   useEffect(() => { setPageLoaded(false); setPageFailed(false) }, [docId, page])
 
-  if (failed) return <PreviewNote>Preview unavailable</PreviewNote>
+  if (failed) return <PreviewNote>{failed}</PreviewNote>
   if (!info) return <PreviewNote muted>Loading preview…</PreviewNote>
   // Nothing renderable (a CSV/XLSX upload, or a PDF we couldn't rasterise) —
   // the original file is still one click away.
@@ -1666,9 +2057,21 @@ function ExtractedPanel({ m }: MProps) {
   const editing = m.bomEditing
   // In edit mode we render the draft (plain BOM groups); otherwise the extracted
   // groups, which carry presentational extras (dotStyle/countBadge).
-  const groups = (editing ? m.bomDraft : m.extracted) as BomGroup[]
-  const reviewed = m.doc && m.doc.reviewed
-  const isCustom = !!(m.doc && m.doc.planType === m.customBomType)
+  const doc = m.doc
+  const reviewed = doc && doc.reviewed
+  const isCustom = !!(doc && doc.planType === m.customBomType)
+  // Honest document states, so the panel never implies the AI read something
+  // it didn't: no document, still analyzing, analysis failed (with the stored
+  // reason and a retry), or a mocked "sample" extraction (no AI key).
+  const noDoc = !doc || !doc.id
+  const failed = !!(doc && doc.status === 'Failed')
+  const processing = !!(doc && doc.processing)
+  const mocked = !!(doc && doc.mocked && !isCustom)
+  const loading = !noDoc && !failed && !processing && m.extractedLoading && !editing
+  const canEdit = !noDoc && !failed && !processing
+  // A failed document has nothing trustworthy to show — whatever the backend
+  // still holds for it (a partial run, demo groups) must not read as its BOM.
+  const groups = (editing ? m.bomDraft : failed ? [] : m.extracted) as BomGroup[]
   const inputCss = css('flex:1;min-width:0;font-size:12px;padding:5px 7px;border-radius:6px;border:1px solid var(--border);background:var(--panel-2);color:var(--text)')
 
   return (
@@ -1679,7 +2082,7 @@ function ExtractedPanel({ m }: MProps) {
         {!editing && reviewed && (
           <span style={css('display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--success);background:var(--success-soft);padding:3px 8px;border-radius:999px')}><Svg size={12} sw={2.4} d="M20 6 9 17l-5-5" />{isCustom ? 'Saved' : 'Confirmed'}</span>
         )}
-        {!editing && (
+        {!editing && canEdit && (
           <Box as="button" onClick={m.startBomEdit} style={css('font-size:12px;font-weight:600;color:var(--text-2);padding:4px 9px;border-radius:7px;border:1px solid var(--border)')} hover="background:var(--panel-2)">Edit</Box>
         )}
         {editing && (
@@ -1690,9 +2093,46 @@ function ExtractedPanel({ m }: MProps) {
         )}
       </div>
 
+      {m.bomEditNotice && (
+        <div style={css('display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--warn-soft);font-size:12px;color:var(--warn);font-weight:600')}>
+          <span style={css('flex:1')}>{m.bomEditNotice}</span>
+          <Box as="button" onClick={m.dismissBomEditNotice} title="Dismiss" style={css('width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--warn)')} hover="background:rgba(0,0,0,.06)"><Svg size={13} d='M6 6l12 12M18 6 6 18' /></Box>
+        </div>
+      )}
+      {failed && !editing && (
+        <div role="alert" style={css('padding:13px 16px;border-bottom:1px solid var(--border);background:var(--danger-soft,rgba(220,38,38,.08))')}>
+          <div style={css('font-size:12.5px;font-weight:600;color:var(--danger);margin-bottom:3px')}>Analysis failed. Extraction failed — no materials were read from this document.</div>
+          {doc && doc.error && <div style={css('font-size:12px;color:var(--text-2);line-height:1.45;word-break:break-word')}>{doc.error}</div>}
+          <div style={css('display:flex;gap:8px;margin-top:9px')}>
+            {doc && doc.hasFile && !doc.fileMissing && doc.id && (
+              <Box as="button" onClick={() => m.onReanalyzeDoc(doc.id!)} disabled={m.uploading} style={css('display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;background:var(--primary);color:var(--on-primary);font-size:12px;font-weight:600')} hover="background:var(--primary-2)"><IconHtml html={ic('refresh')} size={13} />Retry analysis</Box>
+            )}
+            {doc && (!doc.hasFile || doc.fileMissing) && <span style={css('font-size:12px;color:var(--text-3)')}>The original file is no longer stored — upload it again to retry.</span>}
+          </div>
+        </div>
+      )}
+      {mocked && !editing && !failed && (
+        <div style={css('padding:11px 16px;border-bottom:1px solid var(--border);background:var(--warn-soft);font-size:12px;color:var(--text-2);line-height:1.45')}>
+          <b style={css('color:var(--warn)')}>Sample extraction.</b> No AI key is configured, so these are example items — <b>not</b> read from your document. Edit them before confirming, or configure extraction and retry.
+        </div>
+      )}
+      {!mocked && !failed && !editing && doc && doc.summary && !isCustom && (
+        <div title="What the extractor read on this document" style={css('padding:10px 16px;border-bottom:1px solid var(--border);font-size:11.5px;color:var(--text-3);line-height:1.45;max-height:72px;overflow:hidden')}>
+          <span style={css('font-weight:700;color:var(--text-2)')}>Read from the plan: </span>{doc.summary}
+        </div>
+      )}
       <div style={css('max-height:520px;overflow-y:auto')}>
-        {groups.length === 0 && (
-          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No materials yet — still processing, or none were found on this document.</div>
+        {noDoc && (
+          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>Select a document to review its bill of materials.</div>
+        )}
+        {!noDoc && processing && (
+          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>Analyzing this document — line items appear here when extraction finishes.</div>
+        )}
+        {!noDoc && loading && groups.length === 0 && (
+          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>Loading materials…</div>
+        )}
+        {!noDoc && !processing && !loading && !failed && groups.length === 0 && (
+          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>{isCustom ? 'No line items yet — click Edit to add the materials you want quoted.' : 'No materials were found on this document.'}</div>
         )}
         {groups.map((g, i) => (
           <div key={i} style={css('padding:13px 16px;border-bottom:1px solid var(--border)')}>
@@ -1719,10 +2159,10 @@ function ExtractedPanel({ m }: MProps) {
         ))}
       </div>
 
-      {!editing && groups.length > 0 && (
+      {!editing && canEdit && groups.length > 0 && (
         <div style={css('padding:12px 16px;border-top:1px solid var(--border)')}>
           {reviewed ? (
-            <div style={css('font-size:11.5px;color:var(--text-3)')}>Reviewed by you{m.doc.reviewedAt ? ` · ${m.doc.reviewedAt}` : ''}. Edit to revise.</div>
+            <div style={css('font-size:11.5px;color:var(--text-3)')}>Reviewed by you{m.doc.reviewedAt ? ` · ${m.doc.reviewedAt}` : ''}{m.doc.edited ? ' · edited' : ''}. Edit to revise.</div>
           ) : (
             <Box as="button" onClick={m.confirmBom} disabled={m.bomBusy} style={css(`width:100%;height:34px;border-radius:8px;background:var(--success);color:#fff;font-size:12.5px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;opacity:${m.bomBusy ? '.6' : '1'}`)} hover="filter:brightness(1.05)"><Svg size={14} sw={2.4} d="M20 6 9 17l-5-5" />{m.bomBusy ? 'Working…' : 'Confirm BOM'}</Box>
           )}
@@ -1786,7 +2226,7 @@ function pkgLabel(key: string): string {
 // created in the Documents panel and selected here by their document id — they
 // quote exactly like a package (replacing the old free-text ad-hoc flow).
 // Manages its own state + polling.
-function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<unknown>; docs?: AttachableDoc[] }) {
+function SupplierSearch({ projectId, saved, networkNames, onAdded, docs, onReview, onViewRfqs }: { projectId: string; saved: Model['suppliers']; networkNames: Set<string>; onAdded: () => void | Promise<unknown>; docs?: AttachableDoc[]; onReview: () => void; onViewRfqs: () => void }) {
   const [pkg, setPkg] = useState('water')
   const [radius, setRadius] = useState(75)
   const [boms, setBoms] = useState<CustomBomSummary[]>([])     // custom BOMs on this project
@@ -1802,6 +2242,10 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
   const [savingId, setSavingId] = useState<string | null>(null)   // found supplier currently being added
   const [scope, setScope] = useState('')       // scope of work for the selected trade
   const [scopeNote, setScopeNote] = useState<string | null>(null)
+  // Confirmation after a send, so the user knows what happened and where the
+  // RFQ went; the selection is cleared at the same time so the still-armed
+  // "Generate" button can't produce a duplicate RFQ for the same suppliers.
+  const [sentNote, setSentNote] = useState<{ n: number; sub: boolean } | null>(null)
 
   // Resolve a package key — a preset key, a custom BOM's document id, or a trade
   // scope's document id — to its display label.
@@ -1841,7 +2285,7 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
   // Load any prior results when the package changes.
   useEffect(() => {
     let alive = true
-    setResult(null); setSelected({}); setErr(null)
+    setResult(null); setSelected({}); setErr(null); setSentNote(null)
     getFoundSuppliers(projectId, pkg)
       .then((r) => { if (!alive) return; setResult(r); if (r.status === 'searching') setSearching(true) })
       .catch(() => {})
@@ -1867,21 +2311,25 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
   // Poll while a background search runs.
   useEffect(() => {
     if (!searching) return
+    // A poll response can land after the user switched packages; without
+    // this guard it would paint the previous package's suppliers under the
+    // new chip (and clear the new search's spinner).
+    let alive = true
     const t = setInterval(() => {
       getFoundSuppliers(projectId, pkg)
-        .then((r) => { setResult(r); if (r.status !== 'searching') setSearching(false) })
+        .then((r) => { if (!alive) return; setResult(r); if (r.status !== 'searching') setSearching(false) })
         .catch(() => {})
     }, 2500)
-    return () => clearInterval(t)
+    return () => { alive = false; clearInterval(t) }
   }, [searching, projectId, pkg])
 
   const runSearch = async () => {
-    setErr(null); setSelected({})
+    setErr(null); setSelected({}); setSentNote(null)
     try {
       await searchSuppliers(projectId, pkg, radius)
       setSearching(true)
       setResult({ status: 'searching', mocked: false, radiusMi: radius, package: pkg, error: null, tiers: [] })
-    } catch (e) { setErr('Search failed. Is the backend running?') }
+    } catch (e) { setErr(hasDetail(e) ? e.message : 'Search failed. Is the backend running?') }
   }
 
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }))
@@ -1907,8 +2355,20 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
     finally { setSavingId(null) }
   }
 
+  // Why the generate button is disabled, if it is — shown next to it so the
+  // user isn't left with a dead button.
+  const noApproved = !isTrade && !bomLoading && !!bom && bom.count === 0
+  const generateBlocked = generating || (isTrade && !scope.trim()) || noApproved
+  const generateReason = isTrade && !scope.trim()
+    ? 'Write a scope of work first'
+    : noApproved
+      ? (bom && bom.pendingReview
+        ? `Confirm the extracted BOM on ${bom.pendingReview} document${bom.pendingReview === 1 ? '' : 's'} first`
+        : `No ${subjectLabel} items to quote yet`)
+      : null
+
   const generate = async () => {
-    setGenerating(true); setErr(null)
+    setGenerating(true); setErr(null); setSentNote(null)
     try {
       if (isTrade) await saveScope() // the modal shows what's actually stored
       const rfq = await generateRfq(projectId, pkg, selectedIds, isTrade ? scope : undefined)
@@ -2034,7 +2494,10 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
           Tier 1 local (0–25 mi) · Tier 2 regional (25–75 mi) · Tier 3 manufacturers (75–250 mi). Distances are approximate (straight-line).
           {result && result.mocked && <span style={css('color:var(--warn);font-weight:600')}> · Showing mock results (no Google API key set)</span>}
         </div>
-        {err && <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>{err}</div>}
+        {result && result.status === 'error' && (
+          <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>Search failed{result.error ? `: ${result.error}` : ''}. Try again, or add suppliers by hand from the Suppliers page.</div>
+        )}
+        {err && !selectedIds.length && <div style={css('font-size:12.5px;color:var(--danger);margin-top:8px')}>{err}</div>}
       </div>
 
       {/* What we're asking for — the package/BOM's line items, or (for a trade
@@ -2065,7 +2528,15 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
           {bom && bom.seeded && <span style={css('color:var(--warn);font-weight:600')}> · Sample BOM (nothing extracted for this package yet)</span>}
         </div>
         {bomLoading && <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>Loading BOM…</div>}
-        {!bomLoading && bom && bom.count === 0 && (
+        {!bomLoading && bom && bom.count === 0 && bom.pendingReview > 0 && (
+          <div style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--warn-soft);border:1px solid var(--warn)')}>
+            <span style={css('flex:1;min-width:200px;font-size:12.5px;color:var(--text);line-height:1.4')}>
+              <b>{bom.pendingReview} document{bom.pendingReview === 1 ? ' has' : 's have'} {labelFor(pkg)} items awaiting your review.</b> Only a human-confirmed BOM is quoted — confirm it and these items will appear here.
+            </span>
+            <Box as="button" onClick={onReview} style={css('height:30px;padding:0 12px;border-radius:8px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:600;white-space:nowrap')} hover="background:var(--panel-2)">Review in Documents →</Box>
+          </div>
+        )}
+        {!bomLoading && bom && bom.count === 0 && !bom.pendingReview && (
           <div style={css('font-size:13px;color:var(--text-3);padding:8px 0')}>
             {isCustom
               ? 'This BOM has no items yet — add line items in the Documents tab, then come back to quote it.'
@@ -2111,20 +2582,45 @@ function SupplierSearch({ projectId, saved, networkNames, onAdded, docs }: { pro
         </div>
       ))}
 
+      {/* Post-send confirmation: selection is cleared so the button below
+          can't mint a duplicate RFQ for the same suppliers. */}
+      {sentNote && (
+        <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;flex-wrap:wrap;background:var(--success-soft);border:1px solid var(--success);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
+          <Svg size={16} sw={2.4} stroke="var(--success)" d="M20 6 9 17l-5-5" />
+          <span style={css('font-size:13px;font-weight:600;flex:1;min-width:200px;color:var(--text)')}>{sentNote.sub ? 'Bid request' : 'RFQ'} sent to {sentNote.n} {sentNote.sub ? 'subcontractor' : 'supplier'}{sentNote.n === 1 ? '' : 's'} for {subjectLabel}. Replies land in Quotes.</span>
+          <Box as="button" onClick={onViewRfqs} style={css('height:32px;padding:0 13px;border-radius:8px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:12.5px;font-weight:600')} hover="background:var(--panel-2)">View in RFQs →</Box>
+          <Box as="button" onClick={() => setSentNote(null)} title="Dismiss" style={css('width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3)')} hover="background:rgba(0,0,0,.06)"><Svg size={14} d='M6 6l12 12M18 6 6 18' /></Box>
+        </div>
+      )}
+
       {/* Action bar */}
       {selectedIds.length > 0 && (
-        <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--primary-soft);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
-          <span style={css('font-size:13px;font-weight:600;flex:1')}>{selectedIds.length} {isTrade ? 'subcontractor' : 'supplier'}{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</span>
-          {/* A trade bid request needs a scope — disable rather than 400 later. */}
-          <Box as="button" onClick={generate} disabled={generating || (isTrade && !scope.trim())}
-            title={isTrade && !scope.trim() ? 'Write a scope of work first' : undefined}
-            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generating || (isTrade && !scope.trim()) ? '.6' : '1'}`)}
+        <div style={css('position:sticky;bottom:14px;display:flex;align-items:center;gap:13px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--primary-soft);box-shadow:var(--shadow-md);border-radius:13px;padding:12px 16px;margin-top:8px')}>
+          <div style={css('flex:1;min-width:200px')}>
+            <div style={css('font-size:13px;font-weight:600')}>{selectedIds.length} {isTrade ? 'subcontractor' : 'supplier'}{selectedIds.length > 1 ? 's' : ''} selected for {subjectLabel}</div>
+            {/* The reason a disabled button is disabled, or the backend's
+                reason a generate failed — right next to the action. */}
+            {err && <div style={css('font-size:12px;color:var(--danger);margin-top:2px')}>{err}</div>}
+            {!err && generateReason && <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:2px')}>{generateReason}</div>}
+          </div>
+          {/* Disable rather than 400 later: a trade bid needs a scope; a
+              materials RFQ needs approved BOM items. */}
+          <Box as="button" onClick={generate} disabled={generateBlocked}
+            title={generateReason || undefined}
+            style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${generateBlocked ? '.6' : '1'}`)}
             hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />{generating ? 'Generating…' : isTrade ? 'Generate bid request' : 'Generate RFQ draft'}</Box>
         </div>
       )}
 
       {draft && (
-        <RfqReviewModal projectId={projectId} rfq={draft} docs={docs} onClose={() => setDraft(null)} />
+        <RfqReviewModal projectId={projectId} rfq={draft} docs={docs} onClose={() => setDraft(null)}
+          onChanged={(out) => {
+            // Only a delivered send clears the selection; a partial failure
+            // keeps the modal (and its Retry) in front of the user.
+            if (out.status === 'Send failed') return
+            setSelected({})
+            setSentNote({ n: (out.recipients || []).length, sub: out.kind === 'subcontractor' })
+          }} />
       )}
     </>
   )
@@ -2137,6 +2633,7 @@ function DcBadge(t: string): CSSProperties {
     blue: ['var(--primary-soft)', 'var(--primary)'],
     violet: ['var(--violet-soft,#ede9fe)', 'var(--violet)'],
     warn: ['var(--warn-soft)', 'var(--warn)'],
+    danger: ['var(--danger-soft,rgba(220,38,38,.1))', 'var(--danger)'],
     gray: ['var(--panel-3)', 'var(--text-2)'],
   }
   const [bg, fg] = map[t] || map.gray
@@ -2182,7 +2679,7 @@ function FoundSupplierCard({ sup, checked, onToggle, inNetwork, saving, onAdd }:
   )
 }
 
-const STATUS_TONE: Record<string, string> = { Draft: 'gray', Sent: 'blue', Awaiting: 'warn', Quoted: 'success' }
+const STATUS_TONE: Record<string, string> = { Draft: 'gray', Sent: 'blue', Awaiting: 'warn', Quoted: 'success', 'Send failed': 'danger' }
 
 // One message bubble in an RFQ email thread (outbound = us, inbound = supplier).
 function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
@@ -2205,9 +2702,30 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 // the full email thread is read live from Gmail, and "Check for replies" pulls
 // any supplier response — flipping the RFQ to 'Replied' when one has arrived.
 // Attachable project documents for the RFQ modal — anything with a stored file.
-type AttachableDoc = { id?: string; name: string; hasFile?: boolean }
+type AttachableDoc = { id?: string; name: string; hasFile?: boolean; fileMissing?: boolean }
 
-function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void }) {
+// Workflow order of RFQ statuses, for "only ever advance" status merges.
+const STATUS_ORDER = ['Draft', 'Send failed', 'Sent', 'Awaiting', 'Replied', 'Quoted']
+const statusRank = (s: string) => { const i = STATUS_ORDER.indexOf(s); return i < 0 ? 0 : i }
+
+// Per-recipient delivery state. New sends record sendStatus; rows written
+// before that field existed are recognised by an "error:" sentMessageId.
+function recipientState(r: RfqRecipient): 'sent' | 'failed' | 'unsent' {
+  if (r.sendStatus === 'sent') return 'sent'
+  if (r.sendStatus === 'failed') return 'failed'
+  const id = String(r.sentMessageId || '')
+  if (!id) return 'unsent'
+  return id.startsWith('error') ? 'failed' : 'sent'
+}
+
+function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
+  projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void
+  // Called with the persisted RFQ after a send attempt (success or partial
+  // failure), so the list behind the modal reflects the new status/subject
+  // immediately rather than only after the modal is closed (or never, if it
+  // was left open).
+  onChanged?: (rfq: PersistedRfq) => void
+}) {
   const [subject, setSubject] = useState(rfq.subject)
   const [body, setBody] = useState(rfq.body)
   const [recipients, setRecipients] = useState<RfqRecipient[]>(rfq.recipients || [])
@@ -2216,11 +2734,25 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
   const [err, setErr] = useState<string | null>(null)
   const [conv, setConv] = useState<RfqConversation | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
+  // What the server currently holds for the draft, so we can tell whether the
+  // user has unsaved edits (closing then asks instead of silently dropping
+  // them) and whether "Save draft" has anything to do.
+  const [saved, setSaved] = useState(() => ({
+    subject: rfq.subject, body: rfq.body,
+    recipients: (rfq.recipients || []).map((r) => r.email).join(','),
+    attachIds: (rfq.attachments || []).map((a) => a.documentId).slice().sort().join(','),
+  }))
+  const [saving, setSaving] = useState(false)
+  const [savedNote, setSavedNote] = useState<string | null>(null)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // Second step before an actual send: the user sees who will receive it
+  // and that it cannot be recalled.
+  const [confirmSend, setConfirmSend] = useState(false)
   // The user chooses which project documents ride along on the email. Custom
   // BOMs and trade scopes have no file, so they're excluded automatically.
   const [attachIds, setAttachIds] = useState<string[]>((rfq.attachments || []).map((a) => a.documentId))
   const [attachNames, setAttachNames] = useState<string[]>((rfq.attachments || []).map((a) => a.name))
-  const attachable = (docs || []).filter((d) => d.hasFile && d.id)
+  const attachable = (docs || []).filter((d) => d.hasFile && !d.fileMissing && d.id)
   // Ids chosen earlier can go stale (document deleted since the draft was
   // saved). Sending stale ids would 400 at save with no checkbox to uncheck —
   // a dead end — so both the count and the save payload use the live set.
@@ -2230,18 +2762,59 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
     : attachIds
   const isSub = rfq.kind === 'subcontractor'
   const draft = status === 'Draft'
+  // A partially failed send can be retried: the backend re-attempts only the
+  // recipients without a successful delivery on record.
+  const sendFailed = status === 'Send failed'
+  const unsent = recipients.filter((r) => recipientState(r) !== 'sent')
+  const dirty = draft && (
+    subject !== saved.subject || body !== saved.body ||
+    recipients.map((r) => r.email).join(',') !== saved.recipients ||
+    liveAttachIds.slice().sort().join(',') !== saved.attachIds
+  )
 
   const toggleAttach = (id: string) =>
     setAttachIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
 
   const dropRecipient = (email: string) => setRecipients((rs) => rs.filter((r) => r.email !== email))
 
+  // Bumped by every status-changing action (send). A conversation read that
+  // began before the bump is stale: it may carry the pre-send status and
+  // must not overwrite what the authoritative RFQ record just told us.
+  const statusEpoch = useRef(0)
+  // Persist the draft's current fields (also the first half of `send`).
+  const persist = async () => {
+    const out = await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
+    setSaved({
+      subject, body,
+      recipients: recipients.map((r) => r.email).join(','),
+      attachIds: liveAttachIds.slice().sort().join(','),
+    })
+    return out
+  }
+  const saveDraft = async () => {
+    setSaving(true); setErr(null); setSavedNote(null)
+    try { await persist(); setSavedNote('Draft saved.') }
+    catch (e) {
+      const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      setErr(msg || 'Could not save the draft. Is the backend running?')
+    } finally { setSaving(false) }
+  }
+  // Closing a draft with unsaved edits asks first — the edits only live in
+  // this modal, so a stray backdrop click would otherwise throw them away.
+  const requestClose = () => {
+    if (dirty && !busy) { setConfirmDiscard(true); return }
+    onClose()
+  }
+
   const loadConversation = async () => {
+    const epoch = statusEpoch.current
     setLoadingConv(true); setErr(null)
     try {
       const c = await getRfqConversation(projectId, rfq.id)
       setConv(c)
-      setStatus(c.status) // server may have flipped Awaiting → Replied
+      // The thread may reveal a newer state (Awaiting → Quoted once a reply
+      // is seen) but never an older one; only advance.
+      if (epoch === statusEpoch.current) setStatus((cur) => (statusRank(c.status) > statusRank(cur) ? c.status : cur))
     } catch { setErr('Could not load the conversation. Is the backend running?') }
     finally { setLoadingConv(false) }
   }
@@ -2249,35 +2822,74 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
   // Pull the thread as soon as a non-draft RFQ opens.
   useEffect(() => { if (!draft) loadConversation() }, [])
 
+  // Synchronous in-flight flag (see TabCompare.submit) and whether THIS modal
+  // already delivered the RFQ — a later "already sent" 409 is then a
+  // confirmation, not a failure to alarm the user with.
+  const sendInFlight = useRef(false)
+  const sentHere = useRef(false)
   const send = async () => {
-    setBusy(true); setErr(null)
+    if (sendInFlight.current) return
+    sendInFlight.current = true
+    setBusy(true); setErr(null); setConfirmSend(false)
     try {
-      await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
+      // A 'Send failed' RFQ is no longer editable server-side — retry as-is.
+      if (draft) await persist()
       const out = await sendRfq(projectId, rfq.id)
+      sentHere.current = true
+      statusEpoch.current++ // invalidate any conversation read still in flight
       setRecipients(out.recipients || [])
       setStatus(out.status)
       setAttachNames((out.attachments || []).map((a) => a.name))
+      // The list behind the modal gets the authoritative record either way —
+      // a partial failure shows as 'Send failed' there too.
+      if (onChanged) onChanged(out)
+      if (out.status === 'Send failed') {
+        const failed = (out.recipients || []).filter((r) => recipientState(r) === 'failed')
+        setErr(`${failed.length} of ${(out.recipients || []).length} recipient${(out.recipients || []).length === 1 ? '' : 's'} could not be emailed — see the reasons below and retry.`)
+      }
       loadConversation() // surface the just-sent message as the thread
     } catch (e) {
       // Backend reasons (already sent, no approved BOM items, …) come through
       // the error message; fall back to the generic hint otherwise.
       const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      if (msg && sentHere.current && /already (been )?sent|already being sent/i.test(msg)) {
+        // Our own send succeeded a moment ago; this replay was refused. Not
+        // an error — just make sure the thread reflects the delivery.
+        loadConversation()
+        return
+      }
       setErr(msg || 'Send failed. Is the backend running?')
     }
-    finally { setBusy(false) }
+    finally { sendInFlight.current = false; setBusy(false) }
   }
+
+  // Unsaved edits also block in-app navigation (sidebar, project tabs,
+  // Back) — not only the Close button — and surface the discard prompt.
+  useEffect(() => registerNavGuard(() => {
+    if (dirty && !busy) { setConfirmDiscard(true); return false }
+    return true
+  }), [dirty, busy])
 
   return (
     <div style={css('position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px')}>
-      <div onClick={onClose} style={css('position:absolute;inset:0;background:rgba(15,20,30,.45)')}></div>
+      <div onClick={requestClose} style={css('position:absolute;inset:0;background:rgba(15,20,30,.45)')}></div>
       <div style={css('position:relative;width:min(640px,100%);max-height:90vh;overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-lg);animation:pcUp .2s ease both')}>
         <div style={css('display:flex;align-items:center;gap:9px;padding:16px 18px;border-bottom:1px solid var(--border)')}>
           <span style={css('width:26px;height:26px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={15} fill d={SPARKLE_SM} /></span>
-          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? (isSub ? 'Review bid request' : 'Review RFQ draft') : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
+          <h2 style={css('margin:0;font-size:15px;font-weight:700;flex:1')}>{draft ? (isSub ? 'Review bid request' : 'Review RFQ draft') : sendFailed ? 'Delivery failed' : 'RFQ conversation'} · {rfq.pkg || pkgLabel(rfq.package)}</h2>
           {isSub && <span style={DcBadge('violet')}>Sub bid</span>}
           {!draft && <span style={DcBadge(STATUS_TONE[status] || 'gray')}>{status}</span>}
-          <Box as="button" onClick={onClose} style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={17} d='M6 6l12 12M18 6 6 18' /></Box>
+          <Box as="button" onClick={requestClose} title="Close" style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)')} hover="background:var(--panel-2)"><Svg size={17} d='M6 6l12 12M18 6 6 18' /></Box>
         </div>
+        {confirmDiscard && (
+          <div style={css('padding:12px 18px 0')}>
+            <ConfirmBar
+              message={<>You have unsaved changes to this {isSub ? 'bid request' : 'RFQ'}. Discard them?</>}
+              confirmLabel="Discard changes"
+              onConfirm={() => { setConfirmDiscard(false); onClose() }}
+              onCancel={() => setConfirmDiscard(false)} />
+          </div>
+        )}
         <div style={css('padding:18px;display:flex;flex-direction:column;gap:16px')}>
           {draft && (
             <div>
@@ -2289,15 +2901,25 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
             <label style={fieldLabel}>Recipients ({recipients.length})</label>
             <div style={css('display:flex;flex-direction:column;gap:6px')}>
               {recipients.length === 0 && <div style={css('font-size:12.5px;color:var(--text-3)')}>No recipients.</div>}
-              {recipients.map((r) => (
-                <div key={r.email} style={css('display:flex;align-items:center;gap:9px;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2)')}>
-                  <div style={css('flex:1;min-width:0')}><div style={css('font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.name}</div><div style={css('font-size:11.5px;color:var(--text-3)')}>{r.email}</div></div>
-                  {r.sentMessageId
-                    ? <span style={css(`font-size:11px;font-weight:600;color:${r.sentMessageId.startsWith('error') ? 'var(--danger)' : 'var(--success)'}`)}>{r.sentMessageId.startsWith('error') ? 'Failed' : 'Sent'}</span>
-                    : draft && <Box as="button" onClick={() => dropRecipient(r.email)} style={css('width:24px;height:24px;border-radius:6px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>}
+              {recipients.map((r) => {
+                const st = recipientState(r)
+                return (
+                <div key={r.email} style={css(`display:flex;flex-direction:column;gap:4px;padding:7px 11px;border:1px solid ${st === 'failed' ? 'var(--danger)' : 'var(--border)'};border-radius:9px;background:var(--panel-2)`)}>
+                  <div style={css('display:flex;align-items:center;gap:9px')}>
+                    <div style={css('flex:1;min-width:0')}><div style={css('font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.name}</div><div style={css('font-size:11.5px;color:var(--text-3)')}>{r.email}</div></div>
+                    {st === 'sent' && <span style={css('font-size:11px;font-weight:600;color:var(--success)')}>Sent</span>}
+                    {st === 'failed' && <span style={css('font-size:11px;font-weight:600;color:var(--danger)')}>Failed</span>}
+                    {st === 'unsent' && !draft && <span style={css('font-size:11px;font-weight:600;color:var(--text-3)')}>Not sent</span>}
+                    {st === 'unsent' && draft && <Box as="button" onClick={() => dropRecipient(r.email)} title="Remove recipient" style={css('width:24px;height:24px;border-radius:6px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>}
+                  </div>
+                  {st === 'failed' && r.sendError && <div style={css('font-size:11.5px;color:var(--danger);line-height:1.4;word-break:break-word')}>{r.sendError}</div>}
                 </div>
-              ))}
+                )
+              })}
             </div>
+            {draft && recipients.length === 0 && (
+              <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:6px')}>Add at least one supplier with an email address to send this {isSub ? 'bid request' : 'RFQ'} — go back to Supplier Search and generate it again with recipients.</div>
+            )}
           </div>
           {draft ? (
             <div>
@@ -2365,14 +2987,39 @@ function RfqReviewModal({ projectId, rfq, docs, onClose }: { projectId: string; 
             </div>
           ) : null}
           {err && <div style={css('font-size:12.5px;color:var(--danger)')}>{err}</div>}
+          {savedNote && !err && <div style={css('font-size:12.5px;color:var(--success)')}>{savedNote}</div>}
+          {confirmSend && (
+            <ConfirmBar tone="primary" busy={busy}
+              message={<>Send this {isSub ? 'bid request' : 'RFQ'} to <b>{(draft ? recipients : unsent).length}</b> {isSub ? 'subcontractor' : 'supplier'}{(draft ? recipients : unsent).length === 1 ? '' : 's'} now{liveAttachIds.length ? ` with ${liveAttachIds.length} attachment${liveAttachIds.length === 1 ? '' : 's'}` : ''}? Emails can’t be recalled once sent.</>}
+              confirmLabel={draft ? 'Send now' : 'Retry now'}
+              onConfirm={send}
+              onCancel={() => setConfirmSend(false)} />
+          )}
         </div>
-        <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border)')}>
-          <span style={css('flex:1;font-size:11.5px;color:var(--text-3)')}>{draft ? 'Sending delivers to all recipients via Gmail (or a logging mock if unconfigured).' : 'The conversation is read live from Gmail — use Check for replies to refresh.'}</span>
-          <Box as="button" onClick={onClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{draft ? 'Cancel' : 'Close'}</Box>
+        <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border);flex-wrap:wrap')}>
+          <span style={css('flex:1;min-width:180px;font-size:11.5px;color:var(--text-3)')}>
+            {draft
+              ? (recipients.length === 0 ? 'Nothing can be sent without a recipient.' : 'Sending delivers to all recipients via Gmail (or a logging mock if unconfigured).')
+              : sendFailed
+                ? `${unsent.length} recipient${unsent.length === 1 ? '' : 's'} still unsent — retry only re-attempts those; suppliers already emailed are never sent twice.`
+                : 'The conversation is read live from Gmail — use Check for replies to refresh.'}
+          </span>
+          <Box as="button" onClick={requestClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{draft ? (dirty ? 'Cancel' : 'Close') : 'Close'}</Box>
           {draft && (
-            <Box as="button" onClick={send} disabled={busy || recipients.length === 0}
-              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || recipients.length === 0 ? '.6' : '1'}`)}
+            <Box as="button" onClick={saveDraft} disabled={busy || saving || !dirty} title={dirty ? 'Save without sending' : 'No unsaved changes'}
+              style={css(`height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600;opacity:${busy || saving || !dirty ? '.55' : '1'}`)}
+              hover="background:var(--panel-2)">{saving ? 'Saving…' : 'Save draft'}</Box>
+          )}
+          {draft && (
+            <Box as="button" onClick={() => { setErr(null); setConfirmSend(true) }} disabled={busy || confirmSend || recipients.length === 0}
+              title={recipients.length === 0 ? 'Add a recipient first' : undefined}
+              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || confirmSend || recipients.length === 0 ? '.6' : '1'}`)}
               hover="background:var(--primary-2)"><Svg size={15} d='M22 2 11 13M22 2l-7 20-4-9-9-4z' />{busy ? 'Sending…' : `Send ${isSub ? 'bid request' : 'RFQ'} (${recipients.length})`}</Box>
+          )}
+          {sendFailed && unsent.length > 0 && (
+            <Box as="button" onClick={() => { setErr(null); setConfirmSend(true) }} disabled={busy || confirmSend}
+              style={css(`display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;opacity:${busy || confirmSend ? '.6' : '1'}`)}
+              hover="background:var(--primary-2)"><IconHtml html={ic('refresh')} size={14} />{busy ? 'Retrying…' : `Retry send (${unsent.length})`}</Box>
           )}
         </div>
       </div>
@@ -2384,7 +3031,7 @@ function TabSuppliers({ m }: MProps) {
   // Names already in the customer's network — the search marks matching results
   // as "In your network" and adding one refreshes the global list via m.reload.
   const networkNames = new Set<string>((m.suppliers || []).map((s) => s.name.toLowerCase()))
-  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} docs={m.docs} />
+  return <SupplierSearch projectId={m.activeProject.id} saved={m.suppliers || []} networkNames={networkNames} onAdded={m.reload} docs={m.docs} onReview={m.setDocuments} onViewRfqs={m.setRfqs} />
 }
 
 /* ----------------------------------------------------------------- RFQs tab */
@@ -2395,6 +3042,7 @@ const RFQ_FOLDERS: { key: string; name: string }[] = [
   { key: 'All', name: 'All RFQs' },
   { key: 'Draft', name: 'Drafts' },
   { key: 'Awaiting', name: 'Awaiting Response' },
+  { key: 'Send failed', name: 'Send failed' },
   { key: 'Sent', name: 'Sent' },
   { key: 'Quoted', name: 'Quoted' },
 ]
@@ -2405,6 +3053,9 @@ function TabRfqs({ m }: MProps) {
   const [open, setOpen] = useState<PersistedRfq | null>(null)
   const [filter, setFilter] = useState('All')
   const [busyId, setBusyId] = useState<string | null>(null)
+  // Draft row showing its inline delete confirmation (by id).
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
 
   const load = () => listGeneratedRfqs(projectId).then(setRfqs).catch(() => setRfqs([]))
   useEffect(() => { load() }, [projectId])
@@ -2413,12 +3064,17 @@ function TabRfqs({ m }: MProps) {
   const count = (key: string) => (key === 'All' ? all.length : all.filter((r) => r.status === key).length)
   const shown = filter === 'All' ? all : all.filter((r) => r.status === filter)
 
-  const remove = async (rq: PersistedRfq, e: { stopPropagation: () => void }) => {
-    e.stopPropagation()
-    if (!window.confirm(`Delete draft “${rq.subject}”?`)) return
-    setBusyId(rq.id)
-    try { await deleteRfq(projectId, rq.id); await load() }
-    catch { /* leave the row in place if the delete failed */ }
+  const remove = async (rq: PersistedRfq) => {
+    setBusyId(rq.id); setErr(null)
+    try {
+      await deleteRfq(projectId, rq.id)
+      setConfirmId(null)
+      // The review modal may be open on this very draft — it has nothing to
+      // show (and Send would only 404) once the row is gone.
+      setOpen((cur) => (cur && cur.id === rq.id ? null : cur))
+      await load()
+    }
+    catch { setErr(`Couldn’t delete “${rq.subject}” — is the backend running?`) }
     finally { setBusyId(null) }
   }
 
@@ -2449,8 +3105,10 @@ function TabRfqs({ m }: MProps) {
                   <div style={css('font-size:12.5px;color:var(--text-3)')}>Generate RFQs from the Suppliers tab — by buy-package or an ad-hoc search.</div>
                 </div>
               )}
+              {err && <div style={css('margin:12px 18px 0;font-size:12.5px;color:var(--danger)')}>{err}</div>}
               {shown.map((rq) => (
-                <Box key={rq.id} onClick={() => setOpen(rq)} style={css('display:flex;align-items:center;gap:12px;padding:13px 18px;border-bottom:1px solid var(--border);cursor:pointer')} hover="background:var(--panel-2)">
+                <div key={rq.id} style={css('border-bottom:1px solid var(--border)')}>
+                <Box onClick={() => setOpen(rq)} style={css('display:flex;align-items:center;gap:12px;padding:13px 18px;cursor:pointer')} hover="background:var(--panel-2)">
                   <div style={css(`width:34px;height:34px;border-radius:9px;background:${rq.logoBg || '#334155'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none`)}>{rq.logo}</div>
                   <div style={css('flex:1;min-width:0')}>
                     <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.subject}</div>
@@ -2459,19 +3117,33 @@ function TabRfqs({ m }: MProps) {
                   {rq.kind === 'subcontractor' && <span style={DcBadge('violet')}>Sub bid</span>}
                   <span style={DcBadge(rq.statusTone)}>{rq.status}</span>
                   {rq.status === 'Draft' && (
-                    <Box as="button" onClick={(e: { stopPropagation: () => void }) => remove(rq, e)} disabled={busyId === rq.id}
+                    <Box as="button" onClick={(e: { stopPropagation: () => void }) => { e.stopPropagation(); setErr(null); setConfirmId(rq.id) }} disabled={busyId === rq.id}
                       style={css(`width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none;${busyId === rq.id ? 'opacity:.5' : ''}`)}
                       hover="background:var(--danger-soft);color:var(--danger)" title="Delete draft">
                       <Svg size={15} sw={1.9} d='M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m1 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6' />
                     </Box>
                   )}
                 </Box>
+                {confirmId === rq.id && (
+                  <div style={css('padding:0 18px 12px')}>
+                    <ConfirmBar compact busy={busyId === rq.id}
+                      message={<>Delete draft <b>{rq.subject}</b>? Nothing has been sent; the draft is removed for good.</>}
+                      confirmLabel="Delete draft"
+                      onConfirm={() => remove(rq)}
+                      onCancel={() => setConfirmId(null)} />
+                  </div>
+                )}
+                </div>
               ))}
             </div>
           </div>
         </div>
       </div>
-      {open && <RfqReviewModal projectId={projectId} rfq={open} docs={m.docs} onClose={() => { setOpen(null); load() }} />}
+      {open && (
+        <RfqReviewModal projectId={projectId} rfq={open} docs={m.docs}
+          onClose={() => { setOpen(null); load() }}
+          onChanged={(updated) => { setRfqs((rs) => (rs || []).map((r) => (r.id === updated.id ? updated : r))); m.reload() }} />
+      )}
     </div>
   )
 }
@@ -2488,28 +3160,37 @@ function TabQuotes({ m }: MProps) {
     try {
       await ingestQuotes(projectId)
       // Poll the background ingest until it finishes, then reload the model.
+      let finished = false
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 1500))
         const st = await getIngestStatus(projectId)
         if (st.status !== 'ingesting') {
-          if (st.status === 'error') setNote(st.error || 'Ingest failed')
-          else setNote(`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}${st.mocked ? ' (simulated)' : ''}`)
+          finished = true
+          if (st.status === 'error') setNote(`Couldn’t read replies: ${st.error || 'ingest failed'}`)
+          else setNote(`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}${st.mocked ? ' (simulated — no Gmail connected)' : ''}`)
           break
         }
       }
+      // The mailbox read is still running past the poll window — say so
+      // instead of dropping the spinner with no outcome. Clicking again
+      // resumes polling the same run (the backend won't start a second one).
+      if (!finished) setNote('Still checking the mailbox — this is taking longer than usual. Click "Check for replies" again to keep waiting.')
       await m.reload()
-    } catch {
-      setNote('Could not check for replies. Is the backend running?')
+    } catch (e) {
+      setNote(hasDetail(e) ? e.message : 'Could not check for replies. Is the backend running?')
     } finally {
       setIngesting(false)
     }
   }
 
   // Quotes are separated by utility type (package); each group compares on its own.
-  const groups: { pkg: string; rows: typeof m.quotes }[] = []
+  // Grouped by package key (falling back to the label for demo quotes that
+  // carry none); the compare link needs the key — see model.ts quotes.
+  const groups: { pkg: string; key: string; rows: typeof m.quotes }[] = []
   for (const q of m.quotes) {
-    let g = groups.find((x) => x.pkg === q.pkg)
-    if (!g) { g = { pkg: q.pkg, rows: [] }; groups.push(g) }
+    const key = q.package || q.pkg
+    let g = groups.find((x) => x.key === key)
+    if (!g) { g = { pkg: q.pkg, key, rows: [] }; groups.push(g) }
     g.rows.push(q)
   }
 
@@ -2536,7 +3217,7 @@ function TabQuotes({ m }: MProps) {
                 <span style={css('font-size:13.5px;font-weight:700;letter-spacing:-.01em')}>{g.pkg}</span>
                 <span style={css('font-size:11.5px;font-weight:600;color:var(--text-3);background:var(--panel-3);padding:2px 8px;border-radius:999px')}>{g.rows.length} {g.rows.length === 1 ? 'quote' : 'quotes'}</span>
               </div>
-              <Box as="button" onClick={() => m.comparePackage(g.pkg)} style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;background:var(--primary);color:#fff;font-size:12.5px;font-weight:600;white-space:nowrap')} hover="background:var(--primary-2)"><Svg size={14} d='M3 6h18M3 12h18M3 18h18' />Compare</Box>
+              <Box as="button" onClick={() => m.comparePackage(g.key)} style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;background:var(--primary);color:#fff;font-size:12.5px;font-weight:600;white-space:nowrap')} hover="background:var(--primary-2)"><Svg size={14} d='M3 6h18M3 12h18M3 18h18' />Compare</Box>
             </div>
             <div style={css('overflow-x:auto')}><div style={css('min-width:640px')}>
               <div style={{ display: 'grid', gridTemplateColumns: gridCols, ...css('gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase') }}><span>Supplier</span><span style={css('text-align:right')}>Quote</span><span style={css('text-align:right')}>Freight</span><span style={css('text-align:right')}>Total</span><span style={css('text-align:right')}>Lead</span><span style={css('text-align:right')}>Received</span></div>
@@ -2594,10 +3275,20 @@ function TabCompare({ m }: MProps) {
   const [strategy, setStrategy] = useState<string>('mix')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [submitErr, setSubmitErr] = useState<string | null>(null)
+  // Awards already recorded for this package. Submitting is a real commitment
+  // (purchase decision + award/decline emails to every supplier), so the
+  // screen must say when one exists, and a repeat award goes out with
+  // `supersede` — the backend refuses it (409) otherwise.
+  const [prior, setPrior] = useState<PurchaseDecision[]>([])
+  const [confirming, setConfirming] = useState(false)
+  // Synchronous in-flight flag: state-driven `busy` only disables the button
+  // after a re-render, which clicks dispatched in the same task can beat.
+  const inFlight = useRef(false)
 
   useEffect(() => {
     let alive = true
-    setLoading(true); setErr(null); setMsg(null)
+    setLoading(true); setErr(null); setMsg(null); setSubmitErr(null); setConfirming(false); setPrior([])
     getLineComparison(m.projectId, m.comparePkg)
       .then((data) => {
         if (!alive) return
@@ -2605,8 +3296,15 @@ function TabCompare({ m }: MProps) {
         const rec = data.options.find((o) => o.key === data.recommendedOption) || data.options[0]
         setSel(rec ? { ...rec.selections } : {})
         setStrategy(rec ? rec.key : 'custom')
+        listPurchaseDecisions(m.projectId)
+          .then((ds) => { if (alive) setPrior(ds.filter((d) => d.package === data.package || d.packageLabel === data.pkg)) })
+          .catch(() => {})
       })
-      .catch(() => { if (alive) setErr('Could not load comparison. Is the backend running?') })
+      .catch((e) => {
+        if (!alive) return
+        const notFound = e instanceof Error && /-> 404/.test(e.message)
+        setErr(notFound ? 'No quotes to compare for this package yet — send RFQs and check for replies first.' : 'Could not load comparison. Is the backend running?')
+      })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [m.projectId, m.comparePkg])
@@ -2630,19 +3328,48 @@ function TabCompare({ m }: MProps) {
 
   const sum = summarizeAward(lc, sel)
   const gridCols = `minmax(150px,1.4fr) repeat(${lc.suppliers.length}, minmax(116px,1fr))`
+  // The most recent award on record: the purchase-decision list when it has
+  // one for this package, else the summary the comparison itself carries.
+  const lastAward: PurchaseDecision | null = prior[0] || (lc.lastAward ? {
+    id: 'last', projectId: m.projectId, package: lc.package, packageLabel: lc.pkg, strategy: null, selections: {},
+    supplierIds: [], suppliers: lc.lastAward.suppliers, total: lc.lastAward.total, material: 0, freight: 0,
+    leadDays: null, poCount: lc.lastAward.poCount, decidedBy: null, decidedByEmail: lc.lastAward.decidedByEmail || null,
+    createdAt: lc.lastAward.decidedAt || null,
+  } : null)
   const submit = async () => {
-    setBusy(true)
+    if (inFlight.current) return
+    inFlight.current = true
+    setBusy(true); setSubmitErr(null)
     try {
-      const res = await awardPackage(m.projectId, lc.package, sel, strategy)
+      // A repeat award must say so — the backend refuses it (409) otherwise.
+      const res = await awardPackage(m.projectId, lc.package, sel, strategy, !!lastAward)
       setMsg(res.message)
+      setConfirming(false)
+      // Remember the award locally right away (the decisions list may lag),
+      // so a second click is a labelled "Award again", never a plain resubmit.
+      setPrior((ps) => [{
+        id: `local-${Date.now()}`, projectId: m.projectId, package: lc.package, packageLabel: lc.pkg, strategy,
+        selections: sel, supplierIds: [], suppliers: res.suppliers || [], total: res.total, material: res.material,
+        freight: res.freight, leadDays: res.leadDays ?? null, poCount: res.poCount, decidedBy: null,
+        decidedByEmail: m.userEmail || null, createdAt: new Date().toISOString(),
+      }, ...ps])
+      listPurchaseDecisions(m.projectId)
+        .then((ds) => { const mine = ds.filter((d) => d.package === lc.package || d.packageLabel === lc.pkg); if (mine.length) setPrior(mine) })
+        .catch(() => {})
       await m.reload()
-    } catch {
-      setMsg('Could not submit award. Is the backend running?')
-    } finally { setBusy(false) }
+    } catch (e) {
+      // e.g. "Nothing to award — the quotes for this package have no priced
+      // line items" — the backend's reason beats the generic hint.
+      const reason = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      setSubmitErr(reason || 'Could not submit the award. Is the backend running? Nothing was committed.')
+    } finally { inFlight.current = false; setBusy(false) }
   }
   const budgetPct = lc.budget ? Math.min(100, (sum.total / lc.budget) * 100) : null
   const overBudget = lc.budget != null && sum.total > lc.budget
   const nothingSelected = sum.deliveries === 0
+  const supNames = lc.suppliers.filter((su) => Object.values(sel).includes(su.id)).map((su) => su.name)
+  const declined = lc.suppliers.length - supNames.length
+  const awardedOn = (d: PurchaseDecision) => (d.createdAt ? new Date(d.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '')
 
   return (
     <>
@@ -2651,6 +3378,14 @@ function TabCompare({ m }: MProps) {
         <h2 style={css('margin:0;font-size:19px;font-weight:700;letter-spacing:-.02em')}>{lc.pkg} — Quote Comparison</h2>
         <p style={css('margin:4px 0 0;font-size:13px;color:var(--text-2)')}>{lc.suppliers.length} suppliers · {lc.lines.length} line items{lc.budget != null ? ` · budget ${money(lc.budget)}` : ''}</p>
       </div>
+      {lastAward && (
+        <div role="status" style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:11px 14px;border-radius:11px;background:var(--success-soft);border:1px solid var(--success)')}>
+          <Svg size={16} sw={2.4} stroke="var(--success)" d="M20 6 9 17l-5-5" />
+          <span style={css('flex:1;min-width:220px;font-size:13px;color:var(--text);line-height:1.4')}>
+            <b>Already awarded</b> {awardedOn(lastAward) ? `on ${awardedOn(lastAward)} ` : ''}for <b>{money(lastAward.total)}</b> to {lastAward.suppliers.join(', ')}{lastAward.decidedByEmail ? ` by ${lastAward.decidedByEmail}` : ''} · {lastAward.poCount} {lastAward.poCount === 1 ? 'PO' : 'POs'}{prior.length > 1 ? ` · ${prior.length} awards on record` : ''}. Submitting again records a new decision and re-emails every supplier.
+          </span>
+        </div>
+      )}
 
       {/* Strategy switcher */}
       <div style={css('display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px')}>
@@ -2750,7 +3485,19 @@ function TabCompare({ m }: MProps) {
             </div>
             {sum.savings > 0 && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>Saves {money(sum.savings)} vs. the best single supplier.</div>}
             {msg && <div style={css('font-size:12px;color:var(--success);background:var(--success-soft);border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{msg}</div>}
-            <button onClick={busy || nothingSelected ? undefined : submit} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : nothingSelected ? 'Select at least one line' : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            {submitErr && <div style={css('font-size:12px;color:var(--danger);background:var(--danger-soft,rgba(220,38,38,.08));border-radius:9px;padding:9px 11px;margin-bottom:10px;line-height:1.4')}>{submitErr}</div>}
+            {confirming ? (
+              <ConfirmBar tone={lastAward ? 'danger' : 'primary'} busy={busy}
+                message={<>
+                  {lastAward ? <><b>This package was already awarded.</b> Submitting again records a second decision and emails every supplier again. </> : null}
+                  Award <b>{money(sum.total)}</b> to <b>{supNames.join(', ') || '—'}</b> ({sum.deliveries} {sum.deliveries === 1 ? 'PO' : 'POs'}){declined > 0 ? <>, and notify {declined} other supplier{declined === 1 ? '' : 's'} they were not selected</> : null}? Award emails can’t be recalled.
+                </>}
+                confirmLabel={lastAward ? 'Award again' : 'Confirm award'}
+                onConfirm={submit}
+                onCancel={() => setConfirming(false)} />
+            ) : (
+              <button onClick={busy || nothingSelected ? undefined : () => { setSubmitErr(null); setConfirming(true) }} style={css(`width:100%;height:38px;border-radius:9px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;${busy || nothingSelected ? 'opacity:.6;cursor:not-allowed' : ''}`)}>{busy ? 'Submitting…' : nothingSelected ? 'Select at least one line' : lastAward ? `Award again · ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}` : `Submit award · issue ${sum.deliveries} ${sum.deliveries === 1 ? 'PO' : 'POs'}`}</button>
+            )}
           </div>
         </div>
       </div>
@@ -2762,13 +3509,17 @@ function TabCompare({ m }: MProps) {
 function TabTimeline({ m }: MProps) {
   // Completion is human-confirmed: check a milestone off (or undo it), then
   // reload so statuses (Complete / Overdue / active) recompute.
-  const toggleDone = async (mm: { id?: number | null; done?: boolean }) => {
+  const [err, setErr] = useState<string | null>(null)
+  const toggleDone = async (mm: { id?: number | null; done?: boolean; name?: string }) => {
     if (mm.id == null) return
-    try { await setTimelineEventDone(mm.id, !mm.done) } catch { /* reload shows truth either way */ }
+    setErr(null)
+    try { await setTimelineEventDone(mm.id, !mm.done) }
+    catch { setErr(`Couldn’t update “${mm.name || 'milestone'}” — is the backend running? Nothing changed.`) }
     m.reload()
   }
   return (
     <>
+      {err && <div style={css('margin-bottom:12px;font-size:12.5px;color:var(--danger)')}>{err}</div>}
       {m.gantt.length === 0 && m.milestones.length === 0 && (
       <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center;margin-bottom:16px')}>
         <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No timeline yet</div>
@@ -2845,10 +3596,11 @@ function LendersPanel({ projectId }: { projectId: string }) {
   }
 
   const remove = async (id: number) => {
+    setErr(null)
     try {
       await deleteLender(projectId, id)
       setLenders((ls) => ls.filter((l) => l.id !== id))
-    } catch { /* row stays; nothing to clean up */ }
+    } catch { setErr('Couldn’t remove the lender — is the backend running? They are still on the list.') }
   }
 
   return (
@@ -3004,6 +3756,13 @@ function MobileNav({ m }: MProps) {
 }
 
 /* ----------------------------------------------------- New project modal */
+// "$4.2M", "450,000", "1.5 b", "12000.50" or blank — mirrors the API's rule.
+const MONEY_RE = /^\$?\s*\d{1,3}(,\d{3})*(\.\d+)?\s*[kKmMbB]?$|^\$?\s*\d+(\.\d+)?\s*[kKmMbB]?$/
+export function isMoneyLike(v: string): boolean {
+  const t = v.trim()
+  return !t || MONEY_RE.test(t)
+}
+
 const fieldLabel = css('display:block;font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:6px')
 const fieldInput = css('width:100%;height:38px;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13.5px')
 
@@ -3011,7 +3770,10 @@ function NewProjectModal({ m }: MProps) {
   const [name, setName] = useState('')
   const [loc, setLoc] = useState('')
   const [value, setValue] = useState('')
-  const valid = name.trim().length > 0
+  // Same rule as the API (ProjectCreate.value): an amount like $4.2M or
+  // 450,000, or blank. Free text used to be stored and shown as "Value abc".
+  const valueOk = isMoneyLike(value)
+  const valid = name.trim().length > 0 && valueOk
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -3043,7 +3805,8 @@ function NewProjectModal({ m }: MProps) {
             </div>
             <div style={{ flex: 1 }}>
               <label style={fieldLabel}>Est. value</label>
-              <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="$0" style={fieldInput} />
+              <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="$0" aria-invalid={!valueOk} style={{ ...fieldInput, ...(valueOk ? {} : css('border-color:var(--danger)')) }} />
+              {!valueOk && <div role="alert" style={css('font-size:11.5px;color:var(--danger);margin-top:5px')}>Enter an amount, e.g. $4.2M or 450,000</div>}
             </div>
           </div>
         </div>

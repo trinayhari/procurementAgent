@@ -1,0 +1,15 @@
+{
+  "id": "text-first-strict",
+  "label": "Text-first, stricter escalation floor",
+  "description": "Hypothesis: the text-pass escalation floor of 3 items is too low for real plan sets, so thin text results are accepted instead of escalating to vision. Six corpus documents carry a text layer that clears the 500-character `has_text_layer` gate but holds essentially no bill-of-materials content — electrical-wa-kirkland-2020121211-01 has 2,985 characters across four 36x24 sheets (title block and general notes only), electrical-mn-wsp-2930-01 has 7,530 characters that are almost entirely legend labels and plan-note prose, and site-nps-crissy-field-01 has 4,546 characters across 18 sheets of which 3,850 sit on the single sheet-index page. On documents like these the text pass can easily return 4-6 plausible-looking items and stop, permanently missing everything drawn as a symbol. Raising `text_pass_min_items` to 8 forces those sets onto the per-sheet vision path; the denser 4x3 tile grid is applied so the escalated pass can actually read keynote hexagons and schedule rows on a 36x24 sheet. Expect recall to rise and latency and cost to rise with it — if recall does not move, the escalation is not where the loss is.",
+  "settings": {
+    "text_pass_min_items": 8,
+    "vision_tile_cols": 4,
+    "vision_tile_rows": 3,
+    "vision_dense_tile_cols": 4,
+    "vision_dense_tile_rows": 3,
+    "vision_tile_dpi": 200
+  },
+  "prompts": {},
+  "spec_overrides": {}
+}

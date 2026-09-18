@@ -18,6 +18,9 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
+        # @proq/bench — the extraction accuracy harness (docs/eval-harness.md).
+        "http://localhost:5185",
+        "http://127.0.0.1:5185",
     ]
 
     # Public base URL of the web app, used to build links in outgoing emails
@@ -78,7 +81,7 @@ class Settings(BaseSettings):
     # Optional OpenAI-compatible gateway (e.g. OpenRouter: https://openrouter.ai/api/v1).
     # Empty → official OpenAI endpoint.
     openai_base_url: str = ""
-    openai_vision_model: str = "gpt-6-astra"
+    openai_vision_model: str = "gpt-4.1"
     # Page rasterisation + request limits (cost/detail trade-offs — see pdf.py).
     vision_dpi: int = 150
     vision_max_pages: int = 30
@@ -109,6 +112,30 @@ class Settings(BaseSettings):
     # (symbols, not text — e.g. electrical devices on MEP sheets), so the
     # pipeline escalates to the per-sheet vision path on the relevant sheets.
     text_pass_min_items: int = 3
+
+    # Sheet classifier keyword matching (services/extraction/sheets.py). True
+    # matches discipline keywords on word boundaries (plural-tolerant), keeps
+    # SUMMARY OF QUANTITIES sheets for every plan type, and lets a sheet number
+    # (E-501) break a family tie. The legacy substring count made the civil
+    # title word "PLAT" fire on every "SILL PLATE" / "PLATE WASHER" and "DUCT"
+    # on "CONDUCTOR", so a foundation sheet with seven plate callouts
+    # classified civil and was SKIPPED for building extraction. Promoted to the
+    # default on 2026-09-17 after a corpus-wide bench pass (Portland ADU recall
+    # 0.13 → 0.87, no anchor selection changed); the `classifier-substring-legacy`
+    # variant restores the old behaviour for comparison.
+    sheet_keywords_word_boundary: bool = True
+
+    # ------------------------------------------------------- eval bench (dev)
+    # The accuracy harness for plan extraction (see docs/eval-harness.md). It is
+    # an UNAUTHENTICATED local tuning tool, so it is mounted only outside
+    # production. Never set this true on a public deployment.
+    bench_enabled: bool = True
+    # Corpus root (plan PDFs + ground truth). Relative paths resolve from the
+    # repo root, not apps/api.
+    bench_corpus_dir: str = "bench-corpus"
+    # Run history lives in its own SQLite file — eval data never touches the
+    # product database.
+    bench_db_url: str = "sqlite:///./bench-runs.db"
 
     # ------------------------------------------------ Google Maps Platform
     # Geocoding (project loc → lat/lng) + Places Text Search/Details (supplier
