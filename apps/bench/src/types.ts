@@ -144,6 +144,8 @@ export type DocScoreOut = {
   quantity_accuracy: number | null
   unit_accuracy: number | null
   category_accuracy: number | null
+  /** required items found with quantity and unit right — RFQ-ready share; null when unmeasurable */
+  usable_recall: number | null
   hallucinations: number
   counts: ScoreCounts
   matches: ItemMatchOut[]
@@ -182,6 +184,8 @@ export type RunMetrics = {
   quantity_accuracy: number | null
   unit_accuracy: number | null
   category_accuracy: number | null
+  /** required items found with quantity and unit right — RFQ-ready share; null when unmeasurable */
+  usable_recall: number | null
   hallucinations: number | null
   defined?: Partial<Record<MetricKey | 'hallucinations', number>> | null
   counts?: Partial<ScoreCounts> | null
@@ -250,7 +254,7 @@ export type CompareOut = {
 
 export type MetricKey =
   | 'precision' | 'recall' | 'f1' | 'optional_recall'
-  | 'quantity_accuracy' | 'unit_accuracy' | 'category_accuracy'
+  | 'quantity_accuracy' | 'unit_accuracy' | 'category_accuracy' | 'usable_recall'
 
 export const METRIC_LABELS: Record<MetricKey, string> = {
   precision: 'Precision',
@@ -260,4 +264,5 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
   quantity_accuracy: 'Quantity',
   unit_accuracy: 'Unit',
   category_accuracy: 'Category',
+  usable_recall: 'Usable',
 }

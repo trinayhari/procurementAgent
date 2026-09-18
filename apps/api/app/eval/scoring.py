@@ -146,6 +146,11 @@ class ItemMatch:
     # of just "wrong category".
     truth_category: Optional[str] = None
     extracted_category: Optional[str] = None
+    # got / want, when both exist and want is non-zero. The single most useful
+    # number for diagnosing a WRONG quantity: 0.125 is a typical-unit count that
+    # was never scaled to the 8-unit building; 3.0 on a CAD set is the stacked
+    # text layer summed three times; 2.0 is plan + profile added together.
+    quantity_ratio: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +167,10 @@ class DocScore:
     hallucinations: int  # forbidden matches
     counts: dict
     matches: List[ItemMatch] = field(default_factory=list)
+    # Required items found with EVERY field the truth states correct (quantity
+    # within tolerance, unit equal). Recall says the model saw the item; this
+    # says the line could go on an RFQ as-is — which is what downstream needs.
+    usable_recall: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -174,6 +183,7 @@ class DocScore:
             "quantity_accuracy": self.quantity_accuracy,
             "unit_accuracy": self.unit_accuracy,
             "category_accuracy": self.category_accuracy,
+            "usable_recall": self.usable_recall,
             "hallucinations": self.hallucinations,
             "counts": dict(self.counts),
             "matches": [vars(m).copy() for m in self.matches],
@@ -188,7 +198,32 @@ METRIC_KEYS = (
     "quantity_accuracy",
     "unit_accuracy",
     "category_accuracy",
+    "usable_recall",
 )
+
+# A wrong quantity whose got/want ratio sits within this of an integer k >= 2
+# (or 1/k) is a SCALE error — a per-unit count not multiplied up, or a stacked
+# text layer summed — rather than a misread number.
+SCALE_ERROR_TOLERANCE = 0.1
+SCALE_ERROR_MAX_FACTOR = 24
+
+
+def scale_factor(ratio: Optional[float]) -> Optional[int]:
+    """The integer k such that got ≈ want × k or got ≈ want / k; None otherwise.
+
+    Positive k means the extraction is k times TOO BIG; negative k means k
+    times too small. Ratios near 1 are not scale errors and return None.
+    """
+    if ratio is None or ratio <= 0:
+        return None
+    too_big = ratio >= 1.0
+    magnitude = ratio if too_big else 1.0 / ratio
+    k = int(round(magnitude))
+    if k < 2 or k > SCALE_ERROR_MAX_FACTOR:
+        return None
+    if abs(magnitude - k) > k * SCALE_ERROR_TOLERANCE:
+        return None
+    return k if too_big else -k
 
 
 # ------------------------------------------------------------ normalisation
@@ -228,6 +263,88 @@ def _canonical_number(raw: str) -> str:
     return str(int(value)) if value.is_integer() else repr(value)
 
 
+# Construction fractions are always over a power of two (1/2", 3/4", 7/16",
+# 23/32"); anything else written a/b is a ratio or a pair (208/120V), not a size.
+_FRACTION_DENOMINATORS = frozenset({2, 4, 8, 16, 32, 64})
+_MIXED_NUMBER_RE = re.compile(r"(?<![\d.])(\d+)-(\d+)/(\d+)(?![\d/])")
+_FRACTION_RE = re.compile(r"(?<![\d.\-/])(\d+)/(\d+)(?![\d/])")
+# `(2)` in a material name is a ply / bar / conductor COUNT, not a size.
+_PAREN_COUNT_RE = re.compile(r"\((\d+)\)")
+# `@ 16" O.C.` / `at 24 in. on center` — a spacing, stated by the truth, that an
+# extraction may legitimately leave off the line item.
+_SPACING_RE = re.compile(
+    r"(?:@|\bat)\s*(\d+(?:\.\d+)?)\s*(?:[\"”″']|inch(?:es)?\b|in\b\.?|ft\b\.?)?\s*"
+    r"(?:o\.?\s?c\.?\b|on\s+center\b)"
+)
+# `2x6`, `6x12`, `4x4x8` — a lumber / structure size written as one token.
+_SIZE_PRODUCT_RE = re.compile(
+    r"(?<![a-z0-9.])(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?(?![a-z0-9])"
+)
+
+
+def _fraction_value(whole: str, num: str, den: str) -> Optional[float]:
+    d = int(den)
+    n = int(num)
+    if d not in _FRACTION_DENOMINATORS or n >= d:
+        return None
+    return int(whole or 0) + n / float(d)
+
+
+def _prepass(text: str, codes: Dict[str, set]) -> str:
+    """Rewrite the notations that make a numeral LOOK like a size when it is not.
+
+    Runs on the raw lowercased name, before tokenisation, and records what it
+    removes as conflict-only code values (present on both sides and different →
+    the two names are different things; present on one side only → nothing).
+
+      • trailing parentheticals are notes (`(feeder mark 1, 200A/4W)`), exactly
+        as `normalize_name` treats them;
+      • `(2)` is a ply / bar count → `count`;
+      • `@ 16" O.C.` is a spacing → `oc`;
+      • `1/2"`, `1-3/4"` are ONE dimension each, not two or three, and `1/2"`
+        must not be satisfied by the 1 and 2 in `2-1/2"`; `3/0` (AWG) is a
+        gauge, not a fraction → `/0`;
+      • `2x6` is two dimensions, not a token the scanner cannot read.
+    """
+    while True:
+        stripped = _TRAILING_PAREN_RE.sub("", text)
+        if stripped == text:
+            break
+        text = stripped
+
+    def take_count(m):
+        codes.setdefault("count", set()).add(_canonical_number(m.group(1)))
+        return " "
+
+    def take_spacing(m):
+        codes.setdefault("oc", set()).add(_canonical_number(m.group(1)))
+        return " "
+
+    def take_mixed(m):
+        value = _fraction_value(m.group(1), m.group(2), m.group(3))
+        if value is None:
+            return m.group(0)
+        return " " + _canonical_number(str(value)) + " "
+
+    def take_fraction(m):
+        if int(m.group(2)) == 0:  # 1/0 … 4/0: wire gauge
+            codes.setdefault("/0", set()).add(_canonical_number(m.group(1)))
+            return " "
+        value = _fraction_value("", m.group(1), m.group(2))
+        if value is None:
+            return m.group(0)
+        return " " + _canonical_number(str(value)) + " "
+
+    text = _PAREN_COUNT_RE.sub(take_count, text)
+    text = _SPACING_RE.sub(take_spacing, text)
+    text = _MIXED_NUMBER_RE.sub(take_mixed, text)
+    text = _FRACTION_RE.sub(take_fraction, text)
+    text = _SIZE_PRODUCT_RE.sub(
+        lambda m: " " + " x ".join(g for g in m.groups() if g) + " ", text
+    )
+    return text
+
+
 def _analyse(name: Optional[str]) -> Tuple[Dict[str, int], Dict[str, set]]:
     """Split a raw name's numerals into dimensions and product-code values.
 
@@ -235,11 +352,11 @@ def _analyse(name: Optional[str]) -> Tuple[Dict[str, int], Dict[str, set]]:
     `ATS1` and `30000LM` are kept honest without gating on their presence: they
     only ever conflict with the SAME key on the other side.
     """
-    text = (name or "").lower()
-    text = _INCH_RE.sub(" inch ", text)
-    text = text.replace(u"°", " degree ").replace("%", " percent ")
     dims: Dict[str, int] = {}
     codes: Dict[str, set] = {}
+    text = _prepass((name or "").lower(), codes)
+    text = _INCH_RE.sub(" inch ", text)
+    text = text.replace(u"°", " degree ").replace("%", " percent ")
     for token in _ROLE_SPLIT_RE.split(text):
         _scan_token(token, dims, codes)
     return dims, codes
@@ -552,6 +669,12 @@ def _quantity_ok(want: Optional[float], got: Optional[float], tolerance: float) 
     return abs(got - want) <= abs(want) * tolerance + 1e-9
 
 
+def _quantity_ratio(want: Optional[float], got: Optional[float]) -> Optional[float]:
+    if want is None or got is None or want == 0:
+        return None
+    return got / float(want)
+
+
 def _unit_ok(want: Optional[str], got: Optional[str]) -> Optional[bool]:
     if want is None:
         return None
@@ -627,6 +750,7 @@ def score_document(extracted_groups: Sequence[dict], truth: Truth, spec=None) ->
                 qty_tolerance=item.qty_tolerance,
                 truth_category=item.category or None,
                 extracted_category=ref.category,
+                quantity_ratio=_quantity_ratio(item.quantity, ref.quantity),
             )
         )
 
@@ -720,6 +844,14 @@ def _metrics(truth: Truth, refs, matches: List[ItemMatch], full: bool) -> DocSco
 
     q_scored = [m for m in hits if m.quantity_ok is not None]
     u_scored = [m for m in hits if m.unit_ok is not None]
+    # A hit is usable when nothing the truth states about it is wrong. A field
+    # the truth leaves unstated (None) cannot be wrong.
+    usable_required = [
+        m for m in required_hits if m.quantity_ok is not False and m.unit_ok is not False
+    ]
+    scale_errors = sum(
+        1 for m in q_scored if m.quantity_ok is False and scale_factor(m.quantity_ratio) is not None
+    )
 
     counts = {
         "hit": len(hits),
@@ -730,6 +862,8 @@ def _metrics(truth: Truth, refs, matches: List[ItemMatch], full: bool) -> DocSco
         "truth_total": len(truth.items),
         "truth_required": required_total,
         "extracted_total": len(refs),
+        "quantity_wrong": sum(1 for m in q_scored if m.quantity_ok is False),
+        "scale_errors": scale_errors,
     }
     return DocScore(
         doc_id=truth.doc_id,
@@ -744,6 +878,7 @@ def _metrics(truth: Truth, refs, matches: List[ItemMatch], full: bool) -> DocSco
         hallucinations=len(forbidden),
         counts=counts,
         matches=matches,
+        usable_recall=_ratio_or_none(len(usable_required), required_total),
     )
 
 

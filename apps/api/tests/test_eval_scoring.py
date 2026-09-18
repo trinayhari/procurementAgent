@@ -594,3 +594,153 @@ def test_aggregate_of_nothing_is_all_none():
     assert agg["documents"] == 0
     for key in scoring.METRIC_KEYS:
         assert agg[key] is None
+
+
+# ------------------------------------- notations that only LOOK like a size
+# Found by probing the gate with names from the committed truth files: every
+# pair below was a false miss (or, for 1/2" vs 2-1/2", a false HIT) before the
+# pre-pass, and each is a notation that appears on nearly every building set.
+NOTATION_PAIRS = [
+    ("fraction is ONE dimension, not two", '1/2" Anchor Bolt', '1/2 inch anchor bolts, 7" embed', True),
+    ("fraction is not satisfied by its digits", '1/2" Anchor Bolt', '2-1/2" Anchor Bolt', False),
+    ("mixed number equals its decimal", '(2) 1-3/4" x 14" LVL Beam (B1)', '2-ply 1.75" x 14" LVL beam B1', True),
+    ("ply count contradiction blocks", '(2) 1-3/4" x 14" LVL Beam', '(3) 1-3/4" x 14" LVL Beam', False),
+    ("bar count omitted is not vaguer", '#5 Rebar, (2) top & bottom', "#5 rebar, top and bottom", True),
+    ("spacing omitted is not vaguer", '9-1/2" TJI 210 Floor Joist @ 16" O.C.', '9-1/2" TJI 210 floor joists', True),
+    ("spacing contradiction blocks", '#3 Rebar @ 12" O.C.', '#3 rebar @ 24" o.c.', False),
+    ("NxM lumber size is two dimensions", '6" x 12" Continuous Concrete Footing', "6x12 continuous footing", True),
+    ("NxM lumber size gates", "2x6 Pressure-Treated Mudsill", "2x10 pressure treated mudsill", False),
+    ("AWG gauge is a code, not a fraction", "3/0 Copper Feeder", "1/0 copper feeder", False),
+    ("AWG gauge agrees with itself", "3/0 Copper Feeder", "3/0 AWG copper feeder", True),
+    ("voltage pair is not a fraction", "480/277V Panelboard", "480/277V panelboard, 42 circuit", True),
+    ("trailing note is not a spec", "3/0 Copper Feeder (feeder mark 1, 200A/4W)", "3/0 copper feeder", True),
+    ("32nds are fractions too", '23/32" OSB Subfloor, T&G', '23/32" T&G OSB subfloor', True),
+]
+
+
+@pytest.mark.parametrize(
+    "why,truth_name,extracted_name,should_match",
+    NOTATION_PAIRS,
+    ids=[p[0] for p in NOTATION_PAIRS],
+)
+def test_size_notations_are_read_as_estimators_write_them(why, truth_name, extracted_name, should_match):
+    gated = scoring.name_similarity(truth_name, extracted_name)
+    if should_match:
+        assert gated >= scoring.FUZZY_THRESHOLD, why
+    else:
+        assert gated == 0.0, why
+
+
+def test_fractions_and_products_become_dimensions():
+    assert scoring.dimensional_numbers('1/2" Anchor Bolt') == {"0.5": 1}
+    assert scoring.dimensional_numbers('1-3/4" x 14" LVL') == {"1.75": 1, "14": 1}
+    assert scoring.dimensional_numbers("2x6 Stud") == {"2": 1, "6": 1}
+    assert scoring.dimensional_numbers("4x4x8 Post") == {"4": 2, "8": 1}
+    # Counts and spacing are recorded, keyed, so they can only contradict.
+    assert scoring.code_values("(2) 2x10 Header") == {"count": {"2"}}
+    assert scoring.code_values('2x6 Studs @ 16" O.C.') == {"oc": {"16"}}
+    assert scoring.code_values("3/0 Copper") == {"/0": {"3"}}
+    assert scoring.dimensional_numbers("3/0 Copper") == {}
+
+
+# ------------------------------------------------ usable recall + scale errors
+def test_usable_recall_counts_only_lines_an_rfq_could_use():
+    t = truth(
+        item('8" PVC Water Main', quantity=1000, unit="LF"),       # found, right
+        item('6" Gate Valve', quantity=4, unit="EA"),             # found, qty wrong
+        item("Fire Hydrant", quantity=3, unit="EA"),              # found, unit wrong
+        item("Tapping Sleeve"),                                   # found, nothing stated → usable
+        item('12" DI Pipe', quantity=200, unit="LF"),             # missed
+    )
+    score = scoring.score_document(
+        [group(
+            WATER,
+            ('8" PVC Water Main', "1000 LF"),
+            ('6" Gate Valve', "8 EA"),
+            ("Fire Hydrant", "3 LF"),
+            ("Tapping Sleeve", "—"),
+        )],
+        t,
+        SPEC,
+    )
+    assert score.recall == 4 / 5
+    assert score.usable_recall == 2 / 5
+    assert score.counts["quantity_wrong"] == 1
+
+
+def test_usable_recall_is_none_without_required_items():
+    score = scoring.score_document(
+        [group(WATER, ("Fire Hydrant", "3 EA"))],
+        truth(item("Fire Hydrant", quantity=3, unit="EA", required=False)),
+        SPEC,
+    )
+    assert score.usable_recall is None
+    assert score.optional_recall == 1.0
+
+
+@pytest.mark.parametrize(
+    "ratio,expected",
+    [
+        (None, None), (1.0, None), (1.04, None), (1.5, None),
+        (8.0, 8), (7.5, 8), (0.125, -8), (0.13, -8), (3.0, 3), (2.0, 2), (0.5, -2),
+        (0.9, None), (1.2, None), (30.0, None),
+    ],
+)
+def test_scale_factor_reads_integer_multiples(ratio, expected):
+    assert scoring.scale_factor(ratio) == expected
+
+
+def test_a_never_scaled_typical_unit_count_is_a_scale_error():
+    """The 54-61 failure mode: 15 lights per unit reported for an 8-unit building."""
+    lighting = ELEC.category("lighting")
+    t = truth(
+        item("Ceiling Light Fixture", category="lighting", quantity=116, unit="EA", qty_tolerance=0.15),
+        item("Duplex Receptacle", category="devices", quantity=240, unit="EA", qty_tolerance=0.2),
+        plan_type="electrical_plan",
+    )
+    score = scoring.score_document(
+        [
+            group(lighting, ("Ceiling Light Fixture", "15 EA")),
+            group(ELEC.category("devices"), ("Duplex Receptacle", "200 EA")),
+        ],
+        t,
+        ELEC,
+    )
+    by_name = {m.truth_name: m for m in score.matches}
+    assert by_name["Ceiling Light Fixture"].quantity_ok is False
+    assert abs(by_name["Ceiling Light Fixture"].quantity_ratio - 15 / 116) < 1e-9
+    assert scoring.scale_factor(by_name["Ceiling Light Fixture"].quantity_ratio) == -8
+    # 200 vs 240 is a misread, not a scale error.
+    assert by_name["Duplex Receptacle"].quantity_ok is True
+    assert score.counts["scale_errors"] == 1
+    assert score.counts["quantity_wrong"] == 1
+    assert score.usable_recall == 0.5
+    assert score.to_dict()["usable_recall"] == 0.5
+    assert score.to_dict()["matches"][0]["quantity_ratio"] is not None
+
+
+def test_quantity_ratio_is_none_where_it_cannot_be_computed():
+    score = scoring.score_document(
+        [group(WATER, ("Fire Hydrant", "3 EA"), ("Tapping Sleeve", "—"))],
+        truth(item("Fire Hydrant"), item("Tapping Sleeve", quantity=2, unit="EA")),
+        SPEC,
+    )
+    for m in score.matches:
+        assert m.quantity_ratio is None
+
+
+def test_aggregate_carries_usable_recall_and_scale_errors():
+    a = scoring.score_document(
+        [group(WATER, ('8" PVC Water Main', "8000 LF"))],
+        truth(item('8" PVC Water Main', quantity=1000, unit="LF")),
+        SPEC,
+    )
+    b = scoring.score_document(
+        [group(WATER, ('8" PVC Water Main', "1000 LF"))],
+        truth(item('8" PVC Water Main', quantity=1000, unit="LF")),
+        SPEC,
+    )
+    agg = scoring.aggregate([a, b])
+    assert agg["usable_recall"] == 0.5
+    assert agg["counts"]["scale_errors"] == 1
+    assert agg["defined"]["usable_recall"] == 2

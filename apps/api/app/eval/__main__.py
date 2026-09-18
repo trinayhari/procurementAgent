@@ -289,11 +289,13 @@ def _print_run(run: dict, detail: bool = False) -> None:
         print("  metrics: {}".format(summary.get("note") or "none"))
     else:
         print(
-            "  precision {}  recall {}  f1 {}  qty {}  unit {}  category {}  hallucinations {}".format(
+            "  precision {}  recall {}  f1 {}  qty {}  unit {}  category {}  usable {}  hallucinations {}  scale-errors {}".format(
                 _fmt(metrics.get("precision")), _fmt(metrics.get("recall")),
                 _fmt(metrics.get("f1")), _fmt(metrics.get("quantity_accuracy")),
                 _fmt(metrics.get("unit_accuracy")), _fmt(metrics.get("category_accuracy")),
+                _fmt(metrics.get("usable_recall")),
                 metrics.get("hallucinations", 0),
+                (metrics.get("counts") or {}).get("scale_errors", 0),
             )
         )
     if not detail:

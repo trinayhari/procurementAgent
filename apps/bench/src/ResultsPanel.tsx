@@ -7,7 +7,7 @@ import type { CorpusDocOut, MetricKey, RunDetailOut, TrialOut } from './types'
 // Headline metrics for one run, then the per-document rows that expand into the
 // diff. Everything here is read-only: nothing on this panel starts a run.
 
-const HEADLINE: MetricKey[] = ['precision', 'recall', 'f1', 'quantity_accuracy', 'unit_accuracy', 'category_accuracy']
+const HEADLINE: MetricKey[] = ['precision', 'recall', 'f1', 'quantity_accuracy', 'unit_accuracy', 'category_accuracy', 'usable_recall']
 
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (

@@ -122,6 +122,8 @@ class MetricsOut(BaseModel):
     quantity_accuracy: Optional[float] = None
     unit_accuracy: Optional[float] = None
     category_accuracy: Optional[float] = None
+    # Required items found with quantity AND unit right — the RFQ-ready share.
+    usable_recall: Optional[float] = None
     hallucinations: int = 0
     # How many documents actually defined each metric — the denominator behind
     # the macro-average, so a 1-of-9 average is not read as a 9-document result.
@@ -195,6 +197,9 @@ class MatchOut(BaseModel):
     truth_source: Optional[str] = None
     qty_tolerance: Optional[float] = None
     forbidden_why: Optional[str] = None
+    # got / want on a hit with both quantities — what a wrong quantity looks
+    # like (0.125 = never scaled to 8 units; 3.0 = stacked text summed).
+    quantity_ratio: Optional[float] = None
 
 
 class DocScoreOut(BaseModel):
@@ -212,6 +217,7 @@ class DocScoreOut(BaseModel):
     quantity_accuracy: Optional[float] = None
     unit_accuracy: Optional[float] = None
     category_accuracy: Optional[float] = None
+    usable_recall: Optional[float] = None
     hallucinations: int = 0
     counts: Dict[str, int] = {}
     matches: List[MatchOut] = []

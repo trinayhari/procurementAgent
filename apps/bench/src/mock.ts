@@ -305,6 +305,9 @@ function scoreDoc(docId: string, planType: string, variantId: string): DocScoreO
     quantity_accuracy: qtyJudged.length ? qtyJudged.filter((m) => m.quantity_ok).length / qtyJudged.length : null,
     unit_accuracy: unitJudged.length ? unitJudged.filter((m) => m.unit_ok).length / unitJudged.length : null,
     category_accuracy: hits.length ? hits.filter((m) => m.category_ok).length / hits.length : null,
+    usable_recall: requiredTruth
+      ? hits.filter((m) => m.required && m.quantity_ok !== false && m.unit_ok !== false).length / requiredTruth
+      : null,
     hallucinations: counts.forbidden,
     counts,
     matches,
@@ -343,6 +346,7 @@ function aggregate(scores: DocScoreOut[], mockedTrials: number, unlabelled: numb
     quantity_accuracy: avg((s) => s.quantity_accuracy),
     unit_accuracy: avg((s) => s.unit_accuracy),
     category_accuracy: avg((s) => s.category_accuracy),
+    usable_recall: avg((s) => s.usable_recall),
     hallucinations: scores.reduce((a, s) => a + s.hallucinations, 0),
   }
   // Mirrors the real runner: live metrics and mocked metrics never share a field.
@@ -534,6 +538,7 @@ export async function mockRequest<T>(path: string, init?: RequestInit): Promise<
         precision: d('precision'), recall: d('recall'), f1: d('f1'),
         optional_recall: d('optional_recall'), quantity_accuracy: d('quantity_accuracy'),
         unit_accuracy: d('unit_accuracy'), category_accuracy: d('category_accuracy'),
+        usable_recall: d('usable_recall'),
         hallucinations: d('hallucinations'),
       },
       per_doc: docIds.map((doc_id) => ({ doc_id, a: ma.get(doc_id) || null, b: mb.get(doc_id) || null })),

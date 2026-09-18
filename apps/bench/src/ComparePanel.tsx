@@ -6,7 +6,7 @@ import type { CompareOut, DocScoreOut, MetricKey, RunSummaryOut } from './types'
 // so the direction shown always matches the numbers next to it; the API's own
 // `deltas` block is used only as a cross-check.
 
-const ROWS: MetricKey[] = ['precision', 'recall', 'f1', 'quantity_accuracy', 'unit_accuracy', 'category_accuracy']
+const ROWS: MetricKey[] = ['precision', 'recall', 'f1', 'quantity_accuracy', 'unit_accuracy', 'category_accuracy', 'usable_recall']
 
 function dirColour(d: number | null, higherIsBetter = true): string {
   if (d === null || d === 0) return 'var(--text-3)'
