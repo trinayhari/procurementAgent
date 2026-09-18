@@ -29,6 +29,9 @@ _PRICE_SCALE = 0.10  # +10% over the cheapest total = 1.0 penalty unit
 _PRICE_FLOOR = 0.005  # ≤0.5% dearer counts as "same price"
 _LEAD_SCALE = 30.0  # 30 days behind the fastest = 1.0 penalty unit
 _LEAD_FLOOR = 2.0  # ≤2 days slower counts as "same lead time"
+# Added to the score of a quote missing its total or lead time (when others
+# have one): larger than any blended score a complete quote can reach.
+_INCOMPLETE_PENALTY = 1e6
 
 
 def _money(v: Optional[float]) -> str:
@@ -115,10 +118,19 @@ def build_comparison(
     # --- recommendation: weighted blend (lower total/lead better, higher risk better)
     cost_pen = _relative_penalties(totals, _PRICE_SCALE, _PRICE_FLOOR, relative=True)
     lead_pen = _relative_penalties(leads, _LEAD_SCALE, _LEAD_FLOOR, relative=False)
+    # An incomplete quote — no total, or no lead time while others state one —
+    # is a hard last place, not merely a per-axis penalty: a big enough price
+    # gap on the other axis used to buy it the recommendation. Among
+    # incomplete quotes the blended score still orders them.
+    any_total = any(t is not None for t in totals)
+    any_lead = any(l is not None for l in leads)
     scores = []
     for i in range(len(quotes)):
         risk = 1.0 - (risks[i] / 100.0)
-        scores.append(_W_COST * cost_pen[i] + _W_LEAD * lead_pen[i] + _W_RISK * risk)
+        score = _W_COST * cost_pen[i] + _W_LEAD * lead_pen[i] + _W_RISK * risk
+        if (any_total and totals[i] is None) or (any_lead and leads[i] is None):
+            score += _INCOMPLETE_PENALTY
+        scores.append(score)
     rec_idx = scores.index(min(scores)) if scores else 0
 
     suppliers = [

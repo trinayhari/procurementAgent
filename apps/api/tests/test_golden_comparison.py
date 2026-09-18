@@ -163,3 +163,23 @@ def test_penalty_floors_and_missing_values():
     lead = comparison._relative_penalties([10.0, 12.0, 40.0], 30.0, 2.0, relative=False)
     assert lead == [0.0, 0.0, 28.0 / 30.0]
     assert comparison._relative_penalties([None, None], 1.0, 0.0, relative=False) == [0.0, 0.0]
+
+
+def test_incomplete_quote_is_a_hard_last_place(monkeypatch):
+    """BUG-50: a missing lead time used to be only a per-axis penalty, so a
+    complete quote 12% dearer lost to one with no lead time at all."""
+    for premium in (0.01, 0.05, 0.12, 0.21, 0.50):
+        out = _run(monkeypatch, [
+            _quote("Complete", 99_000 * (1 + premium), 60), _quote("NoLead", 99_000, None),
+        ])
+        assert out["recommendation"] == "Complete", premium
+    # Same for a missing total against a far slower complete quote.
+    out = _run(monkeypatch, [_quote("Complete", 120_000, 90), _quote("NoTotal", None, 5)])
+    assert out["recommendation"] == "Complete"
+    # When NO quote states a lead time, none is penalised — price decides.
+    out = _run(monkeypatch, [_quote("Alpha", 100_000, None), _quote("Beta", 104_000, None)])
+    assert out["recommendation"] == "Alpha"
+    # Among incomplete quotes the blend still orders them.
+    out = _run(monkeypatch, [_quote("A", 100_000, None), _quote("B", 90_000, None), _quote("C", 120_000, 10)])
+    assert out["recommendation"] == "C"
+    assert [s["name"] for s in out["suppliers"] if s["rec"]] == ["C"]
