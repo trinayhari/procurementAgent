@@ -2323,6 +2323,10 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 // Attachable project documents for the RFQ modal — anything with a stored file.
 type AttachableDoc = { id?: string; name: string; hasFile?: boolean; fileMissing?: boolean }
 
+// Workflow order of RFQ statuses, for "only ever advance" status merges.
+const STATUS_ORDER = ['Draft', 'Send failed', 'Sent', 'Awaiting', 'Replied', 'Quoted']
+const statusRank = (s: string) => { const i = STATUS_ORDER.indexOf(s); return i < 0 ? 0 : i }
+
 function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   projectId: string; rfq: PersistedRfq; docs?: AttachableDoc[]; onClose: () => void
   // Called with the persisted RFQ after a successful send, so the list
@@ -2358,12 +2362,19 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
 
   const dropRecipient = (email: string) => setRecipients((rs) => rs.filter((r) => r.email !== email))
 
+  // Bumped by every status-changing action (send). A conversation read that
+  // began before the bump is stale: it may carry the pre-send status and
+  // must not overwrite what the authoritative RFQ record just told us.
+  const statusEpoch = useRef(0)
   const loadConversation = async () => {
+    const epoch = statusEpoch.current
     setLoadingConv(true); setErr(null)
     try {
       const c = await getRfqConversation(projectId, rfq.id)
       setConv(c)
-      setStatus(c.status) // server may have flipped Awaiting → Replied
+      // The thread may reveal a newer state (Awaiting → Quoted once a reply
+      // is seen) but never an older one; only advance.
+      if (epoch === statusEpoch.current) setStatus((cur) => (statusRank(c.status) > statusRank(cur) ? c.status : cur))
     } catch { setErr('Could not load the conversation. Is the backend running?') }
     finally { setLoadingConv(false) }
   }
@@ -2376,6 +2387,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
     try {
       await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
       const out = await sendRfq(projectId, rfq.id)
+      statusEpoch.current++ // invalidate any conversation read still in flight
       setRecipients(out.recipients || [])
       setStatus(out.status)
       setAttachNames((out.attachments || []).map((a) => a.name))
@@ -2621,8 +2633,9 @@ function TabQuotes({ m }: MProps) {
         }
       }
       // The mailbox read is still running past the poll window — say so
-      // instead of dropping the spinner with no outcome.
-      if (!finished) setNote('Still checking the mailbox — new quotes will appear on the next refresh.')
+      // instead of dropping the spinner with no outcome. Clicking again
+      // resumes polling the same run (the backend won't start a second one).
+      if (!finished) setNote('Still checking the mailbox — this is taking longer than usual. Click "Check for replies" again to keep waiting.')
       await m.reload()
     } catch (e) {
       setNote(hasDetail(e) ? e.message : 'Could not check for replies. Is the backend running?')
@@ -2769,7 +2782,7 @@ function TabCompare({ m }: MProps) {
   const submit = async () => {
     setBusy(true)
     try {
-      const res = await awardPackage(m.projectId, lc.package, sel, strategy)
+      const res = await awardPackage(m.projectId, lc.package, sel, strategy, !!lc.lastAward)
       setMsg(res.message)
       setAwarded(true)
       await m.reload()

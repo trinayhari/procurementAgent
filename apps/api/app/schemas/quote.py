@@ -117,6 +117,10 @@ class LineComparison(BaseModel):
 class AwardRequest(BaseModel):
     selections: Dict[str, str]  # lineName -> supplierId
     strategy: Optional[str] = None
+    # A package that already has a purchase decision is refused (409) unless
+    # the caller explicitly supersedes it: every award issues POs and emails
+    # every supplier, so a replayed or double-submitted request must not.
+    supersede: bool = False
 
 
 class AwardResult(BaseModel):

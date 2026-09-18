@@ -25,28 +25,76 @@ logger = logging.getLogger("procureai.quotes.ingest")
 _PKG_BASE = {"water": 490_000, "sewer": 215_000, "storm": 260_000, "erosion": 70_000}
 
 
-def _recipient_index(db: Session, org_id: str, project_id: str) -> Dict[str, dict]:
-    """email → {rfq_id, package, package_label, supplier_id, supplier_name}."""
-    index: Dict[str, dict] = {}
+def _recipient_index(db: Session, org_id: str, project_id: str) -> Dict[str, List[dict]]:
+    """email → [ {rfq_id, package, package_label, supplier_id, supplier_name,
+    rfq_lines, thread_id, subject}, … ] — one entry per RFQ the supplier is on.
+
+    A supplier is routinely asked to quote more than one package (water AND
+    sewer). Keying on the first RFQ per email meant every reply from that
+    supplier — whichever package it priced — was stored against one package
+    and the other RFQ never left 'Awaiting'.
+    """
+    index: Dict[str, List[dict]] = {}
     for rfq in rfqs_repo.list_awaiting_rfqs(db, org_id, project_id):
         for r in rfq.get("recipients", []):
             email = (r.get("email") or "").strip().lower()
-            if email and email not in index:
-                index[email] = {
+            if not email:
+                continue
+            metas = index.setdefault(email, [])
+            if any(m["rfq_id"] == rfq["id"] for m in metas):
+                continue
+            metas.append(
+                {
                     "rfq_id": rfq["id"],
                     "package": rfq["package"],
                     "package_label": rfq.get("pkg") or rfq["package"],
                     "supplier_id": r.get("supplierId"),
                     "supplier_name": r.get("name") or email,
                     "rfq_lines": rfq.get("lineItems") or [],
+                    "thread_id": r.get("threadId") or "",
+                    "subject": rfq.get("subject") or "",
                 }
+            )
     return index
+
+
+def _match_rfq(metas: List[dict], msg) -> Optional[dict]:
+    """Which of a supplier's RFQs a reply belongs to.
+
+    In order: the Gmail thread the send created (a reply lands in it), then
+    the RFQ subject quoted in the reply's subject ("Re: RFQ: Water …"), then
+    — only when the supplier is on a single RFQ — that one. A reply we can't
+    attribute among several packages is skipped rather than guessed.
+    """
+    if not metas:
+        return None
+    thread_id = getattr(msg, "thread_id", "") or ""
+    if thread_id:
+        for m in metas:
+            if m["thread_id"] and m["thread_id"] == thread_id:
+                return m
+    subject = (getattr(msg, "subject", "") or "").strip().lower()
+    if subject:
+        hits = [m for m in metas if m["subject"] and m["subject"].strip().lower() in subject]
+        if len(hits) == 1:
+            return hits[0]
+    if len(metas) == 1:
+        return metas[0]
+    logger.warning(
+        "Reply %s from %s could not be attributed to one of %d RFQs; skipped",
+        getattr(msg, "message_id", "?"), getattr(msg, "from_email", "?"), len(metas),
+    )
+    return None
+
+
+def _pair_count(index: Dict[str, List[dict]]) -> int:
+    return sum(len(v) for v in index.values())
 
 
 def ingest_quotes(db: Session, org_id: str, project_id: str) -> Tuple[int, int, bool]:
     """Return (ingested_count, total_recipients, mocked)."""
     index = _recipient_index(db, org_id, project_id)
-    total = len(index)
+    total = _pair_count(index)
     if total == 0:
         return 0, 0, not (gmail_configured() and parser.is_configured())
 
@@ -56,7 +104,7 @@ def ingest_quotes(db: Session, org_id: str, project_id: str) -> Tuple[int, int, 
 
 
 def _ingest_live(
-    db: Session, org_id: str, project_id: str, index: Dict[str, dict]
+    db: Session, org_id: str, project_id: str, index: Dict[str, List[dict]]
 ) -> Tuple[int, int, bool]:
     seen = quotes_repo.message_ids_for_project(db, org_id, project_id)
     try:
@@ -72,7 +120,7 @@ def _ingest_live(
     for msg in messages:
         if msg.message_id in seen:
             continue
-        meta = index.get(msg.from_email)
+        meta = _match_rfq(index.get(msg.from_email) or [], msg)
         if meta is None:
             continue
         parsed = parser.parse_quote(msg.combined_text)
@@ -87,20 +135,21 @@ def _ingest_live(
 
     for rfq_id in quoted_rfqs:
         rfqs_repo.mark_rfq_quoted(db, org_id, rfq_id)
-    return ingested, len(index), False
+    return ingested, _pair_count(index), False
 
 
-def _ingest_mock(db: Session, org_id: str, project_id: str, index: Dict[str, dict]) -> int:
+def _ingest_mock(db: Session, org_id: str, project_id: str, index: Dict[str, List[dict]]) -> int:
     ingested = 0
     quoted_rfqs: set = set()
-    for email, meta in index.items():
-        if quotes_repo.has_quote_for_recipient(db, org_id, project_id, meta["package"], email):
-            continue
-        parsed = _mock_quote(meta["supplier_name"], meta["package"], meta.get("rfq_lines"))
-        _persist(db, org_id, project_id, meta, parsed, source="mock", message_id=None, email=email)
-        ingested += 1
-        if meta["rfq_id"]:
-            quoted_rfqs.add(meta["rfq_id"])
+    for email, metas in index.items():
+        for meta in metas:
+            if quotes_repo.has_quote_for_recipient(db, org_id, project_id, meta["package"], email):
+                continue
+            parsed = _mock_quote(meta["supplier_name"], meta["package"], meta.get("rfq_lines"))
+            _persist(db, org_id, project_id, meta, parsed, source="mock", message_id=None, email=email)
+            ingested += 1
+            if meta["rfq_id"]:
+                quoted_rfqs.add(meta["rfq_id"])
     for rfq_id in quoted_rfqs:
         rfqs_repo.mark_rfq_quoted(db, org_id, rfq_id)
     return ingested

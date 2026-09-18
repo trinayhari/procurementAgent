@@ -1349,6 +1349,11 @@ export interface components {
             };
             /** Strategy */
             strategy?: string | null;
+            /**
+             * Supersede
+             * @default false
+             */
+            supersede: boolean;
         };
         /** AwardResult */
         AwardResult: {

@@ -49,6 +49,10 @@ let lineComparison = LINE_COMPARISON
 let rfqs: object[] = []
 const comparisonRequests: string[] = []
 const awardRequests: string[] = []
+const awardBodies: { supersede?: boolean }[] = []
+// When set, the conversation endpoint waits on this before answering.
+let holdConversation: Promise<void> | null = null
+let conversationStatus = 'Awaiting'
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -70,6 +74,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
   const aw = path.match(/\/packages\/([^/]+)\/award$/)
   if (aw && method === 'POST') {
     awardRequests.push(decodeURIComponent(aw[1]))
+    awardBodies.push(JSON.parse(String(init && init.body)))
     return json({ status: 'awarded', message: 'Awarded QA Custom BOM for $1,050 — 1 PO to Alpha Supply.', total: 1050, material: 1000, freight: 50, leadDays: 5, suppliers: ['Alpha Supply'], poCount: 1 })
   }
   if (path.endsWith('/rfqs/generated')) return json(rfqs)
@@ -84,7 +89,10 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     rfqs = rfqs.map((r) => ((r as { id: string }).id === send[1] ? { ...r, status: 'Awaiting', statusTone: 'warn', folder: 'Awaiting', sentAt: '2026-09-17T00:00:00Z', time: 'Sep 17' } : r))
     return json(rfqs.find((r) => (r as { id: string }).id === send[1]))
   }
-  if (path.includes('/conversation')) return json({ rfqId: 'rfq-1', status: 'Awaiting', statusTone: 'warn', gmail: false, thread: [] })
+  if (path.includes('/conversation')) {
+    if (holdConversation) await holdConversation
+    return json({ rfqId: 'rfq-1', status: conversationStatus, statusTone: 'warn', gmail: false, thread: [] })
+  }
   if (path.includes('/timeline')) return json({ milestones: [], gantt: [], ganttCols: [] })
   if (path.includes('/comparison')) return json({ suppliers: [], rows: [], recommendation: '', reasons: [], savings: '', savingsNote: '' })
   if (/^\/api\/projects\/[^/]+$/.test(path)) return json({ overviewCards: [], packages: [], activity: [] })
@@ -98,6 +106,9 @@ beforeEach(() => {
   rfqs = [DRAFT_RFQ]
   comparisonRequests.length = 0
   awardRequests.length = 0
+  awardBodies.length = 0
+  holdConversation = null
+  conversationStatus = 'Awaiting'
   fetchMock.mockClear()
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -151,6 +162,36 @@ describe('quotes → compare → award', () => {
     fireEvent.click(screen.getByRole('button', { name: /Re-award this package/ }))
     fireEvent.click(screen.getByRole('button', { name: /Confirm re-award/ }))
     await waitFor(() => expect(awardRequests).toEqual(['upload-16-abc123']))
+    // The backend refuses a repeat award without this flag.
+    expect(awardBodies[0].supersede).toBe(true)
+  })
+
+  it('sends a first award without supersede', async () => {
+    await openProject()
+    fireEvent.click(screen.getByRole('button', { name: /Quotes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Compare/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Submit award/ }))
+    await waitFor(() => expect(awardBodies).toHaveLength(1))
+    expect(awardBodies[0].supersede).toBe(false)
+  })
+})
+
+describe('RFQ modal status', () => {
+  it('never rolls a just-sent RFQ back to an older status from the conversation read', async () => {
+    // The conversation endpoint answers with a status behind the RFQ record
+    // (a stale/lagging read). The modal must keep the authoritative post-send
+    // status rather than regress to what the thread reports.
+    conversationStatus = 'Draft'
+    await openProject()
+    fireEvent.click(screen.getByRole('button', { name: /^RFQs$/ }))
+    fireEvent.click(await screen.findByText(DRAFT_RFQ.subject))
+    fireEvent.click(await screen.findByRole('button', { name: /Send RFQ/ }))
+    await waitFor(() => expect(rfqs[0]).toMatchObject({ status: 'Awaiting' }))
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/conversation')).length).toBeGreaterThan(0))
+    await new Promise((r) => setTimeout(r, 50))
+    // Modal badge + list row both show the post-send status; nothing says Draft.
+    expect(screen.getAllByText('Awaiting').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Draft')).toBeNull()
   })
 })
 

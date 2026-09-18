@@ -3732,6 +3732,11 @@
               }
             ],
             "title": "Strategy"
+          },
+          "supersede": {
+            "type": "boolean",
+            "title": "Supersede",
+            "default": false
           }
         },
         "type": "object",

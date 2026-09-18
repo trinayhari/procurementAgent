@@ -443,3 +443,132 @@ def test_rfq_intro_does_not_double_the_full_stop():
     assert generator._buyer_intro(Buyer()) == "My name is Jordan Mills with Meridian Civil Co."
     Buyer.company = "Acme"
     assert generator._buyer_intro(Buyer()) == "My name is Jordan Mills with Acme."
+
+
+def test_repeat_award_is_refused_without_supersede_and_notifies_once(project, monkeypatch):
+    """A double-submitted award used to issue POs and email every supplier a
+    second time. Now it is a 409 unless the caller supersedes explicitly."""
+    client, headers, pid = project
+    bom_id = make_confirmed_bom(client, headers, pid)
+    sids = run_supplier_search(client, headers, pid, bom_id)
+    rfq = generate_rfq(client, headers, pid, bom_id, sids[:2])
+    client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+
+    sent = []
+
+    class CountingSender:
+        mocked = True
+
+        def send(self, to, subject, body, **kw):
+            sent.append(to)
+            return rfq_sender.SentMessage(message_id=f"m-{len(sent)}", thread_id="t")
+
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: CountingSender())
+    url = f"/api/projects/{pid}/packages/{bom_id}/award"
+    assert client.post(url, headers=headers, json={"selections": {}}).status_code == 200
+    first_batch = len(sent)
+    assert first_batch >= 1
+    r = client.post(url, headers=headers, json={"selections": {}})
+    assert r.status_code == 409
+    assert len(sent) == first_batch  # nobody emailed again
+    r = client.post(url, headers=headers, json={"selections": {}, "supersede": True})
+    assert r.status_code == 200
+    assert len(sent) > first_batch
+    decisions = client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers).json()
+    assert len(decisions) == 2
+
+
+# ---------------------------------------------------------- quote ingest
+def test_supplier_on_two_rfqs_gets_a_quote_ingested_for_each(project):
+    """The recipient index kept only the first RFQ per email, so a supplier
+    asked to quote two packages had replies stored against one and the other
+    RFQ never left 'Awaiting'."""
+    client, headers, pid = project
+    a = make_confirmed_bom(client, headers, pid, name="Hydrants")
+    b = make_confirmed_bom(client, headers, pid, name="Valves")
+    sids_a = run_supplier_search(client, headers, pid, a)
+    sids_b = run_supplier_search(client, headers, pid, b)
+    # The mock search is deterministic per package name; pick the same supplier
+    # email on both by resolving found suppliers and reusing the first one's
+    # email via the supplier directory (RFQ recipients are keyed by email).
+    found_a = client.get(f"/api/projects/{pid}/suppliers/found?package={a}", headers=headers).json()
+    found_b = client.get(f"/api/projects/{pid}/suppliers/found?package={b}", headers=headers).json()
+    sup_a = found_a["tiers"][0]["suppliers"][0]
+    sup_b = found_b["tiers"][0]["suppliers"][0]
+    rfq_a = generate_rfq(client, headers, pid, a, [sup_a["id"]])
+    rfq_b = generate_rfq(client, headers, pid, b, [sup_b["id"]])
+    shared = "shared-supplier@example.com"
+    for rfq in (rfq_a, rfq_b):
+        r = client.put(
+            f"/api/projects/{pid}/rfqs/{rfq['id']}", headers=headers,
+            json={"subject": rfq["subject"], "body": rfq["body"],
+                  "recipients": [{"name": "Shared Supplier", "email": shared}]},
+        )
+        assert r.status_code == 200, r.text
+        assert client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers).status_code == 200
+
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    st = client.get(f"/api/projects/{pid}/quotes/ingest-status", headers=headers).json()
+    assert st["status"] == "done" and st["ingested"] == 2, st
+    rows = client.get(f"/api/projects/{pid}/quotes", headers=headers).json()
+    assert sorted(q["package"] for q in rows) == sorted([a, b])
+    for rfq in (rfq_a, rfq_b):
+        assert client.get(f"/api/projects/{pid}/rfqs/{rfq['id']}", headers=headers).json()["status"] == "Quoted"
+
+
+def test_live_ingest_attributes_a_reply_by_thread_then_subject():
+    from app.services.quotes import ingest
+
+    class Msg:
+        def __init__(self, thread_id="", subject="", message_id="m", from_email="s@x.com"):
+            self.thread_id, self.subject, self.message_id, self.from_email = thread_id, subject, message_id, from_email
+
+    water = {"rfq_id": "r1", "thread_id": "t1", "subject": "RFQ: Water — P"}
+    sewer = {"rfq_id": "r2", "thread_id": "t2", "subject": "RFQ: Sewer — P"}
+    assert ingest._match_rfq([water, sewer], Msg(thread_id="t2")) is sewer
+    assert ingest._match_rfq([water, sewer], Msg(subject="Re: RFQ: Water — P")) is water
+    assert ingest._match_rfq([water, sewer], Msg(subject="quote attached")) is None  # ambiguous: skipped
+    assert ingest._match_rfq([water], Msg(subject="quote attached")) is water
+
+
+def test_fetch_replies_strips_the_quoted_chain_and_keeps_the_thread(monkeypatch):
+    """Re-applied from the eval bench (28458bc): a reply carries the quoted
+    RFQ / earlier quote beneath it, and the parser's largest-dollar fallback
+    read the OLD figure ($52k) instead of the revision ($47.5k)."""
+    import base64
+
+    from app.services.quotes import gmail_reader
+
+    body = (
+        "Revised quote: $47,500 total, 10 days.\n\n"
+        "On Mon, Sep 1, 2026 Jordan Mills wrote:\n"
+        "> Our previous quote was $52,000\n"
+    )
+    full = {
+        "id": "m1", "threadId": "thr-9", "snippet": "Revised quote",
+        "payload": {
+            "mimeType": "text/plain",
+            "headers": [{"name": "From", "value": "Sales <sales@pipe.co>"}, {"name": "Subject", "value": "Re: RFQ: Water"}],
+            "body": {"data": base64.urlsafe_b64encode(body.encode()).decode()},
+        },
+    }
+
+    class Exec:
+        def __init__(self, v): self.v = v
+        def execute(self): return self.v
+
+    class Messages:
+        def list(self, **kw): return Exec({"messages": [{"id": "m1"}]})
+        def get(self, **kw): return Exec(full)
+
+    class Users:
+        def messages(self): return Messages()
+
+    class Service:
+        def users(self): return Users()
+
+    monkeypatch.setattr(gmail_reader, "_service", lambda: Service())
+    [msg] = gmail_reader.fetch_replies(["sales@pipe.co"])
+    assert msg.thread_id == "thr-9"
+    assert "$47,500" in msg.text and "$52,000" not in msg.text

@@ -616,15 +616,19 @@ export function getLineComparison(
 }
 
 // Submit a (possibly split) award — selections map each line name to a supplier id.
+// `supersede` must be true to award a package that already has a purchase
+// decision — the backend refuses a repeat award (409) otherwise, since every
+// award issues POs and emails every supplier again.
 export function awardPackage(
   projectId: string,
   pkg: string,
   selections: Record<string, string>,
   strategy?: string,
+  supersede = false,
 ): Promise<AwardResult> {
   return post<AwardResult>(
     `/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/award`,
-    { selections, strategy },
+    { selections, strategy, supersede },
   )
 }
 

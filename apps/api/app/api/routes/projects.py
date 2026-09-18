@@ -343,6 +343,17 @@ def award_package(
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
     key, pkg_label_for_record = _resolve_package(db, org_id, project_id, pkg)
+    previous = purchase_decisions_repo.latest_for_package(db, org_id, project_id, key or pkg)
+    if previous is not None and not payload.supersede:
+        who = ", ".join(previous.get("suppliers") or []) or "a supplier"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{pkg_label_for_record} was already awarded to {who}. "
+                "Re-awarding issues new purchase orders and emails every supplier "
+                "again — confirm the re-award to proceed."
+            ),
+        )
     summary = line_comparison_service.compute_award(
         db, org_id, project_id, key or pkg, payload.selections
     )
@@ -374,6 +385,7 @@ def award_package(
             "suppliers": summary["suppliers"],
             "total": summary["total"],
             "strategy": payload.strategy,
+            "supersedes": previous["id"] if previous is not None else None,
         },
         commit=False,
     )
