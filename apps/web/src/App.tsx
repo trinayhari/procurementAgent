@@ -405,11 +405,9 @@ export default function App() {
   // then select it and drop straight into the BOM editor so the user can start
   // adding line items. It sorts newest-first, so it lands at docIdx 0.
   const activePid = () => s.projectId || (s.data && s.data.projects[0] && s.data.projects[0].id) || ''
-  const createBom = async () => {
+  const createBom = async (name: string) => {
     const pid = activePid()
     if (!pid) { set({ uploadError: 'Open a project before creating a BOM.' }); return }
-    const name = window.prompt('Name this bill of materials', 'Custom BOM')
-    if (name === null) return
     const uid = user && user.id
     try {
       const doc = await createManualBom(pid, name.trim() || 'Custom BOM')
@@ -432,11 +430,9 @@ export default function App() {
   // Create a subcontractor trade scope (no file). We name the trade, create the
   // document, then select it so the user can write the scope of work in its
   // editor. It sorts newest-first, so it lands at docIdx 0.
-  const createTrade = async () => {
+  const createTrade = async (name: string) => {
     const pid = activePid()
     if (!pid) { set({ uploadError: 'Open a project before creating a trade scope.' }); return }
-    const name = window.prompt('Which trade do you need bids for?', 'Concrete flatwork')
-    if (name === null) return
     try {
       await createTradeScope(pid, name.trim() || 'Trade')
       await reload()
@@ -1362,8 +1358,11 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
   }
   const d = slot.doc
   const active = !!(d && d.active)
-  const [confirming, setConfirming] = useState(false)
-  useEffect(() => { setConfirming(false) }, [d && d.id])
+  // 'remove' | 'replace' | null — replacing a plan the user has already
+  // reviewed or edited throws that work away, so it asks first too.
+  const [confirming, setConfirming] = useState<'remove' | 'replace' | null>(null)
+  useEffect(() => { setConfirming(null) }, [d && d.id])
+  const reviewedWork = !!(d && (d.reviewed || d.edited))
   const btn = css('flex:1;height:30px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center')
   return (
     <div style={css(`background:var(--panel);border:1px solid ${active ? 'var(--primary)' : 'var(--border)'};border-radius:14px;box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:10px;min-height:140px`)}>
@@ -1380,17 +1379,23 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
             <span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span>
             <span style={css('font-size:11.5px;color:var(--text-3)')}>{d.date}{slot.categories.length ? ` · ${d.items} line items` : ''}</span>
           </Box>
-          {confirming ? (
+          {confirming === 'remove' ? (
             <ConfirmBar compact
               message={<>Remove <b>{d.name}</b>{d.reviewed ? ' and its confirmed BOM' : d.items && d.items !== '—' ? ' and its extracted BOM' : ''}?</>}
               confirmLabel="Remove"
-              onConfirm={() => { setConfirming(false); d.id && m.onDeleteDoc(d.id) }}
-              onCancel={() => setConfirming(false)} />
+              onConfirm={() => { setConfirming(null); d.id && m.onDeleteDoc(d.id) }}
+              onCancel={() => setConfirming(null)} />
+          ) : confirming === 'replace' ? (
+            <ConfirmBar compact
+              message={<>Replace <b>{d.name}</b>? Its {d.reviewed ? 'confirmed' : 'edited'} BOM is discarded and the new plan is extracted from scratch.</>}
+              confirmLabel="Choose file"
+              onConfirm={() => { setConfirming(null); pick() }}
+              onCancel={() => setConfirming(null)} />
           ) : (
           <div style={css('display:flex;gap:6px')}>
             <Box as="button" onClick={d.onOpen} style={btn} hover="background:var(--panel-2)">View</Box>
-            <Box as="button" onClick={pick} disabled={m.uploading} style={btn} hover="background:var(--panel-2)">Replace</Box>
-            <Box as="button" onClick={() => setConfirming(true)} title="Remove" style={css('width:30px;height:30px;flex:none;border-radius:7px;border:1px solid var(--border);color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={reviewedWork ? () => setConfirming('replace') : pick} disabled={m.uploading} style={btn} hover="background:var(--panel-2)">Replace</Box>
+            <Box as="button" onClick={() => setConfirming('remove')} title="Remove" style={css('width:30px;height:30px;flex:none;border-radius:7px;border:1px solid var(--border);color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
           </div>
           )}
         </>
@@ -1458,11 +1463,39 @@ function AdditionalDocsCard({ m }: MProps) {
   )
 }
 
+// Inline "name it and create" row, used by the New BOM / New trade buttons in
+// place of window.prompt (which embedded webviews auto-dismiss, leaving the
+// button apparently dead).
+function InlineCreate({ placeholder, defaultValue, cta, onCreate, onCancel }: { placeholder: string; defaultValue: string; cta: string; onCreate: (name: string) => void | Promise<void>; onCancel: () => void }) {
+  const [name, setName] = useState(defaultValue)
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    const n = name.trim()
+    if (!n || busy) return
+    setBusy(true)
+    try { await onCreate(n) } finally { setBusy(false) }
+  }
+  return (
+    <form onSubmit={submit} style={css('display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--primary-softer)')}>
+      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder}
+        style={css('flex:1;min-width:160px;height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:13px')} />
+      <Box as="button" type="submit" disabled={busy || !name.trim()}
+        style={css(`height:32px;padding:0 13px;border-radius:8px;background:var(--primary);color:var(--on-primary);font-size:12.5px;font-weight:600;opacity:${busy || !name.trim() ? '.6' : '1'}`)}
+        hover="background:var(--primary-2)">{busy ? 'Creating…' : cta}</Box>
+      <Box as="button" type="button" onClick={onCancel} disabled={busy}
+        style={css('height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
+        hover="background:var(--panel-2)">Cancel</Box>
+    </form>
+  )
+}
+
 // Hand-built bills of materials: create a named BOM, fill it in with the same
 // editor the extracted BOMs use, then quote it from the Suppliers tab. Replaces
 // the old throwaway free-text ad-hoc RFQ with a saved, viewable BOM.
 function CustomBomsCard({ m }: MProps) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [naming, setNaming] = useState(false)
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
       <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
@@ -1470,10 +1503,14 @@ function CustomBomsCard({ m }: MProps) {
           <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Custom bills of materials</h2>
           <span style={css('font-size:12px;color:var(--text-3)')}>{m.customBoms.length}</span>
         </div>
-        <Box as="button" onClick={m.createBom}
+        <Box as="button" onClick={() => setNaming(true)}
           style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
           hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New BOM</Box>
       </div>
+      {naming && (
+        <InlineCreate placeholder="Name this bill of materials" defaultValue="Custom BOM" cta="Create BOM"
+          onCreate={async (name) => { await m.createBom(name); setNaming(false) }} onCancel={() => setNaming(false)} />
+      )}
       {m.customBoms.length === 0 ? (
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No custom BOMs yet — build one by hand for items not on a plan, then quote it from the Suppliers tab.</div>
       ) : (
@@ -1502,6 +1539,7 @@ const PAPERCLIP = 'M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1
 
 function TradeScopesCard({ m }: MProps) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [naming, setNaming] = useState(false)
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
       <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
@@ -1509,10 +1547,14 @@ function TradeScopesCard({ m }: MProps) {
           <h2 style={css('margin:0;font-size:14px;font-weight:600')}>Subcontractor trades</h2>
           <span style={css('font-size:12px;color:var(--text-3)')}>{m.tradeScopes.length}</span>
         </div>
-        <Box as="button" onClick={m.createTradeScope}
+        <Box as="button" onClick={() => setNaming(true)}
           style={css('display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:600')}
           hover="background:var(--panel-2)"><Svg size={14} sw={2.2} d={PLUS} />New trade</Box>
       </div>
+      {naming && (
+        <InlineCreate placeholder="Which trade do you need bids for?" defaultValue="Concrete flatwork" cta="Create trade"
+          onCreate={async (name) => { await m.createTradeScope(name); setNaming(false) }} onCancel={() => setNaming(false)} />
+      )}
       {m.tradeScopes.length === 0 ? (
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No trades yet — name a trade you need bids for (e.g. concrete flatwork), write its scope of work, then find subcontractors from the Suppliers tab.</div>
       ) : (
@@ -2822,15 +2864,18 @@ function TabQuotes({ m }: MProps) {
     try {
       await ingestQuotes(projectId)
       // Poll the background ingest until it finishes, then reload the model.
+      let finished = false
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 1500))
         const st = await getIngestStatus(projectId)
         if (st.status !== 'ingesting') {
-          if (st.status === 'error') setNote(st.error || 'Ingest failed')
-          else setNote(`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}${st.mocked ? ' (simulated)' : ''}`)
+          finished = true
+          if (st.status === 'error') setNote(`Couldn’t read replies: ${st.error || 'ingest failed'}`)
+          else setNote(`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}${st.mocked ? ' (simulated — no Gmail connected)' : ''}`)
           break
         }
       }
+      if (!finished) setNote('Still reading replies in the background — check back in a minute.')
       await m.reload()
     } catch {
       setNote('Could not check for replies. Is the backend running?')
@@ -3138,13 +3183,17 @@ function TabCompare({ m }: MProps) {
 function TabTimeline({ m }: MProps) {
   // Completion is human-confirmed: check a milestone off (or undo it), then
   // reload so statuses (Complete / Overdue / active) recompute.
-  const toggleDone = async (mm: { id?: number | null; done?: boolean }) => {
+  const [err, setErr] = useState<string | null>(null)
+  const toggleDone = async (mm: { id?: number | null; done?: boolean; name?: string }) => {
     if (mm.id == null) return
-    try { await setTimelineEventDone(mm.id, !mm.done) } catch { /* reload shows truth either way */ }
+    setErr(null)
+    try { await setTimelineEventDone(mm.id, !mm.done) }
+    catch { setErr(`Couldn’t update “${mm.name || 'milestone'}” — is the backend running? Nothing changed.`) }
     m.reload()
   }
   return (
     <>
+      {err && <div style={css('margin-bottom:12px;font-size:12.5px;color:var(--danger)')}>{err}</div>}
       {m.gantt.length === 0 && m.milestones.length === 0 && (
       <div style={css('background:var(--panel);border:1px dashed var(--border-strong);border-radius:16px;padding:48px 24px;text-align:center;margin-bottom:16px')}>
         <div style={css('font-size:15px;font-weight:600;margin-bottom:6px')}>No timeline yet</div>
@@ -3221,10 +3270,11 @@ function LendersPanel({ projectId }: { projectId: string }) {
   }
 
   const remove = async (id: number) => {
+    setErr(null)
     try {
       await deleteLender(projectId, id)
       setLenders((ls) => ls.filter((l) => l.id !== id))
-    } catch { /* row stays; nothing to clean up */ }
+    } catch { setErr('Couldn’t remove the lender — is the backend running? They are still on the list.') }
   }
 
   return (

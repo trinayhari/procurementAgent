@@ -70,6 +70,52 @@ describe('destructive actions confirm inline', () => {
   })
 })
 
+// ------------------------------------------------------- inline creation
+describe('naming a custom BOM / trade never uses window.prompt', () => {
+  it('creates a custom BOM from an inline name field', async () => {
+    const created: unknown[] = []
+    const promptSpy = vi.fn(() => 'IGNORED')
+    vi.stubGlobal('prompt', promptSpy)
+    let docs: unknown[] = []
+    vi.stubGlobal('fetch', makeFetch((path, init) => {
+      if (path.endsWith('/documents') && !(init && init.method)) return json(docs)
+      if (path === '/api/documents/manual' && init && init.method === 'POST') {
+        const body = JSON.parse(String(init.body)); created.push(body)
+        const doc = { id: 'bom-1', name: body.name, type: 'Custom BOM', date: 'Sep 1, 2026', status: 'Draft', statusTone: 'gray', items: '0', pages: 0, processing: false, hasFile: false, planType: 'custom_bom' }
+        docs = [doc]
+        return json(doc, 201)
+      }
+      if (path === '/api/documents/bom-1/line-items') return json([])
+      return undefined
+    }))
+    await openProject('documents')
+    fireEvent.click(await screen.findByRole('button', { name: /New BOM/ }))
+    const field = await screen.findByPlaceholderText('Name this bill of materials')
+    fireEvent.change(field, { target: { value: 'Yard drainage extras' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await waitFor(() => expect(created).toEqual([{ name: 'Yard drainage extras', projectId: PROJECT.id }]))
+    expect(promptSpy).not.toHaveBeenCalled()
+    // Lands in the editor for the new BOM.
+    await screen.findByText('Edit materials')
+  })
+
+  it('asks before replacing a plan whose BOM was already confirmed', async () => {
+    const DOC = { id: 'doc-1', name: 'Site Plan.pdf', type: 'Site Plan', date: 'Sep 1, 2026', status: 'Analyzed', statusTone: 'success', items: '12', pages: 3, processing: false, hasFile: true, planType: 'site_plan', reviewed: true }
+    vi.stubGlobal('fetch', makeFetch((path) => {
+      if (path === '/api/documents/plan-types') return json([{ key: 'site_plan', label: 'Site Plan', description: '', enabled: true, categories: ['Water'], singleton: true }])
+      if (path.endsWith('/documents')) return json([DOC])
+      if (path === '/api/documents/doc-1/line-items') return json([])
+      return undefined
+    }))
+    await openProject('documents')
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace' }))
+    const bar = await screen.findByRole('alertdialog')
+    expect(bar.textContent).toContain('confirmed BOM is discarded')
+    fireEvent.click(within(bar).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+})
+
 // --------------------------------------------------------- extraction state
 describe('extracted-materials panel is honest about document state', () => {
   const FAILED = { id: 'doc-f', name: 'Electrical.pdf', type: 'Electrical Plan', date: 'Sep 1, 2026', status: 'Failed', statusTone: 'danger', items: '—', pages: 2, processing: false, hasFile: true, planType: 'electrical_plan', error: 'Extraction failed: model timeout', mocked: false }
