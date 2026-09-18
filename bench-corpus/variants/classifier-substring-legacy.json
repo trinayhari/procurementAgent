@@ -1,0 +1,6 @@
+{
+  "id": "classifier-substring-legacy",
+  "label": "Sheet classifier: legacy substring keywords",
+  "description": "Restores the pre-2026-09-17 sheet classifier (bare substring keyword counts, no quantity-table keep, no sheet-number tie-break) so a future bench run can compare against it. Under it the Portland ADU foundation sheet classifies civil (PLAT matches every PLATE) and is skipped, and the Four Rivers Summary of Quantities sheet classifies plumbing and is skipped.",
+  "settings": { "sheet_keywords_word_boundary": false }
+}

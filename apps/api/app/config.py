@@ -113,17 +113,17 @@ class Settings(BaseSettings):
     # pipeline escalates to the per-sheet vision path on the relevant sheets.
     text_pass_min_items: int = 3
 
-    # Sheet classifier keyword matching (services/extraction/sheets.py). The
-    # historical matcher is a bare substring count, so the civil title word
-    # "PLAT" fires on every "SILL PLATE" / "PLATE WASHER" and "DUCT" fires on
-    # "CONDUCTOR" — a foundation sheet with seven plate callouts classifies as
-    # civil and is SKIPPED for building extraction (found by the eval bench on
-    # the Portland ADU set: the whole truth sheet was never read). True matches
-    # keywords on word boundaries (plural-tolerant). Off by default until the
-    # bench has compared both across the corpus; the `classifier-fixes` variant
-    # turns it on. The same flag keeps SUMMARY OF QUANTITIES sheets for every
-    # plan type and lets a sheet number (E-501) break a family tie.
-    sheet_keywords_word_boundary: bool = False
+    # Sheet classifier keyword matching (services/extraction/sheets.py). True
+    # matches discipline keywords on word boundaries (plural-tolerant), keeps
+    # SUMMARY OF QUANTITIES sheets for every plan type, and lets a sheet number
+    # (E-501) break a family tie. The legacy substring count made the civil
+    # title word "PLAT" fire on every "SILL PLATE" / "PLATE WASHER" and "DUCT"
+    # on "CONDUCTOR", so a foundation sheet with seven plate callouts
+    # classified civil and was SKIPPED for building extraction. Promoted to the
+    # default on 2026-09-17 after a corpus-wide bench pass (Portland ADU recall
+    # 0.13 → 0.87, no anchor selection changed); the `classifier-substring-legacy`
+    # variant restores the old behaviour for comparison.
+    sheet_keywords_word_boundary: bool = True
 
     # ------------------------------------------------------- eval bench (dev)
     # The accuracy harness for plan extraction (see docs/eval-harness.md). It is

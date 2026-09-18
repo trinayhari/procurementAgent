@@ -1,0 +1,11 @@
+{
+  "id": "dense-tiles",
+  "label": "Denser tile grids (4x3 standard, 5x4 escalation)",
+  "description": "Hypothesis from the 54-61 baseline: two different prompts produced identical per-unit device counts (6 ceiling lights, 14 receptacles per unit vs anchors of ~14.5 and ~30), so the per-sheet vision COUNT, not the x8 scaling step, is the bottleneck — the symbols are too small at the 4x3 grid on these 24x36 MEP sheets. 5x4 for the targeted escalation pass (54-61 electrical reads 3 sheets) and 4x3 for the standard pass (54-61 building reads 11 sheets). Cost roughly 1.7-2x per sheet; DPI unchanged at 150 to keep peak memory where it is.",
+  "settings": {
+    "vision_tile_cols": 4,
+    "vision_tile_rows": 3,
+    "vision_dense_tile_cols": 5,
+    "vision_dense_tile_rows": 4
+  }
+}

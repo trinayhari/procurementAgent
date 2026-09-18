@@ -38,7 +38,8 @@ def _select(doc_file, plan_type, word_boundary):
 
 
 # (doc, plan_type, expected matched 1-based, expected vision 1-based) under the
-# classifier-fixes setting — the selections the bench showed to be right.
+# production default (word-boundary matching) — the selections the bench showed
+# to be right.
 GOLDEN = [
     # 54-61: CS cover, A1-A3 elevations, A4 foundation, A5/A6 floor plans, A7
     # roof, A8 sections, A9-A11 MEP, A12-A14 structural, A15 energy, A16
@@ -59,14 +60,15 @@ GOLDEN = [
 
 
 @pytest.mark.parametrize("doc,plan_type,matched,vision", GOLDEN, ids=[g[0] + ":" + g[1] for g in GOLDEN])
-def test_sheet_selection_golden_with_classifier_fixes(doc, plan_type, matched, vision):
+def test_sheet_selection_golden(doc, plan_type, matched, vision):
+    assert settings.sheet_keywords_word_boundary, "production default flipped back — update the goldens deliberately"
     got_matched, got_vision = _select(doc, plan_type, word_boundary=True)
     assert got_matched == matched, "matched sheets moved"
     assert got_vision == vision, "vision sheets moved"
 
 
-def test_portland_foundation_sheet_is_the_documented_baseline_regression():
-    """Pinned so the day the default flips, this test is the one to delete."""
+def test_portland_foundation_sheet_was_skipped_by_the_legacy_matcher():
+    """Why the default flipped: the legacy substring matcher drops the truth's only sheet."""
     matched, _ = _select("bldg-or-portland-adu-shed-crawl.pdf", "building_plan", word_boundary=False)
     assert 4 not in matched
 
@@ -86,8 +88,8 @@ def test_plat_does_not_match_plate(word_boundary):
     assert sheets.classify_page(text) == "structural"
 
 
-def test_plat_matches_plate_by_substring_without_the_fix():
-    assert not settings.sheet_keywords_word_boundary
+def test_plat_matches_plate_by_substring_in_legacy_mode(monkeypatch):
+    monkeypatch.setattr(settings, "sheet_keywords_word_boundary", False)
     text = "FOUNDATION PLAN. 2x6 PT SILL PLATE. PLATE WASHER. SILL PLATE ANCHOR."
     assert sheets._scores(text)["civil"] == 12  # three 'PLAT' × 4
 

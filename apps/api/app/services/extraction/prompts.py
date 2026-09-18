@@ -28,7 +28,13 @@ SYSTEM_PROMPT = (
     "keep end-unit vs interior-unit variants separate when the plans distinguish them. "
     "Do NOT collapse eight repeated units into a count for one. Conversely, when the set "
     "draws a single unit or building with no stated repetition, extract as drawn — do "
-    "not scale anything."
+    "not scale anything.\n"
+    "EXISTING vs NEW: list only what the contractor must furnish and install under this "
+    "set. Equipment marked (E), EXISTING, TO REMAIN, BY OTHERS, BY UTILITY, N.I.C. or "
+    "FUTURE, and items drawn on a one-line / riser diagram only for context (the utility "
+    "transformer, the existing switchboard a new feeder lands in, an existing transfer "
+    "switch that is only reconnected) are NOT materials — list the new connection "
+    "materials instead. Demolition and removal are not materials either."
 )
 
 
