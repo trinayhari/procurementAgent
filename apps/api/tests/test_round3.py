@@ -286,3 +286,86 @@ def test_no_sample_budget_remains():
     from app.services.quotes import sample_data
     assert not hasattr(sample_data, "budget_for")
     assert all("budget" not in spec for spec in sample_data.SAMPLE_PACKAGES.values())
+
+
+# ---------------------------------------------------- project rows (BUG-47)
+def _row(client, headers, pid) -> dict:
+    rows = client.get("/api/projects", headers=headers).json()
+    return next(p for p in rows if p["id"] == pid)
+
+
+def test_project_rows_are_computed_and_agree_with_the_overview(project):
+    """The list/table columns (stage, procurement %, suppliers, RFQs, quotes)
+    follow the project through the flow and match its overview cards; there
+    is no stored literal and no risk column."""
+    client, headers, pid = project
+    row = _row(client, headers, pid)
+    assert (row["stage"], row["progress"], row["suppliers"], row["rfqs"], row["quotes"]) == ("Plans Review", 0, 0, 0, 0)
+    assert "risk" not in row and "riskTone" not in row
+
+    bom_id = make_confirmed_bom(client, headers, pid)
+    row = _row(client, headers, pid)
+    assert (row["stage"], row["progress"]) == ("Sourcing", 10)  # one package at 'Items identified'
+    sids = run_supplier_search(client, headers, pid, bom_id)
+    rfq = generate_rfq(client, headers, pid, bom_id, sids[:3])
+    row = _row(client, headers, pid)
+    assert (row["stage"], row["progress"], row["suppliers"], row["rfqs"]) == ("Sourcing", 25, len(sids), 0)
+    client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    row = _row(client, headers, pid)
+    assert (row["stage"], row["stageTone"], row["progress"], row["rfqs"]) == ("RFQs Out", "blue", 50, 1)
+
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    quotes = client.get(f"/api/projects/{pid}/quotes", headers=headers).json()
+    row = _row(client, headers, pid)
+    assert (row["stage"], row["stageTone"], row["progress"], row["quotes"]) == ("Quotes In", "violet", 75, len(quotes))
+    cards = _cards(client, headers, pid)
+    assert cards["Quotes received"]["value"] == str(row["quotes"])
+    assert cards["RFQs sent"]["value"] == str(row["rfqs"])
+    assert cards["Suppliers found"]["value"] == str(row["suppliers"])
+
+    r = client.post(
+        f"/api/projects/{pid}/packages/{bom_id}/award",
+        headers=headers, json={"selections": {}, "strategy": "mix"},
+    )
+    assert r.status_code == 200
+    row = _row(client, headers, pid)
+    assert (row["stage"], row["stageTone"], row["progress"], row["barColor"]) == ("Complete", "success", 100, "var(--success)")
+    # The detail payload carries the same computed row.
+    detail = client.get(f"/api/projects/{pid}", headers=headers).json()
+    assert {k: detail[k] for k in ("stage", "progress", "rfqs", "quotes", "suppliers")} == {
+        k: row[k] for k in ("stage", "progress", "rfqs", "quotes", "suppliers")
+    }
+
+
+def test_project_rows_are_per_project_and_org_scoped(project):
+    client, headers, pid = project
+    make_confirmed_bom(client, headers, pid)
+    r = client.post("/api/projects", headers=headers, json={"name": "Second", "loc": "Reno, NV"})
+    assert r.status_code == 201
+    created = r.json()
+    assert (created["stage"], created["progress"], created["rfqs"]) == ("Plans Review", 0, 0)
+    rows = {p["id"]: p for p in client.get("/api/projects", headers=headers).json()}
+    assert rows[pid]["stage"] == "Sourcing" and rows[created["id"]]["stage"] == "Plans Review"
+    # The create payload no longer takes a stage; an extra field is ignored.
+    r = client.post("/api/projects", headers=headers, json={"name": "Third", "stage": "Complete"})
+    assert r.status_code == 201 and r.json()["stage"] == "Plans Review"
+
+
+def test_project_rollups_stage_rules():
+    from app.services import metrics as m
+    assert m._STAGE_TONE == {"Plans Review": "gray", "Sourcing": "blue", "RFQs Out": "blue", "Quotes In": "violet", "Complete": "success"}
+
+
+# ------------------------------------------- demo quotes stay put (BUG-49)
+def test_no_demo_quote_fallback_for_any_project(project):
+    """The seeded demo quotes table is gone; a project with no quotes lists
+    none, whatever the organization, and an unknown quote id is a 404."""
+    client, headers, pid = project
+    from app.repositories import reference as reference_repo
+    assert not hasattr(reference_repo, "list_demo_quotes")
+    from app import models
+    assert not hasattr(models, "DemoQuote")
+    assert client.get(f"/api/projects/{pid}/quotes", headers=headers).json() == []
+    assert client.get("/api/quotes/q-cm-water", headers=headers).status_code == 404
+    assert client.post("/api/quotes/q-cm-water/select", headers=headers).status_code == 404
+    assert client.get(f"/api/projects/{pid}/packages/water/line-comparison", headers=headers).status_code == 404

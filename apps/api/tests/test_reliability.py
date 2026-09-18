@@ -392,7 +392,7 @@ def test_demo_quotes_and_rfqs_are_not_served_to_other_tenants(project):
 
     with SessionLocal() as db:
         reference_repo.seed_reference_data(db)
-        assert reference_repo.list_demo_quotes(db)
+        assert reference_repo.list_demo_rfqs(db)
     assert client.get(f"/api/projects/{pid}/quotes", headers=headers).json() == []
     assert client.get(f"/api/projects/{pid}/rfqs", headers=headers).json() == []
     assert client.get(f"/api/projects/{pid}/rfq-folders", headers=headers).json() == []

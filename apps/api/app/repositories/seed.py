@@ -17,12 +17,14 @@ ACTIVITY: List[dict] = [
 ]
 
 # --------------------------------------------------------------------- projects
+# Only the stored fields: stage, progress and the supplier/RFQ/quote counts
+# are computed from each project's own rows (services/metrics.py).
 PROJECTS: List[dict] = [
-    {"id": "riverside", "name": "Riverside Water Treatment Plant", "loc": "Sacramento, CA", "stage": "Quotes In", "stageTone": "violet", "value": "$4.2M", "progress": 78, "suppliers": 12, "rfqs": 6, "quotes": 5, "risk": "Medium", "riskTone": "warn", "barColor": "var(--primary)"},
-    {"id": "eastgate", "name": "Eastgate Mixed-Use Development", "loc": "Austin, TX", "stage": "Quotes In", "stageTone": "violet", "value": "$8.7M", "progress": 82, "suppliers": 18, "rfqs": 3, "quotes": 14, "risk": "Low", "riskTone": "success", "barColor": "var(--violet)"},
-    {"id": "hwy50", "name": "Highway 50 Interchange", "loc": "Reno, NV", "stage": "Plans Review", "stageTone": "gray", "value": "$12.1M", "progress": 24, "suppliers": 6, "rfqs": 8, "quotes": 2, "risk": "High", "riskTone": "danger", "barColor": "var(--danger)"},
-    {"id": "maple", "name": "Maple Grove Subdivision", "loc": "Boise, ID", "stage": "Complete", "stageTone": "success", "value": "$3.4M", "progress": 100, "suppliers": 9, "rfqs": 0, "quotes": 11, "risk": "Low", "riskTone": "success", "barColor": "var(--success)"},
-    {"id": "cedar", "name": "Cedar Point Logistics Hub", "loc": "Phoenix, AZ", "stage": "Sourcing", "stageTone": "blue", "value": "$6.9M", "progress": 45, "suppliers": 11, "rfqs": 4, "quotes": 5, "risk": "Medium", "riskTone": "warn", "barColor": "var(--primary)"},
+    {"id": "riverside", "name": "Riverside Water Treatment Plant", "loc": "Sacramento, CA", "value": "$4.2M"},
+    {"id": "eastgate", "name": "Eastgate Mixed-Use Development", "loc": "Austin, TX", "value": "$8.7M"},
+    {"id": "hwy50", "name": "Highway 50 Interchange", "loc": "Reno, NV", "value": "$12.1M"},
+    {"id": "maple", "name": "Maple Grove Subdivision", "loc": "Boise, ID", "value": "$3.4M"},
+    {"id": "cedar", "name": "Cedar Point Logistics Hub", "loc": "Phoenix, AZ", "value": "$6.9M"},
 ]
 
 # --------------------------------------------------------------------- suppliers
@@ -87,15 +89,6 @@ LINE_ITEMS: List[dict] = [
     {"group": "Sewer Materials", "count": 31, "tone": "violet", "items": [{"n": '8" PVC SDR-35', "q": "3,200 LF"}, {"n": '48" Dia. Manhole', "q": "14 EA"}, {"n": '6" PVC Lateral', "q": "1,100 LF"}, {"n": "Frame & Cover", "q": "14 EA"}]},
     {"group": "Storm Materials", "count": 46, "tone": "success", "items": [{"n": '24" RCP, Class III', "q": "1,800 LF"}, {"n": "Type A Catch Basin", "q": "22 EA"}, {"n": '18" RCP', "q": "900 LF"}, {"n": "Storm Manhole", "q": "9 EA"}]},
     {"group": "Electrical Materials", "count": 23, "tone": "warn", "items": [{"n": '4" PVC Conduit, Sch 40', "q": "5,000 LF"}, {"n": "#2 AWG Cu Conductor", "q": "12,000 LF"}, {"n": "Pull Box, 24×36", "q": "12 EA"}]},
-]
-
-# --------------------------------------------------------------------- quotes
-QUOTES: List[dict] = [
-    {"id": "q-cm-water", "sup": "Core & Main", "pkg": "Water Utilities", "amount": "$143,972", "freight": "$1,500", "total": "$145,472", "lead": "16 days", "date": "Jun 18", "logo": "C&M", "logoBg": "#16a34a", "best": True},
-    {"id": "q-fw-water", "sup": "Ferguson Waterworks", "pkg": "Water Utilities", "amount": "$143,886", "freight": "$1,800", "total": "$145,686", "lead": "21 days", "date": "Jun 19", "logo": "FW", "logoBg": "#0a4d8c"},
-    {"id": "q-fl-water", "sup": "Fortiline Waterworks", "pkg": "Water Utilities", "amount": "$149,790", "freight": "$2,400", "total": "$152,190", "lead": "26 days", "date": "Jun 17", "logo": "FL", "logoBg": "#0f766e"},
-    {"id": "q-hd-sewer", "sup": "HD Supply Waterworks", "pkg": "Sanitary Sewer", "amount": "$114,530", "freight": "$1,200", "total": "$115,730", "lead": "10 days", "date": "Jun 19", "logo": "HD", "logoBg": "#b45309", "best": True},
-    {"id": "q-cm-sewer", "sup": "Core & Main", "pkg": "Sanitary Sewer", "amount": "$114,640", "freight": "$1,500", "total": "$116,140", "lead": "12 days", "date": "Jun 18", "logo": "C&M", "logoBg": "#16a34a"},
 ]
 
 # Comparison matrix, keyed by package label. (Riverside reads the live, quote-

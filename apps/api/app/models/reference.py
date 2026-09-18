@@ -1,7 +1,7 @@
 """ORM models for the prototype's reference/display data.
 
 These tables back the demo activity feed, vendor comparison, timeline, and the
-demo RFQ inbox / quote list. (Dashboard KPIs, project overview cards and
+demo RFQ inbox. (Dashboard KPIs, project overview cards and
 package progress are COMPUTED from real rows — see services/metrics.py — and
 have no seeded table.) They're seeded once on first run
 from the literals in app/repositories/seed.py so the app renders fully, but they
@@ -182,31 +182,3 @@ class DemoRfq(Base):
 
     def to_detail(self) -> dict:
         return {**self.to_dict(), "thread": json.loads(self.thread or "[]")}
-
-
-class DemoQuote(Base):
-    """A prototype quote-table row (display strings); fallback before real
-    quotes are ingested into the numeric `quotes` table."""
-
-    __tablename__ = "demo_quotes"
-
-    seq: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
-    id: Mapped[str] = mapped_column(String, primary_key=True)
-    sup: Mapped[str] = mapped_column(String, nullable=False)
-    pkg: Mapped[str] = mapped_column(String, nullable=False)
-    amount: Mapped[str] = mapped_column(String, nullable=False, default="—")
-    freight: Mapped[str] = mapped_column(String, nullable=False, default="—")
-    total: Mapped[str] = mapped_column(String, nullable=False, default="—")
-    lead: Mapped[str] = mapped_column(String, nullable=False, default="—")
-    date: Mapped[str] = mapped_column(String, nullable=False, default="—")
-    logo: Mapped[str] = mapped_column(String, nullable=False, default="SU")
-    logo_bg: Mapped[str] = mapped_column(String, nullable=False, default="#334155")
-    best: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id, "sup": self.sup, "pkg": self.pkg, "amount": self.amount,
-            "freight": self.freight, "total": self.total, "lead": self.lead,
-            "date": self.date, "logo": self.logo, "logoBg": self.logo_bg,
-            "best": self.best,
-        }

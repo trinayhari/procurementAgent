@@ -2698,7 +2698,11 @@ export interface components {
              */
             categories: components["schemas"]["PlanTypeCategoryOut"][];
         };
-        /** Project */
+        /**
+         * Project
+         * @description A project row. `stage`, `progress` and the counts are computed from the
+         *     project's own documents/RFQs/quotes/awards (services/metrics.py).
+         */
         Project: {
             /** Id */
             id: string;
@@ -2706,10 +2710,10 @@ export interface components {
             name: string;
             /** Loc */
             loc: string;
-            stage: components["schemas"]["Stage"];
-            stageTone: components["schemas"]["Tone"];
             /** Value */
             value: string;
+            stage: components["schemas"]["Stage"];
+            stageTone: components["schemas"]["Tone"];
             /** Progress */
             progress: number;
             /** Suppliers */
@@ -2718,8 +2722,6 @@ export interface components {
             rfqs: number;
             /** Quotes */
             quotes: number;
-            risk: components["schemas"]["Risk"];
-            riskTone: components["schemas"]["Tone"];
             /** Barcolor */
             barColor: string;
         };
@@ -2740,8 +2742,6 @@ export interface components {
              * @default
              */
             value: string;
-            /** @default Plans Review */
-            stage: components["schemas"]["Stage"];
         };
         /**
          * ProjectDetail
@@ -2754,10 +2754,10 @@ export interface components {
             name: string;
             /** Loc */
             loc: string;
-            stage: components["schemas"]["Stage"];
-            stageTone: components["schemas"]["Tone"];
             /** Value */
             value: string;
+            stage: components["schemas"]["Stage"];
+            stageTone: components["schemas"]["Tone"];
             /** Progress */
             progress: number;
             /** Suppliers */
@@ -2766,8 +2766,6 @@ export interface components {
             rfqs: number;
             /** Quotes */
             quotes: number;
-            risk: components["schemas"]["Risk"];
-            riskTone: components["schemas"]["Tone"];
             /** Barcolor */
             barColor: string;
             /** Overviewcards */
@@ -3050,11 +3048,6 @@ export interface components {
             /** Attachment Ids */
             attachment_ids?: string[] | null;
         };
-        /**
-         * Risk
-         * @enum {string}
-         */
-        Risk: "Low" | "Medium" | "High";
         /**
          * RunCreate
          * @description A run request. Every field is a cost multiplier — see §6 of the contract.

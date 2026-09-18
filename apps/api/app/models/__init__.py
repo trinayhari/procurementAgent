@@ -15,7 +15,6 @@ from app.models.quote import Quote
 from app.models.reference import (
     ActivityItem,
     Comparison,
-    DemoQuote,
     DemoRfq,
     GanttBar,
     GanttColumn,
@@ -51,7 +50,6 @@ __all__ = [
     "GanttColumn",
     "RfqFolder",
     "DemoRfq",
-    "DemoQuote",
     "TimelineEvent",
     "Lender",
     "User",

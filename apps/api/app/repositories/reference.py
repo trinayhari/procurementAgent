@@ -1,7 +1,7 @@
 """Database accessors for prototype reference/display data.
 
 Covers the demo activity feed, vendor comparison, timeline, and the demo RFQ
-inbox / quote list. Dashboard KPIs, overview cards and package progress are
+inbox. Dashboard KPIs, overview cards and package progress are
 computed from real rows (services/metrics.py), never seeded. All of it is seeded once from the literals in
 seed.py (see ``seed_reference_data``) and then read back from the DB.
 """
@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from app.models.reference import (
     ActivityItem,
     Comparison,
-    DemoQuote,
     DemoRfq,
     GanttBar,
     GanttColumn,
@@ -66,15 +65,6 @@ def list_demo_rfqs(db: Session) -> List[dict]:
 def get_demo_rfq(db: Session, rfq_id: str) -> Optional[DemoRfq]:
     return db.get(DemoRfq, rfq_id)
 
-
-def list_demo_quotes(db: Session) -> List[dict]:
-    rows = db.scalars(select(DemoQuote).order_by(DemoQuote.seq)).all()
-    return [q.to_dict() for q in rows]
-
-
-def get_demo_quote(db: Session, quote_id: str) -> Optional[dict]:
-    row = db.get(DemoQuote, quote_id)
-    return row.to_dict() if row else None
 
 
 # ---------------------------------------------------------------------- seeding
@@ -152,16 +142,6 @@ def seed_reference_data(db: Session) -> None:
             thread=json.dumps(seed._thread_for(r)),
         )
         for i, r in enumerate(seed.RFQS, start=1)
-    ])
-
-    _seed_if_empty(db, DemoQuote, [
-        DemoQuote(
-            seq=i, id=q["id"], sup=q["sup"], pkg=q["pkg"], amount=q.get("amount", "—"),
-            freight=q.get("freight", "—"), total=q.get("total", "—"), lead=q.get("lead", "—"),
-            date=q.get("date", "—"), logo=q.get("logo", "SU"), logo_bg=q.get("logoBg", "#334155"),
-            best=q.get("best", False),
-        )
-        for i, q in enumerate(seed.QUOTES, start=1)
     ])
 
     db.commit()

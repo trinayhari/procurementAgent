@@ -54,7 +54,13 @@ def list_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return projects_repo.list_projects(db, current_user.organization_id)
+    org_id = current_user.organization_id
+    # Stage, procurement % and the supplier/RFQ/quote counts on each row are
+    # computed from that project's own rows (services/metrics.py) — the same
+    # figures as its overview cards and the dashboard KPIs.
+    rows = projects_repo.list_projects(db, org_id)
+    rollups = metrics_service.project_rollups(db, org_id)
+    return [{**p, **rollups[p["id"]]} for p in rows]
 
 
 @router.post("", response_model=Project, status_code=201)
@@ -65,13 +71,9 @@ def create_project(
 ):
     org_id = current_user.organization_id
     project = projects_repo.create_project(
-        db,
-        org_id,
-        name=payload.name,
-        loc=payload.loc,
-        value=payload.value,
-        stage=payload.stage.value,
+        db, org_id, name=payload.name, loc=payload.loc, value=payload.value,
     )
+    project = {**project, **metrics_service.project_rollups(db, org_id, [project["id"]])[project["id"]]}
     audit_repo.log(
         db, org_id, current_user, "project.created", "project", project["id"],
         project_id=project["id"], detail={"name": project["name"]},
@@ -119,6 +121,7 @@ def get_project(
     cards, packages_progress = metrics_service.project_overview(db, org_id, project_id)
     return {
         **project,
+        **metrics_service.project_rollups(db, org_id, [project_id])[project_id],
         "overviewCards": cards,
         "packages": packages_progress,
         "activity": events_repo.list_for_project(db, org_id, project_id),
@@ -174,15 +177,11 @@ def list_quotes(
 ):
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
-    # Only this project's own (ingested or seeded) quote rows. The demo org
-    # alone may fall back to the seeded Riverside quotes (keeps the demo
-    # populated before any quotes are ingested); every other tenant used to see
-    # the same five Riverside quotes under every project that had none of its
-    # own, and "Compare" on those rows 404'd because no real quote backed them.
-    rows = quotes_repo.list_quote_rows(db, org_id, project_id)
-    if rows or not _is_demo_org(org_id):
-        return rows
-    return reference_repo.list_demo_quotes(db)
+    # Only this project's own quote rows — never another project's. (The demo
+    # org used to fall back to Riverside's seeded quotes for every project
+    # without quotes of its own, so Highway 50 listed five quotes its own
+    # overview card counted as zero, and Compare on them 404'd.)
+    return quotes_repo.list_quote_rows(db, org_id, project_id)
 
 
 @router.get("/{project_id}/rfqs", response_model=List[Rfq])

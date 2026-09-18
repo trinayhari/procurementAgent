@@ -23,16 +23,6 @@ from app.models.rfq import Rfq
 from app.models.timeline_event import TimelineEvent
 from app.repositories import seed
 
-# Stage -> badge tone, mirroring the frontend's stageToneMap.
-_STAGE_TONE = {
-    "Plans Review": "gray",
-    "Sourcing": "blue",
-    "RFQs Out": "blue",
-    "Quotes In": "violet",
-    "Complete": "success",
-}
-
-
 def _slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-") or "project"
 
@@ -77,7 +67,6 @@ def create_project(
     name: str,
     loc: str = "",
     value: str = "",
-    stage: str = "Plans Review",
 ) -> dict:
     """Insert a new project (id derived from its name) and return its payload."""
     pid = _unique_id(db, _slugify(name))
@@ -87,16 +76,7 @@ def create_project(
         id=pid,
         name=name.strip(),
         loc=loc.strip() or "—",
-        stage=stage,
-        stage_tone=_STAGE_TONE.get(stage, "gray"),
         value=value.strip() or "$0",
-        progress=0,
-        suppliers=0,
-        rfqs=0,
-        quotes=0,
-        risk="Low",
-        risk_tone="success",
-        bar_color="var(--primary)",
     )
     db.add(project)
     db.commit()
@@ -151,21 +131,8 @@ def seed_starter_projects(db: Session, org_id: str) -> None:
     for i, p in enumerate(reversed(seed.PROJECTS), start=1):
         db.add(
             Project(
-                organization_id=org_id,
-                seq=i,
-                id=p["id"],
-                name=p["name"],
-                loc=p["loc"],
-                stage=p["stage"],
-                stage_tone=p["stageTone"],
-                value=p["value"],
-                progress=p["progress"],
-                suppliers=p["suppliers"],
-                rfqs=p["rfqs"],
-                quotes=p["quotes"],
-                risk=p["risk"],
-                risk_tone=p["riskTone"],
-                bar_color=p["barColor"],
+                organization_id=org_id, seq=i, id=p["id"], name=p["name"],
+                loc=p["loc"], value=p["value"],
             )
         )
     db.commit()

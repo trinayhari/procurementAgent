@@ -6949,15 +6949,15 @@
             "type": "string",
             "title": "Loc"
           },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
           "stage": {
             "$ref": "#/components/schemas/Stage"
           },
           "stageTone": {
             "$ref": "#/components/schemas/Tone"
-          },
-          "value": {
-            "type": "string",
-            "title": "Value"
           },
           "progress": {
             "type": "integer",
@@ -6975,12 +6975,6 @@
             "type": "integer",
             "title": "Quotes"
           },
-          "risk": {
-            "$ref": "#/components/schemas/Risk"
-          },
-          "riskTone": {
-            "$ref": "#/components/schemas/Tone"
-          },
           "barColor": {
             "type": "string",
             "title": "Barcolor"
@@ -6991,18 +6985,17 @@
           "id",
           "name",
           "loc",
+          "value",
           "stage",
           "stageTone",
-          "value",
           "progress",
           "suppliers",
           "rfqs",
           "quotes",
-          "risk",
-          "riskTone",
           "barColor"
         ],
-        "title": "Project"
+        "title": "Project",
+        "description": "A project row. `stage`, `progress` and the counts are computed from the\nproject's own documents/RFQs/quotes/awards (services/metrics.py)."
       },
       "ProjectCreate": {
         "properties": {
@@ -7023,14 +7016,6 @@
             "maxLength": 50,
             "title": "Value",
             "default": ""
-          },
-          "stage": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/Stage"
-              }
-            ],
-            "default": "Plans Review"
           }
         },
         "type": "object",
@@ -7054,15 +7039,15 @@
             "type": "string",
             "title": "Loc"
           },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
           "stage": {
             "$ref": "#/components/schemas/Stage"
           },
           "stageTone": {
             "$ref": "#/components/schemas/Tone"
-          },
-          "value": {
-            "type": "string",
-            "title": "Value"
           },
           "progress": {
             "type": "integer",
@@ -7079,12 +7064,6 @@
           "quotes": {
             "type": "integer",
             "title": "Quotes"
-          },
-          "risk": {
-            "$ref": "#/components/schemas/Risk"
-          },
-          "riskTone": {
-            "$ref": "#/components/schemas/Tone"
           },
           "barColor": {
             "type": "string",
@@ -7117,15 +7096,13 @@
           "id",
           "name",
           "loc",
+          "value",
           "stage",
           "stageTone",
-          "value",
           "progress",
           "suppliers",
           "rfqs",
           "quotes",
-          "risk",
-          "riskTone",
           "barColor",
           "overviewCards",
           "packages",
@@ -7773,15 +7750,6 @@
           "recipients"
         ],
         "title": "RfqUpdate"
-      },
-      "Risk": {
-        "type": "string",
-        "enum": [
-          "Low",
-          "Medium",
-          "High"
-        ],
-        "title": "Risk"
       },
       "RunCreate": {
         "properties": {

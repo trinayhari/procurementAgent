@@ -161,6 +161,98 @@ def dashboard_metrics(db: Session, org_id: str) -> List[dict]:
     return metrics
 
 
+# ------------------------------------------------------------ project rows
+# Stage -> badge tone, mirroring the frontend's stage badges.
+_STAGE_TONE = {
+    "Plans Review": "gray",
+    "Sourcing": "blue",
+    "RFQs Out": "blue",
+    "Quotes In": "violet",
+    "Complete": "success",
+}
+
+
+def _group(rows, key):
+    out: Dict[str, list] = {}
+    for r in rows:
+        out.setdefault(key(r), []).append(r)
+    return out
+
+
+def project_rollups(
+    db: Session, org_id: str, project_ids: Optional[List[str]] = None
+) -> Dict[str, dict]:
+    """Per-project row figures — stage, procurement %, suppliers / RFQs sent /
+    quotes received — for every project of the org (or the given ids), from
+    the same rows the overview cards use. One query per table, not per project.
+
+    Stage is the furthest step the project has reached: Plans Review (no
+    documents) → Sourcing (documents, nothing sent) → RFQs Out (sent, no quote
+    back) → Quotes In → Complete (every quoted package awarded and no RFQ
+    still awaiting). Progress is the mean of its package progress bars.
+    """
+    if project_ids is None:
+        project_ids = list(db.scalars(
+            select(Project.id).where(Project.organization_id == org_id)
+        ).all())
+    if not project_ids:
+        return {}
+    wanted = set(project_ids)
+
+    def _scoped(model):
+        return db.scalars(
+            select(model).where(
+                model.organization_id == org_id, model.project_id.in_(wanted)
+            )
+        ).all()
+
+    docs_by = _group(_scoped(Document), lambda d: d.project_id)
+    rfqs_by = _group(_scoped(Rfq), lambda r: r.project_id)
+    quotes_by = _group(_scoped(Quote), lambda q: q.project_id)
+    found_by = {
+        pid: int(n)
+        for pid, n in db.execute(
+            select(FoundSupplier.project_id, func.count())
+            .where(FoundSupplier.organization_id == org_id, FoundSupplier.project_id.in_(wanted))
+            .group_by(FoundSupplier.project_id)
+        ).all()
+    }
+    latest_all = _latest_decisions(db, org_id)
+
+    out: Dict[str, dict] = {}
+    for pid in project_ids:
+        docs = docs_by.get(pid, [])
+        rfqs = rfqs_by.get(pid, [])
+        quotes = quotes_by.get(pid, [])
+        latest = {k: d for k, d in latest_all.items() if k[0] == pid}
+        packages = _package_progress(db, org_id, pid, docs, rfqs, quotes, latest)
+        sent = [r for r in rfqs if r.status != "Draft"]
+        awaiting = [r for r in rfqs if r.status == "Awaiting"]
+        quoted_pkgs = {q.package for q in quotes}
+        awarded_pkgs = {pkg for (_p, pkg) in latest}
+        if not docs and not rfqs and not quotes:
+            stage = "Plans Review"
+        elif not sent and not quotes:
+            stage = "Sourcing"
+        elif not quotes:
+            stage = "RFQs Out"
+        elif awarded_pkgs and quoted_pkgs <= awarded_pkgs and not awaiting:
+            stage = "Complete"
+        else:
+            stage = "Quotes In"
+        progress = round(sum(p["pct"] for p in packages) / len(packages)) if packages else 0
+        out[pid] = {
+            "stage": stage,
+            "stageTone": _STAGE_TONE[stage],
+            "progress": progress,
+            "suppliers": found_by.get(pid, 0),
+            "rfqs": len(sent),
+            "quotes": len(quotes),
+            "barColor": "var(--success)" if stage == "Complete" else "var(--primary)",
+        }
+    return out
+
+
 # ---------------------------------------------------------- project overview
 _PROGRESS = [
     # (pct, tone, stage label) — reached in order; the furthest step wins.

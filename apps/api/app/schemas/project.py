@@ -3,7 +3,7 @@ from typing import List
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.common import Risk, Stage, Tone
+from app.schemas.common import Stage, Tone
 
 # "$4.2M", "4.2m", "$450,000", "450000", "1.5 B" — an optional currency sign, a
 # number with optional thousands separators/decimals, an optional K/M/B suffix.
@@ -12,18 +12,20 @@ from app.schemas.dashboard import Activity
 
 
 class Project(BaseModel):
+    """A project row. `stage`, `progress` and the counts are computed from the
+    project's own documents/RFQs/quotes/awards (services/metrics.py)."""
+
     id: str
     name: str
     loc: str
+    value: str
     stage: Stage
     stageTone: Tone
-    value: str
+    # Mean of the project's package progress (0 with no packages yet).
     progress: int
-    suppliers: int
-    rfqs: int
-    quotes: int
-    risk: Risk
-    riskTone: Tone
+    suppliers: int  # suppliers found for the project
+    rfqs: int  # RFQs sent (not drafts)
+    quotes: int  # quotes received
     barColor: str
 
 
@@ -36,7 +38,6 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     loc: str = Field(default="", max_length=200)
     value: str = Field(default="", max_length=50)
-    stage: Stage = Stage.plans_review
 
     @field_validator("name", "loc", "value", mode="before")
     @classmethod

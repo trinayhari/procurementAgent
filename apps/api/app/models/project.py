@@ -9,9 +9,10 @@ from app.db import Base
 class Project(Base):
     """A procurement project — the top-level container the whole app lives in.
 
-    Columns mirror the fields the frontend's project card/table render, including
-    the precomputed `*_tone` / `bar_color` styling hints so the seeded prototype
-    projects keep their exact look.
+    Only what the user entered is stored (name, location, estimated value).
+    Everything the project card/table shows about *progress* — stage,
+    procurement %, suppliers/RFQ/quote counts — is computed from the project's
+    own documents, RFQs, quotes and awards (services/metrics.py), never stored.
     """
 
     __tablename__ = "projects"
@@ -27,16 +28,7 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     loc: Mapped[str] = mapped_column(String, nullable=False, default="—")
-    stage: Mapped[str] = mapped_column(String, nullable=False, default="Plans Review")
-    stage_tone: Mapped[str] = mapped_column(String, nullable=False, default="gray")
     value: Mapped[str] = mapped_column(String, nullable=False, default="$0")
-    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    suppliers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    rfqs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    quotes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    risk: Mapped[str] = mapped_column(String, nullable=False, default="Low")
-    risk_tone: Mapped[str] = mapped_column(String, nullable=False, default="success")
-    bar_color: Mapped[str] = mapped_column(String, nullable=False, default="var(--primary)")
     # Cached geocode of `loc` (supplier search). `geocoded_loc` records the
     # string that was geocoded so a changed `loc` invalidates the cache.
     lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -44,21 +36,13 @@ class Project(Base):
     geocoded_loc: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     def to_dict(self) -> dict:
-        """Shape a row into the camelCase payload the API schemas expect."""
+        """The stored fields, camelCased. Routes merge the computed rollup
+        (stage, progress, counts) from services/metrics.py on top."""
         return {
             "id": self.id,
             "name": self.name,
             "loc": self.loc,
-            "stage": self.stage,
-            "stageTone": self.stage_tone,
             "value": self.value,
-            "progress": self.progress,
-            "suppliers": self.suppliers,
-            "rfqs": self.rfqs,
-            "quotes": self.quotes,
-            "risk": self.risk,
-            "riskTone": self.risk_tone,
-            "barColor": self.bar_color,
             "lat": self.lat,
             "lng": self.lng,
         }

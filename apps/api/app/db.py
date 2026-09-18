@@ -145,6 +145,16 @@ def _ensure_dev_columns() -> None:
                 conn.execute(text("ALTER TABLE rfqs ADD COLUMN kind VARCHAR NOT NULL DEFAULT 'materials'"))
             if "attachments" not in cols:
                 conn.execute(text("ALTER TABLE rfqs ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'"))
+    if "projects" in tables:
+        # Mirrors 0023_computed_project_rows: the seeded display columns are
+        # gone (rows are computed). A dev DB created before that would still
+        # carry them as NOT NULL, so inserts of new projects would fail.
+        cols = {c["name"] for c in inspector.get_columns("projects")}
+        stale = [c for c in ("stage", "stage_tone", "progress", "suppliers", "rfqs", "quotes", "risk", "risk_tone", "bar_color") if c in cols]
+        if stale:
+            with engine.begin() as conn:
+                for col in stale:
+                    conn.execute(text(f"ALTER TABLE projects DROP COLUMN {col}"))
     _ensure_organization_column(inspector, tables)
 
 
