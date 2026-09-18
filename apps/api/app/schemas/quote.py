@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,8 @@ class Quote(BaseModel):
     logo: str
     logoBg: str
     best: bool = False
+    # "received" | "selected" | "needs_review" (reply ingested, no amount found)
+    status: str = "received"
 
 
 class ComparisonSupplier(BaseModel):
@@ -134,6 +136,30 @@ class AwardRequest(BaseModel):
     supersede: bool = False
 
 
+class AwardNotifiedSupplier(BaseModel):
+    supplier: str
+    email: Optional[str] = None
+    threaded: bool = False
+
+
+class AwardNotifications(BaseModel):
+    """Who was told what about an award, and who could not be reached."""
+
+    notified: List[AwardNotifiedSupplier] = []
+    declined: List[AwardNotifiedSupplier] = []
+    withdrawn: List[AwardNotifiedSupplier] = []
+    failed: List["AwardNotifyFailure"] = []
+    mock: bool = False
+    at: Optional[str] = None
+
+
+class AwardNotifyFailure(BaseModel):
+    supplier: str
+    email: Optional[str] = None
+    kind: str = "award"  # "award" | "decline"
+    error: str
+
+
 class AwardResult(BaseModel):
     status: str
     message: str
@@ -143,6 +169,28 @@ class AwardResult(BaseModel):
     leadDays: Optional[int] = None
     suppliers: List[str]
     poCount: int
+    # Supplier notification outcome. The award itself is committed either way;
+    # a failed notice is reported here (and in `message`) rather than swallowed.
+    notified: int = 0
+    declined: int = 0
+    # Previous winners displaced by a re-award who were told their PO is withdrawn.
+    withdrawn: int = 0
+    notifyFailed: List[AwardNotifyFailure] = []
+    notifyMocked: bool = False
+
+
+class AwardNotifyRequest(BaseModel):
+    # False (default): re-send only the notifications that failed last time.
+    all: bool = False
+
+
+class AwardNotifyResult(BaseModel):
+    message: str
+    notified: int = 0
+    declined: int = 0
+    withdrawn: int = 0
+    notifyFailed: List[AwardNotifyFailure] = []
+    notifyMocked: bool = False
 
 
 class SelectResult(BaseModel):
@@ -172,6 +220,13 @@ class PurchaseDecision(BaseModel):
     decidedBy: Optional[str] = None
     decidedByEmail: Optional[str] = None
     createdAt: Optional[str] = None
+    # Supplier-notification record for this award (see award_notify). Optional
+    # so the generated TS type stays constructible client-side.
+    notifications: Optional["AwardNotifications"] = None
+    # "active" (the live PO set for the package) or "superseded" by a re-award.
+    # None only on a client-side placeholder; the API always fills it.
+    status: Optional[str] = None
+    supersededBy: Optional[str] = None
 
 
 class QuoteIngestResult(BaseModel):
@@ -181,4 +236,9 @@ class QuoteIngestResult(BaseModel):
     mocked: bool = False
     ingested: int = 0
     total: int = 0
+    # Replies from known suppliers that were read but had no price in them —
+    # stored as needs-review quotes, not counted in `ingested`.
+    needsReview: int = 0
+    # Earlier revisions replaced by a newer reply from the same supplier.
+    superseded: int = 0
     error: Optional[str] = None

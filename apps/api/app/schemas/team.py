@@ -25,6 +25,12 @@ class Invite(BaseModel):
     # is a logging mock — so the accept link is returned instead, for the
     # inviter to pass on by hand. Never set when real email is configured.
     emailed: bool = True
+    emailedAt: Optional[str] = None
+    # Why the (configured) provider could not deliver it, when `emailed` is
+    # false despite email being set up — so the inviter can act on it.
+    emailError: Optional[str] = None
+    # The accept link, exposed only when the invitation was NOT emailed (no
+    # provider, or the send failed) so the inviter can pass it on by hand.
     acceptUrl: Optional[str] = None
 
 

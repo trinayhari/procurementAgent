@@ -233,6 +233,14 @@ export function getEmailConfig(): Promise<EmailConfig> {
   return get<EmailConfig>('/api/auth/email-config')
 }
 
+// Live provider check — actually calls Gmail (token refresh + mailbox
+// profile) and the LLM (one-token completion). Rate-limited (3/min); only
+// call on an explicit click, never on page load.
+export type ProvidersHealth = Schemas['ProvidersHealth']
+export function getProvidersHealth(): Promise<ProvidersHealth> {
+  return get<ProvidersHealth>('/api/health/providers')
+}
+
 export function logout(): void {
   setToken(null)
 }
@@ -600,6 +608,13 @@ export function deleteRfq(projectId: string, rfqId: string): Promise<void> {
   })
 }
 
+// The project's documents, fresh from the API — the RFQ modal's attachment
+// picker reads this rather than the workspace bundle, which can be stale
+// (a document uploaded from another tab / by a teammate since the load).
+export function getProjectDocuments(projectId: string): Promise<Document[]> {
+  return get<Document[]>(`/api/projects/${projectId}/documents`)
+}
+
 // User-approved send: delivers the RFQ to every recipient via Gmail (or the
 // logging mock when Gmail is unconfigured). Attaches the documents chosen on
 // the RFQ and flips it to 'Awaiting' (awaiting supplier quotes).
@@ -625,6 +640,15 @@ export function selectQuote(
   quoteId: string,
 ): Promise<{ quote_id: string; status: string; message: string }> {
   return post(`/api/quotes/${quoteId}/select`)
+}
+
+// Re-send the PO / decline emails for a package's latest award — by default
+// only the ones that failed last time; `all` re-notifies every supplier.
+export type AwardNotifyResult = Schemas['AwardNotifyResult']
+export function resendAwardNotifications(
+  projectId: string, pkg: string, all = false,
+): Promise<AwardNotifyResult> {
+  return post<AwardNotifyResult>(`/api/projects/${projectId}/packages/${encodeURIComponent(pkg)}/award/notify`, { all })
 }
 
 // ----------------------------------------------------- line-by-line comparison

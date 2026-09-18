@@ -334,16 +334,28 @@ def ingest_quotes(
 def run_ingest_job(job_id: str, org_id: str, project_id: str) -> None:
     db = SessionLocal()
     try:
-        ingested, total, mocked = quotes_ingest.ingest_quotes(db, org_id, project_id)
-        if ingested:
+        outcome = quotes_ingest.ingest_quotes(db, org_id, project_id)
+        ingested, total, mocked = outcome
+        needs_review = getattr(outcome, "needs_review", 0)
+        superseded = getattr(outcome, "superseded", 0)
+        if ingested or needs_review:
+            bits = []
+            if ingested:
+                bits.append(f"{ingested} quote{'s' if ingested != 1 else ''} received")
+            if needs_review:
+                bits.append(f"{needs_review} repl{'ies' if needs_review != 1 else 'y'} need{'' if needs_review != 1 else 's'} review")
             events_repo.log(
                 db, org_id, project_id,
-                title=f"{ingested} quote{'s' if ingested != 1 else ''} received",
+                title=", ".join(bits),
                 icon="quote", tone="violet",
-                meta="Parsed from supplier replies",
+                meta="Parsed from supplier replies"
+                + (f" · {superseded} earlier revision{'s' if superseded != 1 else ''} superseded" if superseded else ""),
             )
         jobs_repo.finish(
-            db, org_id, job_id, {"mocked": mocked, "ingested": ingested, "total": total}
+            db, org_id, job_id, {
+                "mocked": mocked, "ingested": ingested, "total": total,
+                "needsReview": needs_review, "superseded": superseded,
+            }
         )
     except Exception as exc:  # surface to the poller + exception queue
         _fail_job(db, org_id, job_id, exc)
@@ -374,6 +386,8 @@ def get_ingest_status(
         "mocked": detail.get("mocked", False),
         "ingested": detail.get("ingested", 0),
         "total": detail.get("total", 0),
+        "needsReview": detail.get("needsReview", 0),
+        "superseded": detail.get("superseded", 0),
         "error": job.get("error"),
     }
 
@@ -781,12 +795,10 @@ def delete_generated_rfq(
     return Response(status_code=204)
 
 
-# Total attachment budget per email. Gmail's nominal limit is 25 MB, but the
-# raw payload is base64 (~37% inflation) and large JSON `{"raw": ...}` sends via
-# the google-api-python-client are unreliable well below that — 15 MB of source
-# files keeps the encoded message comfortably inside. Switching to a media
+# Total attachment budget per email (see services/rfq/sender.py — the sender
+# enforces the same cap right before calling Gmail). Switching to a media
 # upload is the escape hatch if bigger attachments are ever needed.
-_MAX_ATTACHMENT_TOTAL_BYTES = 15 * 1024 * 1024
+_MAX_ATTACHMENT_TOTAL_BYTES = rfq_sender.MAX_ATTACHMENT_TOTAL_BYTES
 
 
 def _resolve_attachments(
@@ -914,6 +926,11 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
     recipients = rfq["recipients"]
     if not recipients:
         raise HTTPException(status_code=400, detail="RFQ has no recipients")
+    # Gmail would happily deliver a blank email; refuse before anything goes out.
+    if not (rfq.get("subject") or "").strip():
+        raise HTTPException(status_code=400, detail="RFQ subject is empty — add a subject before sending")
+    if not (rfq.get("body") or "").strip():
+        raise HTTPException(status_code=400, detail="RFQ body is empty — add the message before sending")
     to_send = [r for r in recipients if not rfq_state.recipient_sent(r)]
     if not to_send:
         # Every recipient already has a successful send on record (e.g. the
@@ -980,21 +997,32 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
     # attachment-free path (and any EmailSender built against the pre-attachment
     # signature) behaves exactly as before.
     send_kwargs = {"attachments": email_attachments} if email_attachments else {}
+    # Templates never mention attachments; the note is added here only when
+    # files actually ride along (and dropped from old drafts that hedged),
+    # then persisted so the stored RFQ / thread read what went out.
+    body = rfq_generator.body_for_send(rfq["body"], bool(email_attachments))
     for r in to_send:
         try:
-            sent = sender.send(r["email"], rfq["subject"], rfq["body"],
+            sent = sender.send(r["email"], rfq["subject"], body,
                                from_addr=from_addr, cc=cc, **send_kwargs)
             r["sentMessageId"] = sent.message_id
             r["threadId"] = sent.thread_id
             r["sendStatus"] = "sent"
             r["sendError"] = None
+            r["mock"] = bool(getattr(sender, "mocked", False))
         except Exception as exc:  # record the failure per-recipient, keep going
             r["sendStatus"] = "failed"
-            r["sendError"] = str(exc)
+            r["sendError"] = str(exc) or exc.__class__.__name__
+            logging.getLogger("procureai.rfq.send").warning(
+                "RFQ %s send to %s failed: %s", rfq_id, r.get("email"), exc
+            )
+        # Persist after every recipient so a crash mid-loop can't lose the
+        # record of who was already emailed (a retry would re-send to them).
+        rfqs_repo.save_recipients(db, org_id, rfq_id, recipients)
 
     failed = [r for r in recipients if not rfq_state.recipient_sent(r)]
     status = "Send failed" if failed else "Awaiting"
-    sent_rfq = rfqs_repo.mark_rfq_sent(db, org_id, rfq_id, recipients, status=status)
+    sent_rfq = rfqs_repo.mark_rfq_sent(db, org_id, rfq_id, recipients, status=status, body=body)
     delivered = len(recipients) - len(failed)
     audit_repo.log(
         db, org_id, current_user, "rfq.sent", "rfq", rfq_id, project_id=project_id,

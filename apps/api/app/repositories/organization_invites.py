@@ -48,6 +48,21 @@ def get_pending_for_email(db: Session, org_id: str, email: str) -> Optional[Orga
     return None
 
 
+def record_email_outcome(
+    db: Session, invite: OrganizationInvite, emailed: bool, error: Optional[str]
+) -> OrganizationInvite:
+    """Persist the result of an invitation send so the team list can report the
+    real delivery state rather than "a provider exists"."""
+    if emailed:
+        invite.emailed_at = _utcnow()
+        invite.email_error = None
+    else:
+        invite.email_error = error
+    db.commit()
+    db.refresh(invite)
+    return invite
+
+
 def create_invite(
     db: Session, org_id: str, email: str, invited_by_user_id: str, ttl_days: int = DEFAULT_TTL_DAYS
 ) -> OrganizationInvite:

@@ -102,7 +102,7 @@ interface DocInput {
   // when status is 'Failed'.
   mocked?: boolean; error?: string | null
 }
-interface QuoteInput { id?: string; sup: string; pkg: string; package?: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean }
+interface QuoteInput { id?: string; sup: string; pkg: string; package?: string; amount: string; freight: string; total: string; lead: string; date: string; logo: string; logoBg: string; best?: boolean; status?: string }
 interface CmpRowInput { label: string; vals: string[]; best: number; emph?: boolean }
 interface ThreadInput { dir: string; who: string; initials: string; time: string; body: string; subject?: string; attach?: string; logoBg?: string }
 interface MilestoneInput { id?: number | null; name: string; date: string; status: string; desc: string; tone: string; done?: boolean; active?: boolean; conflict?: boolean }

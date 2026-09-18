@@ -155,7 +155,7 @@ def list_for_project(db: Session, org_id: str, project_id: str) -> List[dict]:
 
 
 def annotate_file_state(payload: dict, source_path: Optional[str]) -> dict:
-    """Set ``fileMissing`` on a document payload.
+    """Set ``fileMissing`` (and ``fileSize`` when it is cheap) on a document payload.
 
     Uploaded files live on local disk by default, and in some deployments that
     disk is ephemeral (a redeploy wipes it) while the document rows survive in
@@ -168,9 +168,17 @@ def annotate_file_state(payload: dict, source_path: Optional[str]) -> dict:
     from app.services import storage
 
     missing = False
+    size = None
     if payload.get("hasFile") and source_path and not storage.is_remote(source_path):
-        missing = not os.path.exists(source_path)
+        try:
+            size = os.path.getsize(source_path)  # one stat: existence + size
+        except OSError:
+            missing = True
     payload["fileMissing"] = missing
+    # Bytes on disk, so the RFQ attachment picker can show sizes and keep the
+    # total under the 15 MB email cap before the backend has to 400. None for
+    # remote storage (no HEAD per document on every list) or a missing file.
+    payload["fileSize"] = size
     return payload
 
 

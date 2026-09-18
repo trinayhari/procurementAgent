@@ -11,6 +11,7 @@ import base64
 import pytest
 
 from app.api.routes import documents as documents_routes
+from app.services.rfq import generator
 from app.services.rfq import sender as rfq_sender
 from tests.conftest import make_confirmed_bom, run_supplier_search, generate_rfq
 
@@ -32,7 +33,7 @@ class _Recorder:
 
     def send(self, to, subject, body, *, from_addr, cc=None, thread_id=None,
              in_reply_to=None, attachments=None):
-        self.sent.append({"to": to, "attachments": attachments})
+        self.sent.append({"to": to, "body": body, "attachments": attachments})
         return rfq_sender.SentMessage(
             message_id=f"rec-{len(self.sent)}", thread_id="t"
         )
@@ -379,3 +380,85 @@ def test_build_mime_strips_crlf_from_subject_and_recipients():
     assert msg["Bcc"] is None
     assert "Bcc" not in list(msg.keys())
     assert "\r" not in (msg["Subject"] or "") and "\n" not in (msg["Subject"] or "")
+
+
+# ------------------------------------------- attachment note (EBUG-20/28)
+
+_OLD_NOTE = "Please review any attached project documents for additional detail."
+_NOTE = generator.ATTACHMENT_SENTENCE
+
+
+def test_templates_never_mention_attachments():
+    body = generator._sub_template_body("We are seeking bids.", "Install 40 LF of pipe.")
+    assert "attach" not in body.lower()
+    assert "Scope of work:" in body and "Your prompt response is appreciated." in body
+    assert "attach" not in generator._template_body("Please quote.", "- Pipe — 10 LF").lower()
+
+
+def test_old_drafts_with_the_hedge_send_clean_when_nothing_is_attached(project, monkeypatch):
+    """Backstop for drafts generated before the sentence left the template."""
+    client, headers, pid = project
+    rfq = _draft_rfq(client, headers, pid)
+    r = _save(client, headers, pid, {**rfq, "body": rfq["body"] + "\n\n" + _OLD_NOTE + " Thanks."}, [])
+    assert r.status_code == 200, r.text
+    recorder = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    assert r.status_code == 200, r.text
+    for m in recorder.sent:
+        assert "attached" not in m["body"].lower()
+        assert "Thanks." in m["body"]  # only that sentence is removed
+    # The stored RFQ reads what went out.
+    assert r.json()["body"] == recorder.sent[0]["body"]
+    assert "attached" not in client.get(f"/api/projects/{pid}/rfqs/{rfq['id']}", headers=headers).json()["body"].lower()
+
+
+def test_attachment_note_is_added_at_send_and_persisted_when_a_document_is_attached(project, monkeypatch):
+    client, headers, pid = project
+    monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
+    doc_id = _upload_doc(client, headers, pid)
+    rfq = _draft_rfq(client, headers, pid)
+    assert "attach" not in rfq["body"].lower()  # the draft the user reviews has no note
+    r = _save(client, headers, pid, rfq, [doc_id])
+    assert r.status_code == 200, r.text
+    recorder = _Recorder()
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
+    assert r.status_code == 200, r.text
+    sent_body = recorder.sent[0]["body"]
+    assert all(m["body"] == sent_body for m in recorder.sent)
+    assert sent_body.count(_NOTE) == 1
+    # Placed right before the closing sentence.
+    assert sent_body.index(_NOTE) < sent_body.index("Your prompt response is appreciated.")
+    assert sent_body.endswith("additional information to complete your quote.")
+    # Persisted: the stored RFQ (and so the thread) shows what went out.
+    assert r.json()["body"] == sent_body
+    assert client.get(f"/api/projects/{pid}/rfqs/{rfq['id']}", headers=headers).json()["body"] == sent_body
+
+
+def test_body_with_attachment_note_placement_and_idempotence():
+    with_close = "Hello.\n\nScope.\n\nYour prompt response is appreciated. Thanks."
+    out = generator.body_with_attachment_note(with_close)
+    assert out == "Hello.\n\nScope.\n\n" + _NOTE + " Your prompt response is appreciated. Thanks."
+    assert generator.body_with_attachment_note(out) == out  # idempotent
+    assert generator.body_with_attachment_note(with_close.replace("any", "")) == out
+    no_close = "Hello.\n\nScope."
+    assert generator.body_with_attachment_note(no_close) == no_close + "\n\n" + _NOTE
+    # An old hedge is normalised to the single current sentence.
+    old = "Hello.\n\n" + _OLD_NOTE + " Your prompt response is appreciated."
+    assert generator.body_with_attachment_note(old) == "Hello.\n\n" + _NOTE + " Your prompt response is appreciated."
+    assert generator.body_for_send(old, False) == "Hello.\n\nYour prompt response is appreciated."
+
+
+def test_documents_report_their_file_size_for_the_attachment_picker(project, monkeypatch):
+    """The RFQ modal shows per-file sizes and keeps the running total under the
+    15 MB cap client-side; a BOM with no file has no size."""
+    client, headers, pid = project
+    monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
+    doc_id = _upload_doc(client, headers, pid)
+    bom_id = make_confirmed_bom(client, headers, pid)
+    docs = {d["id"]: d for d in client.get(f"/api/projects/{pid}/documents", headers=headers).json()}
+    assert docs[doc_id]["fileSize"] == len(_MINI_PDF) and docs[doc_id]["fileMissing"] is False
+    assert docs[bom_id]["fileSize"] is None and docs[bom_id]["hasFile"] is False
+    one = client.get(f"/api/documents/{doc_id}", headers=headers).json()
+    assert one["fileSize"] == len(_MINI_PDF)

@@ -27,6 +27,7 @@ from app.models.project import Project
 from app.models.purchase_decision import PurchaseDecision
 from app.models.quote import Quote
 from app.models.rfq import Rfq
+from app.repositories.quotes import INACTIVE_STATUSES
 from app.services.sourcing import packages as packages_svc
 
 
@@ -39,6 +40,21 @@ def _money(v: float) -> str:
     if v >= 10_000:
         return f"{sign}${v / 1_000:.1f}K".replace(".0K", "K")
     return f"{sign}${v:,.0f}"
+
+
+# An RFQ counts as sent only once at least one supplier actually received it —
+# "Send failed" means nobody did, so it is neither sent nor a draft.
+_UNSENT = ("Draft", "Send failed")
+
+
+def _was_sent(rfq) -> bool:
+    return rfq.status not in _UNSENT
+
+
+def _current(quotes):
+    """Quotes that take part in comparison: superseded revisions and
+    amount-less replies awaiting review are not 'quotes received'."""
+    return [q for q in quotes if q.status not in INACTIVE_STATUSES]
 
 
 def _plural(n: int, word: str, plural: Optional[str] = None) -> str:
@@ -111,15 +127,17 @@ def dashboard_metrics(db: Session, org_id: str) -> List[dict]:
     rfqs_total = db.scalar(
         select(func.count())
         .select_from(Rfq)
-        .where(Rfq.organization_id == org_id, Rfq.status != "Draft")
+        .where(Rfq.organization_id == org_id, Rfq.status.notin_(_UNSENT))
     ) or 0
     quotes = db.scalar(
-        select(func.count()).select_from(Quote).where(Quote.organization_id == org_id)
+        select(func.count()).select_from(Quote).where(
+            Quote.organization_id == org_id, Quote.status.notin_(INACTIVE_STATUSES)
+        )
     ) or 0
     quoted_projects = db.scalar(
         select(func.count(func.distinct(Quote.project_id)))
         .select_from(Quote)
-        .where(Quote.organization_id == org_id)
+        .where(Quote.organization_id == org_id, Quote.status.notin_(INACTIVE_STATUSES))
     ) or 0
     awarded, spend, savings = award_figures(db, org_id)
 
@@ -223,10 +241,10 @@ def project_rollups(
     for pid in project_ids:
         docs = docs_by.get(pid, [])
         rfqs = rfqs_by.get(pid, [])
-        quotes = quotes_by.get(pid, [])
+        quotes = _current(quotes_by.get(pid, []))
         latest = {k: d for k, d in latest_all.items() if k[0] == pid}
         packages = _package_progress(db, org_id, pid, docs, rfqs, quotes, latest)
-        sent = [r for r in rfqs if r.status != "Draft"]
+        sent = [r for r in rfqs if _was_sent(r)]
         awaiting = [r for r in rfqs if r.status == "Awaiting"]
         quoted_pkgs = {q.package for q in quotes}
         awarded_pkgs = {pkg for (_p, pkg) in latest}
@@ -274,9 +292,9 @@ def project_overview(db: Session, org_id: str, project_id: str) -> Tuple[List[di
     rfqs = db.scalars(
         select(Rfq).where(Rfq.organization_id == org_id, Rfq.project_id == project_id)
     ).all()
-    quotes = db.scalars(
+    quotes = _current(db.scalars(
         select(Quote).where(Quote.organization_id == org_id, Quote.project_id == project_id)
-    ).all()
+    ).all())
     found = db.scalar(
         select(func.count())
         .select_from(FoundSupplier)
@@ -287,9 +305,10 @@ def project_overview(db: Session, org_id: str, project_id: str) -> Tuple[List[di
 
     analyzed = sum(1 for d in docs if d.status in ("Analyzed", "Saved"))
     confirmed = sum(1 for d in docs if d.reviewed)
-    sent = [r for r in rfqs if r.status != "Draft"]
+    sent = [r for r in rfqs if _was_sent(r)]
     quoted_rfqs = sum(1 for r in rfqs if r.status == "Quoted")
-    drafts = len(rfqs) - len(sent)
+    failed = sum(1 for r in rfqs if r.status == "Send failed")
+    drafts = sum(1 for r in rfqs if r.status == "Draft")
     quoted_suppliers = len({(q.supplier_id or q.supplier_name) for q in quotes})
     quote_packages = len({q.package for q in quotes})
 
@@ -311,7 +330,11 @@ def project_overview(db: Session, org_id: str, project_id: str) -> Tuple[List[di
         {
             "label": "RFQs sent",
             "value": str(len(sent)),
-            "sub": (f"{quoted_rfqs} quoted" + (f" · {drafts} draft{'' if drafts == 1 else 's'}" if drafts else "")) if rfqs else "none sent yet",
+            "sub": (
+                f"{quoted_rfqs} quoted"
+                + (f" · {failed} failed to send" if failed else "")
+                + (f" · {drafts} draft{'' if drafts == 1 else 's'}" if drafts else "")
+            ) if rfqs else "none sent yet",
             "icon": "rfq",
             "tone": "blue",
         },
@@ -376,7 +399,7 @@ def _package_progress(db, org_id, project_id, docs, rfqs, quotes, latest) -> Lis
         _add(pkg, d.package_label or packages_svc.label_for(pkg))
 
     drafted = {r.package for r in rfqs}
-    sent = {r.package for r in rfqs if r.status != "Draft"}
+    sent = {r.package for r in rfqs if _was_sent(r)}
     quoted = {q.package for q in quotes}
     awarded = {pkg for (_pid, pkg) in latest}
 

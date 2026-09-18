@@ -1,0 +1,37 @@
+{
+  "why": "Unit prices with no quantities and a freight line (EBUG-13): freight must never become the total, and the RFQ's own quantities complete the arithmetic.",
+  "text": "12\" DI Pipe Class 350: $18.50/LF\n12\" Gate Valve: $316.67 each\nFreight $1,200 to Austin. Delivery in 21 business days.\n",
+  "expect_regex": {
+    "is_quote": true,
+    "total": null,
+    "material_cost": null,
+    "freight": 1200.0,
+    "lead_days": 21
+  },
+  "expect_regex_lines": [
+    {
+      "name": "12\" DI Pipe Class 350",
+      "quantity": null,
+      "unit_price": 18.5
+    },
+    {
+      "name": "12\" Gate Valve",
+      "quantity": null,
+      "unit_price": 316.67
+    }
+  ],
+  "rfq_lines": [
+    {
+      "n": "12\" DI pipe, Class 350",
+      "q": "2,400 LF"
+    },
+    {
+      "n": "12\" gate valve",
+      "q": "6 EA"
+    }
+  ],
+  "expect_regex_finalized": {
+    "material_cost": 46300.02,
+    "total": 47500.02
+  }
+}

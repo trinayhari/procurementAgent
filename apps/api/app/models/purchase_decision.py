@@ -38,6 +38,15 @@ class PurchaseDecision(Base):
     po_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     decided_by: Mapped[str] = mapped_column(String, nullable=False, default="")
     decided_by_email: Mapped[str] = mapped_column(String, nullable=False, default="")
+    # JSON record of the supplier notifications for this award:
+    # {"notified": [...], "declined": [...], "failed": [...], "mock": bool, "at": iso}
+    # — so a failed PO/decline email is visible afterwards and can be re-sent.
+    notifications: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    # "active" — the live award for the package; "superseded" — replaced by a
+    # later re-award (`superseded_by` points at it). Only one active decision
+    # per package at a time.
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    superseded_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
@@ -60,4 +69,7 @@ class PurchaseDecision(Base):
             "decidedBy": self.decided_by,
             "decidedByEmail": self.decided_by_email,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "notifications": json.loads(self.notifications or "{}") or None,
+            "status": self.status or "active",
+            "supersededBy": self.superseded_by,
         }

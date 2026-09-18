@@ -1435,6 +1435,73 @@
         }
       }
     },
+    "/api/projects/{project_id}/packages/{pkg}/award/notify": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Resend Award Notifications",
+        "description": "Re-send the PO / decline emails for the package's latest award.\n\nBy default only the suppliers whose notification failed last time are\nemailed again (the award itself is untouched); `all: true` re-notifies\nevery supplier. 409 when nothing failed and `all` isn't set, 404 when the\npackage has no award.",
+        "operationId": "resend_award_notifications_api_projects__project_id__packages__pkg__award_notify_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "pkg",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pkg"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwardNotifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwardNotifyResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/purchase-decisions": {
       "get": {
         "tags": [
@@ -3751,6 +3818,32 @@
         }
       }
     },
+    "/api/health/providers": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Providers Health",
+        "operationId": "providers_health_api_health_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvidersHealth"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
     "/bench/status": {
       "get": {
         "tags": [
@@ -4170,6 +4263,176 @@
         ],
         "title": "Activity"
       },
+      "AwardNotifications": {
+        "properties": {
+          "notified": {
+            "items": {
+              "$ref": "#/components/schemas/AwardNotifiedSupplier"
+            },
+            "type": "array",
+            "title": "Notified",
+            "default": []
+          },
+          "declined": {
+            "items": {
+              "$ref": "#/components/schemas/AwardNotifiedSupplier"
+            },
+            "type": "array",
+            "title": "Declined",
+            "default": []
+          },
+          "withdrawn": {
+            "items": {
+              "$ref": "#/components/schemas/AwardNotifiedSupplier"
+            },
+            "type": "array",
+            "title": "Withdrawn",
+            "default": []
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/AwardNotifyFailure"
+            },
+            "type": "array",
+            "title": "Failed",
+            "default": []
+          },
+          "mock": {
+            "type": "boolean",
+            "title": "Mock",
+            "default": false
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "title": "AwardNotifications",
+        "description": "Who was told what about an award, and who could not be reached."
+      },
+      "AwardNotifiedSupplier": {
+        "properties": {
+          "supplier": {
+            "type": "string",
+            "title": "Supplier"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "threaded": {
+            "type": "boolean",
+            "title": "Threaded",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "supplier"
+        ],
+        "title": "AwardNotifiedSupplier"
+      },
+      "AwardNotifyFailure": {
+        "properties": {
+          "supplier": {
+            "type": "string",
+            "title": "Supplier"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "default": "award"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "supplier",
+          "error"
+        ],
+        "title": "AwardNotifyFailure"
+      },
+      "AwardNotifyRequest": {
+        "properties": {
+          "all": {
+            "type": "boolean",
+            "title": "All",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "AwardNotifyRequest"
+      },
+      "AwardNotifyResult": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "notified": {
+            "type": "integer",
+            "title": "Notified",
+            "default": 0
+          },
+          "declined": {
+            "type": "integer",
+            "title": "Declined",
+            "default": 0
+          },
+          "withdrawn": {
+            "type": "integer",
+            "title": "Withdrawn",
+            "default": 0
+          },
+          "notifyFailed": {
+            "items": {
+              "$ref": "#/components/schemas/AwardNotifyFailure"
+            },
+            "type": "array",
+            "title": "Notifyfailed",
+            "default": []
+          },
+          "notifyMocked": {
+            "type": "boolean",
+            "title": "Notifymocked",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "AwardNotifyResult"
+      },
       "AwardOption": {
         "properties": {
           "key": {
@@ -4328,6 +4591,34 @@
           "poCount": {
             "type": "integer",
             "title": "Pocount"
+          },
+          "notified": {
+            "type": "integer",
+            "title": "Notified",
+            "default": 0
+          },
+          "declined": {
+            "type": "integer",
+            "title": "Declined",
+            "default": 0
+          },
+          "withdrawn": {
+            "type": "integer",
+            "title": "Withdrawn",
+            "default": 0
+          },
+          "notifyFailed": {
+            "items": {
+              "$ref": "#/components/schemas/AwardNotifyFailure"
+            },
+            "type": "array",
+            "title": "Notifyfailed",
+            "default": []
+          },
+          "notifyMocked": {
+            "type": "boolean",
+            "title": "Notifymocked",
+            "default": false
           }
         },
         "type": "object",
@@ -5049,6 +5340,17 @@
             "title": "Filemissing",
             "default": false
           },
+          "fileSize": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filesize"
+          },
           "planType": {
             "anyOf": [
               {
@@ -5206,6 +5508,24 @@
               }
             ],
             "title": "Ccemail"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing",
+            "default": []
+          },
+          "gmail": {
+            "type": "object",
+            "title": "Gmail",
+            "default": {}
+          },
+          "llm": {
+            "type": "object",
+            "title": "Llm",
+            "default": {}
           }
         },
         "type": "object",
@@ -5369,6 +5689,67 @@
         ],
         "title": "GanttBar"
       },
+      "GmailProbe": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "emailAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emailaddress"
+          },
+          "senderAddress": {
+            "type": "string",
+            "title": "Senderaddress"
+          },
+          "senderAddressMatches": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senderaddressmatches"
+          },
+          "sendScope": {
+            "type": "boolean",
+            "title": "Sendscope",
+            "default": false
+          },
+          "readScope": {
+            "type": "boolean",
+            "title": "Readscope",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "senderAddress"
+        ],
+        "title": "GmailProbe"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -5438,6 +5819,28 @@
             "type": "boolean",
             "title": "Emailed",
             "default": true
+          },
+          "emailedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emailedat"
+          },
+          "emailError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emailerror"
           },
           "acceptUrl": {
             "anyOf": [
@@ -5929,6 +6332,41 @@
         ],
         "title": "LineItemsUpdate",
         "description": "Body for saving a human-edited BOM (full replacement of the groups)."
+      },
+      "LlmProbe": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "LlmProbe"
       },
       "LoginRequest": {
         "properties": {
@@ -7111,6 +7549,27 @@
         "title": "ProjectDetail",
         "description": "Full project workspace payload."
       },
+      "ProvidersHealth": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "gmail": {
+            "$ref": "#/components/schemas/GmailProbe"
+          },
+          "llm": {
+            "$ref": "#/components/schemas/LlmProbe"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "gmail",
+          "llm"
+        ],
+        "title": "ProvidersHealth"
+      },
       "PurchaseDecision": {
         "properties": {
           "id": {
@@ -7226,6 +7685,38 @@
               }
             ],
             "title": "Createdat"
+          },
+          "notifications": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AwardNotifications"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "supersededBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersededby"
           }
         },
         "type": "object",
@@ -7290,6 +7781,11 @@
             "type": "boolean",
             "title": "Best",
             "default": false
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "received"
           }
         },
         "type": "object",
@@ -7326,6 +7822,16 @@
           "total": {
             "type": "integer",
             "title": "Total",
+            "default": 0
+          },
+          "needsReview": {
+            "type": "integer",
+            "title": "Needsreview",
+            "default": 0
+          },
+          "superseded": {
+            "type": "integer",
+            "title": "Superseded",
             "default": 0
           },
           "error": {
@@ -7473,6 +7979,22 @@
           "gmail": {
             "type": "boolean",
             "title": "Gmail"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured",
+            "default": false
+          },
+          "readError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readerror"
           },
           "thread": {
             "items": {
@@ -7690,6 +8212,31 @@
               }
             ],
             "title": "Senderror"
+          },
+          "outboundMessageIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outboundmessageids"
+          },
+          "mock": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mock"
           }
         },
         "type": "object",

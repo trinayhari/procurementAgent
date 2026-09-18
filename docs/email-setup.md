@@ -32,10 +32,27 @@ Cloud console steps, every `.env` variable, and how to verify it end to end.
   account unless the address is a verified alias, which used to make sends
   arrive from the "wrong" sender. Sending from the account itself removes that
   failure mode entirely.
-- **No Gmail configured → mock mode.** Sends are logged, not delivered, and
-  the UI says so explicitly (Settings → **Sent from** shows *Not configured*).
-  Nothing real can go out until you finish this guide, and the test suite
-  force-blanks these variables so tests can never send real email.
+- **Not fully configured → mock mode.** All four `PROCUREAI_GMAIL_*` variables
+  (client id, client secret, refresh token **and** sender address) must be set
+  for anything to be delivered. Missing any one of them, sends are logged, not
+  delivered, and the UI says so explicitly (Settings → **Sent from** shows
+  *Not configured* and names the missing variables). Nothing real can go out
+  until you finish this guide, and the test suite force-blanks these variables
+  so tests can never send real email.
+- **Configured ≠ working.** A revoked or expired refresh token looks
+  configured until the first real call fails. Settings → **Email delivery**
+  shows the last Gmail / AI-model failure, and **Check connections** (or
+  `GET /api/health/providers`) makes a real token refresh, reads the mailbox
+  profile and makes a one-token model call so you can verify a freshly minted
+  token without sending anything.
+- **How replies are found.** "Check for replies" reads every Gmail thread an
+  RFQ send created (so a supplier who answers from a different address than
+  the one you emailed is still attributed to that RFQ), then searches by the
+  recipient addresses for suppliers who composed a fresh email with the RFQ
+  subject. Mail whose thread is known and different is skipped rather than
+  guessed. A later reply from the same supplier supersedes their earlier
+  quote; a reply with no readable amount is stored as **Needs review** on the
+  Quotes tab instead of being ranked.
 
 ---
 
@@ -108,10 +125,14 @@ PROCUREAI_QUOTE_INGEST_LOOKBACK_DAYS=30
 Restart the backend. `.env` is git-ignored — **never commit it**, and rotate
 any credential that leaks.
 
-The three OAuth vars decide *whether* mail is delivered; the sender address
-decides *what it says*. Settings → **Sent from** reports both, and
-`GET /api/auth/email-config` returns them as
-`{configured, mocked, senderAddressSet, fromAddress, fromHeader, ccEmail}`.
+All four variables are required for delivery (`configured: true`); the sender
+address must be the account the token belongs to. Settings → **Sent from**
+reports the state, and `GET /api/auth/email-config` returns it as
+`{configured, mocked, senderAddressSet, fromAddress, fromHeader, ccEmail,
+missing, gmail: {lastError, …}, llm: {configured, model, lastError, …}}` —
+`missing` names any unset variable, `gmail.lastError` / `llm.lastError` are
+the last real failures observed (readable, e.g. "Gmail connection expired or
+was revoked (invalid_grant) — re-mint the refresh token…").
 
 ## Step 5 — Get yourself copied (per user, optional)
 
@@ -142,8 +163,11 @@ the From address and Cc it used.
 - Sent from `rfq@procureai.local` → that is the placeholder used when
   `PROCUREAI_GMAIL_SENDER_ADDRESS` is empty; it is not a real mailbox. Set the
   variable.
-- Error mentioning `invalid_grant` → the refresh token was revoked or
-  expired (Testing-status 7-day trap — see Step 2). Re-run Step 3.
+- "Gmail connection expired or was revoked (invalid_grant)" → the refresh
+  token was revoked or expired (Testing-status 7-day trap — see Step 2).
+  Re-run Step 3, then Settings → **Check connections** to confirm.
+- **Check connections** says the connected mailbox differs from
+  `PROCUREAI_GMAIL_SENDER_ADDRESS` → set the variable to the address it names.
 
 Or from a terminal:
 
@@ -155,9 +179,12 @@ curl -s -X GET  http://localhost:8000/api/auth/email-config -H "Authorization: B
 curl -s -X POST http://localhost:8000/api/auth/test-email  -H "Authorization: Bearer $TOKEN"
 ```
 
-`email-config` answers "is this wired up?" without sending anything; the test
-send goes out for real when Gmail is configured. Every test send is recorded in
-the audit log (`GET /api/audit?action=email.test_sent`).
+`email-config` answers "is this wired up?" without touching the network;
+`GET /api/auth/../health/providers` (`/api/health/providers`, 3 calls/min)
+actually refreshes the token, reads the mailbox profile and calls the model;
+the test send goes out for real when Gmail is configured. Every test send is
+recorded in the audit log (`GET /api/audit?action=email.test_sent`, failures
+under `email.test_failed`).
 
 ## Step 7 — Production (Railway / Render)
 
@@ -199,13 +226,17 @@ needs to re-enter anything.
 
 | Symptom | Cause / fix |
 | --- | --- |
-| Test email says **mock mode** | One of client id / secret / refresh token is empty in the environment the backend actually runs in. Env vars override `.env`. |
-| Mail arrives from `rfq@procureai.local` | `PROCUREAI_GMAIL_SENDER_ADDRESS` is empty — that string is the "unconfigured" placeholder, not a mailbox. Set it (Step 4/7) and restart. |
+| Test email says **mock mode** | One of the four `PROCUREAI_GMAIL_*` variables is empty in the environment the backend actually runs in (Settings names which). Env vars override `.env`. |
+| Settings shows "Gmail is configured but the last call failed" | The variables are set but Gmail refused the last call — the message says why (revoked token, rate limit, outage). Fix it, then **Check connections**. |
+| Settings shows "AI parsing unavailable" | The model call failed (bad key, wrong base URL for the key type, quota). Replies are still ingested by the basic parser; fix the key and **Check connections**. |
+| A reply shows as **Needs review** on Quotes | It arrived from a known supplier but no amount could be read (scan, "see attached" with no PDF text). Open the RFQ conversation and read it. |
+| Team invite "email failed" | Gmail refused the send; the reason is shown and the accept link can be copied and sent by hand, or **Resend** once fixed. |
+| Award message says "notifications could not be sent" | The award is recorded; the PO / decline emails that failed are listed on the purchase decision and can be re-sent with `POST /api/projects/{id}/packages/{pkg}/award/notify`. |
 | Suppliers see the connected account, not the user | Expected — that's the design. The user's name and company appear as the display name, and they're Cc'd (Step 5). |
 | Gmail rewrote my From address | Only happens if you point `PROCUREAI_GMAIL_SENDER_ADDRESS` at an address the token doesn't own. Use the account you authorized in Step 3. |
 | No Cc on outgoing mail | The user hasn't set **"Copy me on emails"**, or their Cc equals the recipient (a duplicate copy is dropped on purpose). |
 | Supplier replies never show up | Replies land in the connected mailbox by design (there is no `Reply-To`). If they're missing, check the token has `gmail.readonly` — see the row below. |
-| `invalid_grant` on send | Refresh token revoked, or consent screen still in **Testing** (7-day expiry) — publish the app and re-mint (Step 2/3). |
+| "connection expired or was revoked (invalid_grant)" on send | Refresh token revoked, or consent screen still in **Testing** (7-day expiry) — publish the app and re-mint (Step 2/3). |
 | Works for a week, then stops | Same 7-day Testing expiry. Publish the app. |
 | Quote ingest finds nothing | The token was minted send-only. Re-run Step 3 — the script requests `gmail.send` **and** `gmail.readonly`. Also check `PROCUREAI_QUOTE_INGEST_LOOKBACK_DAYS`. |
 | `429 Too many attempts` on the test button | Rate-limited to 3 test sends/minute. |

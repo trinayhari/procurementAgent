@@ -18,6 +18,7 @@ from app.schemas.auth import (
     UpdateMeRequest,
 )
 from app.schemas.auth import User as UserSchema
+from app.services import llm_health
 from app.services.rfq import sender as rfq_sender
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -100,6 +101,7 @@ def email_config(current_user: User = Depends(get_current_user)):
     cfg = rfq_sender.email_config()
     cfg["fromHeader"] = rfq_sender.from_display(current_user)
     cfg["ccEmail"] = current_user.cc_email
+    cfg["llm"] = llm_health.status()
     return cfg
 
 
@@ -137,7 +139,12 @@ def send_test_email(
             current_user.email, "Proq test email", body, from_addr=from_addr, cc=cc
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Test send failed: {exc}")
+        reason = str(exc) or exc.__class__.__name__
+        audit_repo.log(
+            db, current_user.organization_id, current_user, "email.test_failed", "user", current_user.id,
+            detail={"from": shown_from, "to": current_user.email, "cc": cc, "error": reason},
+        )
+        raise HTTPException(status_code=502, detail=f"Test send failed: {reason}")
     audit_repo.log(
         db, current_user.organization_id, current_user, "email.test_sent", "user", current_user.id,
         detail={"from": shown_from, "to": current_user.email, "cc": cc,

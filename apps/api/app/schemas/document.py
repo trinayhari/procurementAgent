@@ -20,6 +20,9 @@ class Document(BaseModel):
     # upload directory lived on an ephemeral disk that was wiped by a redeploy).
     # The UI shows a "re-upload" state instead of a preview or attachment.
     fileMissing: bool = False
+    # Size of the stored original in bytes when cheaply known (local storage);
+    # None for remote storage or when there is no file.
+    fileSize: Optional[int] = None
     # Extraction metadata (populated for uploaded docs).
     planType: Optional[str] = None
     summary: Optional[str] = None

@@ -39,6 +39,11 @@ class OrganizationInvite(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Delivery record of the invitation email: when a configured provider last
+    # accepted it, and why the last attempt failed (None when it succeeded or
+    # nothing was attempted — mock mode).
+    emailed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    email_error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     def is_live(self, now: Optional[datetime] = None) -> bool:
         """Still acceptable: pending and not past expiry."""
@@ -59,4 +64,7 @@ class OrganizationInvite(Base):
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "expiresAt": self.expires_at.isoformat() if self.expires_at else None,
             "acceptedAt": self.accepted_at.isoformat() if self.accepted_at else None,
+            "emailed": self.emailed_at is not None,
+            "emailedAt": self.emailed_at.isoformat() if self.emailed_at else None,
+            "emailError": self.email_error,
         }
