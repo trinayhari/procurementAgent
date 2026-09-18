@@ -1342,7 +1342,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PurchaseDecision"
+                  },
+                  "title": "Response List Purchase Decisions Api Projects  Project Id  Purchase Decisions Get"
+                }
               }
             }
           },
@@ -5582,6 +5588,134 @@
         ],
         "title": "ProjectDetail",
         "description": "Full project workspace payload."
+      },
+      "PurchaseDecision": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "package": {
+            "type": "string",
+            "title": "Package"
+          },
+          "packageLabel": {
+            "type": "string",
+            "title": "Packagelabel"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          },
+          "selections": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Selections",
+            "default": {}
+          },
+          "supplierIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supplierids",
+            "default": []
+          },
+          "suppliers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suppliers",
+            "default": []
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "material": {
+            "type": "number",
+            "title": "Material",
+            "default": 0.0
+          },
+          "freight": {
+            "type": "number",
+            "title": "Freight",
+            "default": 0.0
+          },
+          "leadDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaddays"
+          },
+          "poCount": {
+            "type": "integer",
+            "title": "Pocount",
+            "default": 0
+          },
+          "decidedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedby"
+          },
+          "decidedByEmail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedbyemail"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "package",
+          "packageLabel",
+          "total"
+        ],
+        "title": "PurchaseDecision",
+        "description": "A recorded award for a package \u2014 who bought what, from whom, decided by\nwhom. Surfaced on the comparison screen so a package that was already\nawarded is never re-awarded (and suppliers re-notified) by accident."
       },
       "Quote": {
         "properties": {

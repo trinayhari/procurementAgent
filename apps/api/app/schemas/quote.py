@@ -118,6 +118,29 @@ class SelectResult(BaseModel):
     message: str
 
 
+class PurchaseDecision(BaseModel):
+    """A recorded award for a package — who bought what, from whom, decided by
+    whom. Surfaced on the comparison screen so a package that was already
+    awarded is never re-awarded (and suppliers re-notified) by accident."""
+
+    id: str
+    projectId: str
+    package: str
+    packageLabel: str
+    strategy: Optional[str] = None
+    selections: Dict[str, str] = {}
+    supplierIds: List[str] = []
+    suppliers: List[str] = []
+    total: float
+    material: float = 0.0
+    freight: float = 0.0
+    leadDays: Optional[int] = None
+    poCount: int = 0
+    decidedBy: Optional[str] = None
+    decidedByEmail: Optional[str] = None
+    createdAt: Optional[str] = None
+
+
 class QuoteIngestResult(BaseModel):
     """Status payload for the quote-ingest poller (mirrors the search poller)."""
 

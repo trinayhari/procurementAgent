@@ -14,7 +14,7 @@ import {
   listTradeScopes, createTradeScope, updateTradeScope,
   listLenders, createLender, deleteLender,
   getRfqConversation, ingestQuotes, getIngestStatus,
-  getLineComparison, awardPackage,
+  getLineComparison, awardPackage, listPurchaseDecisions, analyzeDocument,
   getToken, getMe, logout as apiLogout, onAuthChange, updateMe,
   getTeam, createInvite, revokeInvite,
   TOKEN_KEY, emptyProjectSlices,
@@ -22,6 +22,7 @@ import {
 import type {
   SupplierSearchResult, FoundSupplier, PackageBom, PersistedRfq, RfqRecipient, RfqConversation,
   CustomBomSummary, TradeScopeSummary, LineComparison, AwardOption, AuthUser, Lender, TeamMembers, EmailConfig,
+  PurchaseDecision,
 } from './api'
 
 // Every screen component receives the computed model `m` from buildModel().
@@ -90,7 +91,9 @@ const PIN = 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" c
 function hashFor(s: Pick<State, 'nav' | 'projectId' | 'tab' | 'compare' | 'comparePkg'>): string {
   if (s.nav === 'project' && s.projectId) {
     if (s.tab === 'quotes' && s.compare) {
-      return `#/project/${s.projectId}/quotes/compare${s.comparePkg ? `/${s.comparePkg}` : ''}`
+      // Package labels carry spaces ("Water Utilities"); encode so the hash
+      // round-trips through reload/back without a second encoding downstream.
+      return `#/project/${s.projectId}/quotes/compare${s.comparePkg ? `/${encodeURIComponent(s.comparePkg)}` : ''}`
     }
     return `#/project/${s.projectId}/${s.tab || 'overview'}`
   }
@@ -112,7 +115,9 @@ function parseHash(): Partial<State> {
   const seg = raw.split('/').filter(Boolean)
   if (seg[0] === 'project' && seg[1]) {
     if (seg[2] === 'quotes' && seg[3] === 'compare') {
-      return { nav: 'project', projectId: seg[1], tab: 'quotes', compare: true, comparePkg: seg[4] || undefined }
+      let pkg: string | undefined
+      try { pkg = seg[4] ? decodeURIComponent(seg[4]) : undefined } catch { pkg = seg[4] || undefined }
+      return { nav: 'project', projectId: seg[1], tab: 'quotes', compare: true, comparePkg: pkg }
     }
     // Reset compare/comparePkg explicitly: each branch must return the full
     // nav slice, or going Back from the compare view would leave `compare`
@@ -383,6 +388,19 @@ export default function App() {
     }
   }
 
+  // Re-run extraction on a document whose analysis failed (or looked wrong).
+  // The backend flips it back to Processing; the poll below picks up the result.
+  const reanalyzeDoc = async (id: string) => {
+    set({ uploadError: null })
+    try {
+      await analyzeDocument(id)
+      await reload()
+    } catch (e) {
+      const msg = e instanceof Error && e.message && !e.message.includes('->') ? e.message : null
+      set({ uploadError: msg || 'Could not restart the analysis. Is the backend running?' })
+    }
+  }
+
   // Create a hand-built custom BOM (no file). We name it, create the document,
   // then select it and drop straight into the BOM editor so the user can start
   // adding line items. It sorts newest-first, so it lands at docIdx 0.
@@ -457,9 +475,9 @@ export default function App() {
   }
   const startBomEdit = () => {
     const groups = (s.docLineItems && s.docLineItems.groups) || []
-    set({ editBom: true, bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })) })
+    set({ editBom: true, bomEditNotice: null, bomDraft: groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) })) })
   }
-  const cancelBomEdit = () => set({ editBom: false, bomDraft: null })
+  const cancelBomEdit = () => set({ editBom: false, bomDraft: null, bomEditNotice: null })
   const editBomItem = (gi: number, ii: number, field: string, value: string) =>
     set({ bomDraft: (s.bomDraft ?? []).map((g, i) => (i !== gi ? g : { ...g, items: g.items.map((it, j) => (j !== ii ? it : { ...it, [field]: value })) })) })
   const addBomItem = (gi: number) =>
@@ -477,7 +495,7 @@ export default function App() {
       // Same guard as reload: never write a previous session's data back into
       // state after the account changed mid-flight.
       if (!userRef.current || userRef.current.id !== uid) return
-      set({ editBom: false, bomDraft: null, docLineItems: { id: doc.id, groups } })
+      set({ editBom: false, bomDraft: null, bomEditNotice: null, docLineItems: { id: doc.id, groups } })
       await reload()
     } catch (e) {
       set({ uploadError: 'Could not save BOM edits.' })
@@ -528,7 +546,7 @@ export default function App() {
     user, onLogout: handleLogout, onUserUpdated: setUser,
     planTypes: s.planTypes, planType: s.planType,
     uploading: s.uploading, uploadError: s.uploadError,
-    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onCreateBom: createBom,
+    docLineItems: s.docLineItems, onUpload: uploadDoc, onDeleteDoc: deleteDoc, onReanalyzeDoc: reanalyzeDoc, onCreateBom: createBom,
     onCreateTradeScope: createTrade,
     editBom: s.editBom, bomDraft: s.bomDraft, bomBusy: s.bomBusy,
     startBomEdit, cancelBomEdit, editBomItem, addBomItem, deleteBomItem, saveBom, confirmBom,
@@ -555,6 +573,43 @@ export default function App() {
       {m.supplierOpen && m.activeSupplier && <SupplierDrawer m={m} />}
       {m.mnavOpen && <MobileNav m={m} />}
       {m.newProjOpen && <NewProjectModal m={m} />}
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------- Confirm */
+// Inline confirmation for destructive or irreversible actions. Replaces
+// window.confirm, which embedded/webview hosts auto-dismiss (the action then
+// silently never happens — or, in some hosts, always happens). Renders in
+// place so the user sees exactly what they are about to do, with the
+// consequence spelled out, and can back out.
+function ConfirmBar({
+  message, confirmLabel = 'Delete', onConfirm, onCancel, busy, tone = 'danger', compact,
+}: {
+  message: ReactNode
+  confirmLabel?: string
+  onConfirm: () => void
+  onCancel: () => void
+  busy?: boolean
+  tone?: 'danger' | 'primary'
+  compact?: boolean
+}) {
+  const color = tone === 'danger' ? 'var(--danger,#dc2626)' : 'var(--primary)'
+  return (
+    <div
+      role="alertdialog"
+      onClick={(e) => e.stopPropagation()}
+      style={css(`display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:${compact ? '8px 10px' : '11px 13px'};border-radius:10px;border:1px solid ${color};background:${tone === 'danger' ? 'var(--danger-soft,rgba(220,38,38,.08))' : 'var(--primary-softer)'}`)}
+    >
+      <span style={css(`flex:1;min-width:160px;font-size:${compact ? '12px' : '12.5px'};color:var(--text);line-height:1.4`)}>{message}</span>
+      <div style={css('display:flex;gap:7px;flex:none')}>
+        <Box as="button" type="button" onClick={onCancel} disabled={busy}
+          style={css(`height:${compact ? '28px' : '32px'};padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;font-weight:600`)}
+          hover="background:var(--panel-2)">Cancel</Box>
+        <Box as="button" type="button" onClick={onConfirm} disabled={busy}
+          style={css(`height:${compact ? '28px' : '32px'};padding:0 12px;border-radius:8px;border:1px solid ${color};background:${color};color:#fff;font-size:12px;font-weight:600;opacity:${busy ? '.6' : '1'}`)}
+          hover="opacity:.9">{busy ? 'Working…' : confirmLabel}</Box>
+      </div>
     </div>
   )
 }
@@ -720,6 +775,8 @@ function Dashboard({ m }: MProps) {
 
 /* ----------------------------------------------------------------- Projects */
 function Projects({ m }: MProps) {
+  // Which project card is showing its inline delete confirmation (by id).
+  const [confirming, setConfirming] = useState<string | null>(null)
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px')}>
@@ -748,17 +805,14 @@ function Projects({ m }: MProps) {
       ) : (
       <div style={css('display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px')}>
         {m.projects.map((p, i) => (
-          <Box as="button" key={i} onClick={() => m.openProject(p)} style={css('text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:14px;transition:box-shadow .15s,transform .15s,border-color .15s')} hover="box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:var(--border-strong)">
+          <Box as="button" key={i} onClick={() => { if (confirming !== p.id) m.openProject(p) }} style={css('text-align:left;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:14px;transition:box-shadow .15s,transform .15s,border-color .15s')} hover="box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:var(--border-strong)">
             <div style={css('display:flex;align-items:flex-start;justify-content:space-between;gap:10px')}>
               <div style={css('min-width:0')}>
                 <div style={css('font-size:15.5px;font-weight:600;letter-spacing:-.01em;line-height:1.25')}>{p.name}</div>
                 <div style={css('display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-3);margin-top:3px')}><Svg size={13} d={PIN} />{p.loc}</div>
               </div>
               <Box
-                onClick={(e: MouseEvent) => {
-                  e.stopPropagation()
-                  if (window.confirm(`Delete “${p.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(p.id)
-                }}
+                onClick={(e: MouseEvent) => { e.stopPropagation(); setConfirming(p.id) }}
                 title="Delete project"
                 style={css('width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none')}
                 hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger)"
@@ -766,6 +820,13 @@ function Projects({ m }: MProps) {
                 <Svg size={15} sw={1.9} d={TRASH} />
               </Box>
             </div>
+            {confirming === p.id && (
+              <ConfirmBar compact
+                message={<>Delete <b>{p.name}</b>? This permanently removes its documents, quotes and RFQs.</>}
+                confirmLabel="Delete project"
+                onConfirm={() => { setConfirming(null); m.deleteProject(p.id) }}
+                onCancel={() => setConfirming(null)} />
+            )}
             <div>
               <div style={css('display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-bottom:6px')}><span style={css('color:var(--text-2);font-weight:500')}>Procurement progress</span><span style={css("font-weight:600;font-family:'JetBrains Mono',monospace")}>{p.progress}%</span></div>
               <div style={css('height:7px;border-radius:999px;background:var(--panel-3);overflow:hidden')}><div style={p.barStyle}></div></div>
@@ -1164,6 +1225,8 @@ function TeamPanel({ currentEmail }: { currentEmail: string }) {
 
 /* -------------------------------------------------- Project workspace shell */
 function ProjectWorkspace({ m }: MProps) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  useEffect(() => { setConfirmDelete(false) }, [m.projectId])
   return (
     <div style={css('animation:pcUp .25s ease both')}>
       <div style={css('display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px')}>
@@ -1178,10 +1241,22 @@ function ProjectWorkspace({ m }: MProps) {
         </div>
         <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
           <Box as="button" onClick={m.setDocuments} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:13px;font-weight:600')} hover="background:var(--panel-2)"><Svg size={15} d='M12 16V4M7 9l5-5 5 5" /><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2' />Upload</Box>
-          <Box as="button" onClick={m.setRfqs} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />Generate RFQs</Box>
-          <Box as="button" onClick={() => { if (window.confirm(`Delete “${m.activeProject.name}”? This permanently removes its documents, quotes and RFQs.`)) m.deleteProject(m.projectId) }} title="Delete project" style={css('display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3)')} hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)"><Svg size={15} sw={1.9} d={TRASH} /></Box>
+          {/* RFQs are generated from Supplier Search (pick a package, pick
+              suppliers, generate) — send the primary CTA there, not to the
+              RFQ list, which only shows what already exists. */}
+          <Box as="button" onClick={m.setSuppliers} style={css('display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)')} hover="background:var(--primary-2)"><Svg size={15} fill d={SPARKLE_SM} />Find suppliers & RFQ</Box>
+          <Box as="button" onClick={() => setConfirmDelete(true)} title="Delete project" style={css('display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:var(--panel);border:1px solid var(--border);color:var(--text-3)')} hover="background:var(--danger-soft,rgba(220,38,38,.12));color:var(--danger);border-color:var(--danger)"><Svg size={15} sw={1.9} d={TRASH} /></Box>
         </div>
       </div>
+      {confirmDelete && (
+        <div style={css('margin-bottom:16px')}>
+          <ConfirmBar
+            message={<>Delete <b>{m.activeProject.name}</b>? This permanently removes its documents, quotes and RFQs. Sent RFQs cannot be recalled.</>}
+            confirmLabel="Delete project"
+            onConfirm={() => { setConfirmDelete(false); m.deleteProject(m.projectId) }}
+            onCancel={() => setConfirmDelete(false)} />
+        </div>
+      )}
 
       <div style={css('display:flex;border-bottom:1px solid var(--border);margin-bottom:22px;overflow-x:auto')}>
         <button onClick={m.setOverview} style={m.tabStyle.overview}><Svg size={15} sw={1.9} d='<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' />Overview</button>
@@ -1288,6 +1363,8 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
   }
   const d = slot.doc
   const active = !!(d && d.active)
+  const [confirming, setConfirming] = useState(false)
+  useEffect(() => { setConfirming(false) }, [d && d.id])
   const btn = css('flex:1;height:30px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--text);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center')
   return (
     <div style={css(`background:var(--panel);border:1px solid ${active ? 'var(--primary)' : 'var(--border)'};border-radius:14px;box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:10px;min-height:140px`)}>
@@ -1304,11 +1381,19 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
             <span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span>
             <span style={css('font-size:11.5px;color:var(--text-3)')}>{d.date}{slot.categories.length ? ` · ${d.items} line items` : ''}</span>
           </Box>
+          {confirming ? (
+            <ConfirmBar compact
+              message={<>Remove <b>{d.name}</b>{d.reviewed ? ' and its confirmed BOM' : d.items && d.items !== '—' ? ' and its extracted BOM' : ''}?</>}
+              confirmLabel="Remove"
+              onConfirm={() => { setConfirming(false); d.id && m.onDeleteDoc(d.id) }}
+              onCancel={() => setConfirming(false)} />
+          ) : (
           <div style={css('display:flex;gap:6px')}>
             <Box as="button" onClick={d.onOpen} style={btn} hover="background:var(--panel-2)">View</Box>
             <Box as="button" onClick={pick} disabled={m.uploading} style={btn} hover="background:var(--panel-2)">Replace</Box>
-            <Box as="button" onClick={() => d.id && m.onDeleteDoc(d.id)} title="Remove" style={css('width:30px;height:30px;flex:none;border-radius:7px;border:1px solid var(--border);color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={() => setConfirming(true)} title="Remove" style={css('width:30px;height:30px;flex:none;border-radius:7px;border:1px solid var(--border);color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
           </div>
+          )}
         </>
       ) : (
         <Box as="button" onClick={pick} disabled={m.uploading}
@@ -1324,7 +1409,18 @@ function PlanSlotCard({ m, slot }: { m: Model; slot: Slot }) {
 
 // The non-slot bucket: any number of supporting reference documents. No BOM is
 // extracted for these — they're stored as attachments.
+// A list row's inline "remove?" confirmation, shared by the three document
+// list cards below. Rendered under the row it belongs to.
+function DocRemoveConfirm({ name, what, onConfirm, onCancel }: { name: string; what: string; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div style={css('padding:0 16px 10px;border-bottom:1px solid var(--border)')}>
+      <ConfirmBar compact message={<>Remove {what} <b>{name}</b>? This can’t be undone.</>} confirmLabel="Remove" onConfirm={onConfirm} onCancel={onCancel} />
+    </div>
+  )
+}
+
 function AdditionalDocsCard({ m }: MProps) {
+  const [confirmId, setConfirmId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const pick = () => inputRef.current && inputRef.current.click()
   const onFiles = (fl: FileList | null) => {
@@ -1348,11 +1444,14 @@ function AdditionalDocsCard({ m }: MProps) {
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No additional documents — add specs, geotech reports, or addenda for reference.</div>
       ) : (
         m.additionalDocs.map((d, i) => (
-          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+          <div key={d.id || i}>
+          <div onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--panel-3);color:var(--text-2);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={FILE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{d.date}</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); setConfirmId(d.id || null) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+          {d.id && confirmId === d.id && <DocRemoveConfirm name={d.name} what="document" onConfirm={() => { setConfirmId(null); m.onDeleteDoc(d.id!) }} onCancel={() => setConfirmId(null)} />}
           </div>
         ))
       )}
@@ -1364,6 +1463,7 @@ function AdditionalDocsCard({ m }: MProps) {
 // editor the extracted BOMs use, then quote it from the Suppliers tab. Replaces
 // the old throwaway free-text ad-hoc RFQ with a saved, viewable BOM.
 function CustomBomsCard({ m }: MProps) {
+  const [confirmId, setConfirmId] = useState<string | null>(null)
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
       <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
@@ -1379,11 +1479,14 @@ function CustomBomsCard({ m }: MProps) {
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No custom BOMs yet — build one by hand for items not on a plan, then quote it from the Suppliers tab.</div>
       ) : (
         m.customBoms.map((d, i) => (
-          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+          <div key={d.id || i}>
+          <div onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d='M9 3H5a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 5 21h14a1.5 1.5 0 0 0 1.5-1.5V4.5A1.5 1.5 0 0 0 19 3h-4" /><path d="M8 8h8M8 12h8M8 16h5' /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{d.items === '—' ? '0' : d.items} items</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); setConfirmId(d.id || null) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+          {d.id && confirmId === d.id && <DocRemoveConfirm name={d.name} what="BOM" onConfirm={() => { setConfirmId(null); m.onDeleteDoc(d.id!) }} onCancel={() => setConfirmId(null)} />}
           </div>
         ))
       )}
@@ -1399,6 +1502,7 @@ const TRADE_ICON = 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a
 const PAPERCLIP = 'M21 8l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8'
 
 function TradeScopesCard({ m }: MProps) {
+  const [confirmId, setConfirmId] = useState<string | null>(null)
   return (
     <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:18px')}>
       <div style={css('display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)')}>
@@ -1414,11 +1518,14 @@ function TradeScopesCard({ m }: MProps) {
         <div style={css('padding:20px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No trades yet — name a trade you need bids for (e.g. concrete flatwork), write its scope of work, then find subcontractors from the Suppliers tab.</div>
       ) : (
         m.tradeScopes.map((d, i) => (
-          <div key={d.id || i} onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
+          <div key={d.id || i}>
+          <div onClick={d.onOpen} style={css(`display:grid;grid-template-columns:minmax(120px,2fr) 116px 104px 34px;gap:10px;align-items:center;padding:11px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:${d.active ? 'var(--primary-softer)' : 'transparent'}`)}>
             <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('width:28px;height:28px;border-radius:7px;background:var(--violet-soft);color:var(--violet);display:flex;align-items:center;justify-content:center;flex:none')}><Svg size={14} sw={1.8} d={TRADE_ICON} /></span><span style={css('font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{d.name}</span></div>
             <span style={css('font-size:12px;color:var(--text-2)')}>{(d.summary || '').trim() ? 'Scope written' : 'No scope yet'}</span>
             <span><span style={d.statusBadge}>{d.status}</span></span>
-            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); d.id && m.onDeleteDoc(d.id) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+            <Box as="button" onClick={(e: MouseEvent) => { e.stopPropagation(); setConfirmId(d.id || null) }} title="Remove" style={css('width:28px;height:28px;flex:none;border-radius:7px;color:var(--text-3);display:flex;align-items:center;justify-content:center')} hover="background:var(--danger-soft);color:var(--danger)"><Svg size={14} sw={2.2} d="M18 6 6 18M6 6l12 12" /></Box>
+          </div>
+          {d.id && confirmId === d.id && <DocRemoveConfirm name={d.name} what="trade scope" onConfirm={() => { setConfirmId(null); m.onDeleteDoc(d.id!) }} onCancel={() => setConfirmId(null)} />}
           </div>
         ))
       )}
@@ -1555,7 +1662,13 @@ function TabDocuments({ m }: MProps) {
           <div style={css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden')}>
             <div style={css('display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)')}>
               <div style={css('display:flex;align-items:center;gap:9px;min-width:0')}><span style={css('font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{m.doc.name}</span><span style={css('font-size:12px;color:var(--text-3);white-space:nowrap')}>{m.doc.pages} pages</span></div>
-              <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><Svg size={12} fill d={SPARKLE_SM} />AI Analysis</span>
+              {m.doc.status === 'Failed'
+                ? <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--danger);background:var(--danger-soft,rgba(220,38,38,.1));padding:3px 9px;border-radius:999px')}>Analysis failed</span>
+                : m.doc.processing
+                  ? <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><span style={css('width:9px;height:9px;border:1.5px solid var(--primary);border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>Analyzing…</span>
+                  : m.doc.mocked
+                    ? <span title="No AI key is configured — these are example items, not read from this document" style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warn-soft);padding:3px 9px;border-radius:999px')}>Sample extraction</span>
+                    : <span style={css('display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--primary);background:var(--primary-soft);padding:3px 9px;border-radius:999px')}><Svg size={12} fill d={SPARKLE_SM} />AI Analysis</span>}
             </div>
             <div style={css('position:relative;height:560px;background:repeating-linear-gradient(45deg,var(--panel-2),var(--panel-2) 12px,var(--panel-3) 12px,var(--panel-3) 24px);display:flex;align-items:center;justify-content:center')}>
               {m.doc.hasFile && m.doc.id ? (
@@ -1563,8 +1676,8 @@ function TabDocuments({ m }: MProps) {
               ) : (
                 <span style={css("font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-3);background:var(--panel);padding:6px 12px;border-radius:8px;border:1px solid var(--border)")}>{previewFileName(m.doc.name)}</span>
               )}
-              {m.doc.items && m.doc.items !== '—' && (
-              <div style={css('position:absolute;left:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:8px 12px;border-radius:10px;pointer-events:none')}><span style={css('width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={13} fill d={SPARKLE_SM} /></span><span style={css('font-size:12.5px;font-weight:600')}>AI detected <span style={css('color:var(--primary)')}>{m.doc.items}</span> line items</span></div>
+              {m.doc.items && m.doc.items !== '—' && m.doc.status !== 'Failed' && (
+              <div style={css('position:absolute;left:18px;bottom:18px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow-md);padding:8px 12px;border-radius:10px;pointer-events:none')}><span style={css('width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center')}><Svg size={13} fill d={SPARKLE_SM} /></span><span style={css('font-size:12.5px;font-weight:600')}>{m.doc.mocked ? <>Sample: <span style={css('color:var(--primary)')}>{m.doc.items}</span> example items</> : <>AI detected <span style={css('color:var(--primary)')}>{m.doc.items}</span> line items{m.doc.edited ? ' · edited by you' : ''}</>}</span></div>
               )}
             </div>
           </div>
@@ -1666,9 +1779,21 @@ function ExtractedPanel({ m }: MProps) {
   const editing = m.bomEditing
   // In edit mode we render the draft (plain BOM groups); otherwise the extracted
   // groups, which carry presentational extras (dotStyle/countBadge).
-  const groups = (editing ? m.bomDraft : m.extracted) as BomGroup[]
-  const reviewed = m.doc && m.doc.reviewed
-  const isCustom = !!(m.doc && m.doc.planType === m.customBomType)
+  const doc = m.doc
+  const reviewed = doc && doc.reviewed
+  const isCustom = !!(doc && doc.planType === m.customBomType)
+  // Honest document states, so the panel never implies the AI read something
+  // it didn't: no document, still analyzing, analysis failed (with the stored
+  // reason and a retry), or a mocked "sample" extraction (no AI key).
+  const noDoc = !doc || !doc.id
+  const failed = !!(doc && doc.status === 'Failed')
+  const processing = !!(doc && doc.processing)
+  const mocked = !!(doc && doc.mocked && !isCustom)
+  const loading = !noDoc && !failed && !processing && m.extractedLoading && !editing
+  const canEdit = !noDoc && !failed && !processing
+  // A failed document has nothing trustworthy to show — whatever the backend
+  // still holds for it (a partial run, demo groups) must not read as its BOM.
+  const groups = (editing ? m.bomDraft : failed ? [] : m.extracted) as BomGroup[]
   const inputCss = css('flex:1;min-width:0;font-size:12px;padding:5px 7px;border-radius:6px;border:1px solid var(--border);background:var(--panel-2);color:var(--text)')
 
   return (
@@ -1679,7 +1804,7 @@ function ExtractedPanel({ m }: MProps) {
         {!editing && reviewed && (
           <span style={css('display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--success);background:var(--success-soft);padding:3px 8px;border-radius:999px')}><Svg size={12} sw={2.4} d="M20 6 9 17l-5-5" />{isCustom ? 'Saved' : 'Confirmed'}</span>
         )}
-        {!editing && (
+        {!editing && canEdit && (
           <Box as="button" onClick={m.startBomEdit} style={css('font-size:12px;font-weight:600;color:var(--text-2);padding:4px 9px;border-radius:7px;border:1px solid var(--border)')} hover="background:var(--panel-2)">Edit</Box>
         )}
         {editing && (
@@ -1690,9 +1815,46 @@ function ExtractedPanel({ m }: MProps) {
         )}
       </div>
 
+      {m.bomEditNotice && (
+        <div style={css('display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--warn-soft);font-size:12px;color:var(--warn);font-weight:600')}>
+          <span style={css('flex:1')}>{m.bomEditNotice}</span>
+          <Box as="button" onClick={m.dismissBomEditNotice} title="Dismiss" style={css('width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--warn)')} hover="background:rgba(0,0,0,.06)"><Svg size={13} d='M6 6l12 12M18 6 6 18' /></Box>
+        </div>
+      )}
+      {failed && !editing && (
+        <div style={css('padding:13px 16px;border-bottom:1px solid var(--border);background:var(--danger-soft,rgba(220,38,38,.08))')}>
+          <div style={css('font-size:12.5px;font-weight:600;color:var(--danger);margin-bottom:3px')}>Extraction failed — no materials were read from this document.</div>
+          {doc && doc.error && <div style={css('font-size:12px;color:var(--text-2);line-height:1.45;word-break:break-word')}>{doc.error}</div>}
+          <div style={css('display:flex;gap:8px;margin-top:9px')}>
+            {doc && doc.hasFile && doc.id && (
+              <Box as="button" onClick={() => m.onReanalyzeDoc(doc.id!)} style={css('display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;background:var(--primary);color:var(--on-primary);font-size:12px;font-weight:600')} hover="background:var(--primary-2)"><IconHtml html={ic('refresh')} size={13} />Retry analysis</Box>
+            )}
+            {doc && !doc.hasFile && <span style={css('font-size:12px;color:var(--text-3)')}>The original file is no longer stored — upload it again to retry.</span>}
+          </div>
+        </div>
+      )}
+      {mocked && !editing && !failed && (
+        <div style={css('padding:11px 16px;border-bottom:1px solid var(--border);background:var(--warn-soft);font-size:12px;color:var(--text-2);line-height:1.45')}>
+          <b style={css('color:var(--warn)')}>Sample extraction.</b> No AI key is configured, so these are example items — <b>not</b> read from your document. Edit them before confirming, or configure extraction and retry.
+        </div>
+      )}
+      {!mocked && !failed && !editing && doc && doc.summary && !isCustom && (
+        <div title="What the extractor read on this document" style={css('padding:10px 16px;border-bottom:1px solid var(--border);font-size:11.5px;color:var(--text-3);line-height:1.45;max-height:72px;overflow:hidden')}>
+          <span style={css('font-weight:700;color:var(--text-2)')}>Read from the plan: </span>{doc.summary}
+        </div>
+      )}
       <div style={css('max-height:520px;overflow-y:auto')}>
-        {groups.length === 0 && (
-          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>No materials yet — still processing, or none were found on this document.</div>
+        {noDoc && (
+          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>Select a document to review its bill of materials.</div>
+        )}
+        {!noDoc && processing && (
+          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>Analyzing this document — line items appear here when extraction finishes.</div>
+        )}
+        {!noDoc && loading && groups.length === 0 && (
+          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>Loading materials…</div>
+        )}
+        {!noDoc && !processing && !loading && !failed && groups.length === 0 && (
+          <div style={css('padding:22px 16px;font-size:12.5px;color:var(--text-3);text-align:center')}>{isCustom ? 'No line items yet — click Edit to add the materials you want quoted.' : 'No materials were found on this document.'}</div>
         )}
         {groups.map((g, i) => (
           <div key={i} style={css('padding:13px 16px;border-bottom:1px solid var(--border)')}>
@@ -1719,10 +1881,10 @@ function ExtractedPanel({ m }: MProps) {
         ))}
       </div>
 
-      {!editing && groups.length > 0 && (
+      {!editing && canEdit && groups.length > 0 && (
         <div style={css('padding:12px 16px;border-top:1px solid var(--border)')}>
           {reviewed ? (
-            <div style={css('font-size:11.5px;color:var(--text-3)')}>Reviewed by you{m.doc.reviewedAt ? ` · ${m.doc.reviewedAt}` : ''}. Edit to revise.</div>
+            <div style={css('font-size:11.5px;color:var(--text-3)')}>Reviewed by you{m.doc.reviewedAt ? ` · ${m.doc.reviewedAt}` : ''}{m.doc.edited ? ' · edited' : ''}. Edit to revise.</div>
           ) : (
             <Box as="button" onClick={m.confirmBom} disabled={m.bomBusy} style={css(`width:100%;height:34px;border-radius:8px;background:var(--success);color:#fff;font-size:12.5px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;opacity:${m.bomBusy ? '.6' : '1'}`)} hover="filter:brightness(1.05)"><Svg size={14} sw={2.4} d="M20 6 9 17l-5-5" />{m.bomBusy ? 'Working…' : 'Confirm BOM'}</Box>
           )}
@@ -2137,6 +2299,7 @@ function DcBadge(t: string): CSSProperties {
     blue: ['var(--primary-soft)', 'var(--primary)'],
     violet: ['var(--violet-soft,#ede9fe)', 'var(--violet)'],
     warn: ['var(--warn-soft)', 'var(--warn)'],
+    danger: ['var(--danger-soft,rgba(220,38,38,.1))', 'var(--danger)'],
     gray: ['var(--panel-3)', 'var(--text-2)'],
   }
   const [bg, fg] = map[t] || map.gray
@@ -2182,7 +2345,7 @@ function FoundSupplierCard({ sup, checked, onToggle, inNetwork, saving, onAdd }:
   )
 }
 
-const STATUS_TONE: Record<string, string> = { Draft: 'gray', Sent: 'blue', Awaiting: 'warn', Quoted: 'success' }
+const STATUS_TONE: Record<string, string> = { Draft: 'gray', Sent: 'blue', Awaiting: 'warn', Quoted: 'success', 'Send failed': 'danger' }
 
 // One message bubble in an RFQ email thread (outbound = us, inbound = supplier).
 function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
@@ -2395,6 +2558,7 @@ const RFQ_FOLDERS: { key: string; name: string }[] = [
   { key: 'All', name: 'All RFQs' },
   { key: 'Draft', name: 'Drafts' },
   { key: 'Awaiting', name: 'Awaiting Response' },
+  { key: 'Send failed', name: 'Send failed' },
   { key: 'Sent', name: 'Sent' },
   { key: 'Quoted', name: 'Quoted' },
 ]
@@ -2405,6 +2569,9 @@ function TabRfqs({ m }: MProps) {
   const [open, setOpen] = useState<PersistedRfq | null>(null)
   const [filter, setFilter] = useState('All')
   const [busyId, setBusyId] = useState<string | null>(null)
+  // Draft row showing its inline delete confirmation (by id).
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
 
   const load = () => listGeneratedRfqs(projectId).then(setRfqs).catch(() => setRfqs([]))
   useEffect(() => { load() }, [projectId])
@@ -2413,12 +2580,10 @@ function TabRfqs({ m }: MProps) {
   const count = (key: string) => (key === 'All' ? all.length : all.filter((r) => r.status === key).length)
   const shown = filter === 'All' ? all : all.filter((r) => r.status === filter)
 
-  const remove = async (rq: PersistedRfq, e: { stopPropagation: () => void }) => {
-    e.stopPropagation()
-    if (!window.confirm(`Delete draft “${rq.subject}”?`)) return
-    setBusyId(rq.id)
-    try { await deleteRfq(projectId, rq.id); await load() }
-    catch { /* leave the row in place if the delete failed */ }
+  const remove = async (rq: PersistedRfq) => {
+    setBusyId(rq.id); setErr(null)
+    try { await deleteRfq(projectId, rq.id); setConfirmId(null); await load() }
+    catch { setErr(`Couldn’t delete “${rq.subject}” — is the backend running?`) }
     finally { setBusyId(null) }
   }
 
@@ -2449,8 +2614,10 @@ function TabRfqs({ m }: MProps) {
                   <div style={css('font-size:12.5px;color:var(--text-3)')}>Generate RFQs from the Suppliers tab — by buy-package or an ad-hoc search.</div>
                 </div>
               )}
+              {err && <div style={css('margin:12px 18px 0;font-size:12.5px;color:var(--danger)')}>{err}</div>}
               {shown.map((rq) => (
-                <Box key={rq.id} onClick={() => setOpen(rq)} style={css('display:flex;align-items:center;gap:12px;padding:13px 18px;border-bottom:1px solid var(--border);cursor:pointer')} hover="background:var(--panel-2)">
+                <div key={rq.id} style={css('border-bottom:1px solid var(--border)')}>
+                <Box onClick={() => setOpen(rq)} style={css('display:flex;align-items:center;gap:12px;padding:13px 18px;cursor:pointer')} hover="background:var(--panel-2)">
                   <div style={css(`width:34px;height:34px;border-radius:9px;background:${rq.logoBg || '#334155'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none`)}>{rq.logo}</div>
                   <div style={css('flex:1;min-width:0')}>
                     <div style={css('font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{rq.subject}</div>
@@ -2459,13 +2626,23 @@ function TabRfqs({ m }: MProps) {
                   {rq.kind === 'subcontractor' && <span style={DcBadge('violet')}>Sub bid</span>}
                   <span style={DcBadge(rq.statusTone)}>{rq.status}</span>
                   {rq.status === 'Draft' && (
-                    <Box as="button" onClick={(e: { stopPropagation: () => void }) => remove(rq, e)} disabled={busyId === rq.id}
+                    <Box as="button" onClick={(e: { stopPropagation: () => void }) => { e.stopPropagation(); setErr(null); setConfirmId(rq.id) }} disabled={busyId === rq.id}
                       style={css(`width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3);flex:none;${busyId === rq.id ? 'opacity:.5' : ''}`)}
                       hover="background:var(--danger-soft);color:var(--danger)" title="Delete draft">
                       <Svg size={15} sw={1.9} d='M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m1 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6' />
                     </Box>
                   )}
                 </Box>
+                {confirmId === rq.id && (
+                  <div style={css('padding:0 18px 12px')}>
+                    <ConfirmBar compact busy={busyId === rq.id}
+                      message={<>Delete draft <b>{rq.subject}</b>? Nothing has been sent; the draft is removed for good.</>}
+                      confirmLabel="Delete draft"
+                      onConfirm={() => remove(rq)}
+                      onCancel={() => setConfirmId(null)} />
+                  </div>
+                )}
+                </div>
               ))}
             </div>
           </div>

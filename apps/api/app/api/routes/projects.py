@@ -30,6 +30,7 @@ from app.schemas.quote import (
     AwardResult,
     Comparison,
     LineComparison,
+    PurchaseDecision,
     Quote,
 )
 from app.schemas.rfq import Rfq, RfqFolder
@@ -425,7 +426,7 @@ def award_package(
     }
 
 
-@router.get("/{project_id}/purchase-decisions")
+@router.get("/{project_id}/purchase-decisions", response_model=List[PurchaseDecision])
 def list_purchase_decisions(
     project_id: str,
     db: Session = Depends(get_db),
