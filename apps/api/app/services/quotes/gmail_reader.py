@@ -154,8 +154,7 @@ def fetch_replies(sender_emails: List[str], lookback_days: int = 30, limit: int 
         # quoted chain beneath it (our RFQ, or their earlier quote); left in, the
         # parser reads the old figures — the regex fallback takes the largest
         # dollar amount anywhere in the text, so a revised $47.5k quote on top of
-        # a quoted $52k one came back as $52k. (Re-applied from the eval bench
-        # branch, commit 28458bc.)
+        # a quoted $52k one came back as $52k.
         body = _strip_quoted("\n".join(text_parts)) or full.get("snippet", "")
         out.append(
             InboundMessage(

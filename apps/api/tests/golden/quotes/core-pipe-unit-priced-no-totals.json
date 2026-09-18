@@ -1,0 +1,55 @@
+{
+  "why": "The common case: unit prices per line, freight, lead time in weeks, no subtotal or grand total stated.",
+  "text": "Hi Jane,\n\nThanks for the RFQ. Pricing for the water package, FOB our yard:\n\n- 8\" PVC C900 DR18 pipe, 1,450 LF @ $28.50/LF\n- 8\" Gate valve w/ box, 9 EA @ $1,240.00 each\n- Fire hydrant assembly, 5 EA @ $3,150.00 each\n\nFreight to Taylor, TX: $1,850.00\nLead time: 3 weeks ARO. Quote valid 30 days.\n\nBest,\nMike\nCore & Main — Austin\n",
+  "expect_regex": {
+    "is_quote": true,
+    "total": 3150.0,
+    "freight": 1850.0,
+    "lead_days": 21
+  },
+  "regex_note": "The regex fallback takes the LARGEST dollar figure as the total: here that is a unit price ($3,150), not a total — a known limitation, recorded so a change is visible.",
+  "llm_shaped": {
+    "is_quote": true,
+    "supplier_name": "Core & Main — Austin",
+    "material_cost": null,
+    "freight": 1850.0,
+    "total": null,
+    "lead_days": 21,
+    "validity": "30 days",
+    "line_items": [
+      {
+        "name": "8\" PVC C900 DR18 pipe",
+        "quantity": "1,450 LF",
+        "unit_price": 28.5,
+        "extended": null,
+        "lead_days": null
+      },
+      {
+        "name": "8\" Gate valve w/ box",
+        "quantity": "9 EA",
+        "unit_price": 1240.0,
+        "extended": 11161.0,
+        "lead_days": null
+      },
+      {
+        "name": "Fire hydrant assembly",
+        "quantity": "5 EA",
+        "unit_price": 3150.0,
+        "extended": 15750.0,
+        "lead_days": null
+      }
+    ],
+    "notes": null
+  },
+  "expect_finalized": {
+    "material_cost": 68235.0,
+    "total": 70085.0,
+    "lead_days": 21,
+    "extended": [
+      41325.0,
+      11160.0,
+      15750.0
+    ],
+    "notes_contains": "Computed from line items: material subtotal, total."
+  }
+}

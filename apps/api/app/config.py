@@ -18,6 +18,9 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
+        # @proq/bench — the extraction accuracy harness (docs/eval-harness.md).
+        "http://localhost:5185",
+        "http://127.0.0.1:5185",
     ]
 
     # Public base URL of the web app, used to build links in outgoing emails
@@ -109,6 +112,30 @@ class Settings(BaseSettings):
     # (symbols, not text — e.g. electrical devices on MEP sheets), so the
     # pipeline escalates to the per-sheet vision path on the relevant sheets.
     text_pass_min_items: int = 3
+
+    # Sheet classifier keyword matching (services/extraction/sheets.py). The
+    # historical matcher is a bare substring count, so the civil title word
+    # "PLAT" fires on every "SILL PLATE" / "PLATE WASHER" and "DUCT" fires on
+    # "CONDUCTOR" — a foundation sheet with seven plate callouts classifies as
+    # civil and is SKIPPED for building extraction (found by the eval bench on
+    # the Portland ADU set: the whole truth sheet was never read). True matches
+    # keywords on word boundaries (plural-tolerant). Off by default until the
+    # bench has compared both across the corpus; the `classifier-fixes` variant
+    # turns it on. The same flag keeps SUMMARY OF QUANTITIES sheets for every
+    # plan type and lets a sheet number (E-501) break a family tie.
+    sheet_keywords_word_boundary: bool = False
+
+    # ------------------------------------------------------- eval bench (dev)
+    # The accuracy harness for plan extraction (see docs/eval-harness.md). It is
+    # an UNAUTHENTICATED local tuning tool, so it is mounted only outside
+    # production. Never set this true on a public deployment.
+    bench_enabled: bool = True
+    # Corpus root (plan PDFs + ground truth). Relative paths resolve from the
+    # repo root, not apps/api.
+    bench_corpus_dir: str = "bench-corpus"
+    # Run history lives in its own SQLite file — eval data never touches the
+    # product database.
+    bench_db_url: str = "sqlite:///./bench-runs.db"
 
     # ------------------------------------------------ Google Maps Platform
     # Geocoding (project loc → lat/lng) + Places Text Search/Details (supplier

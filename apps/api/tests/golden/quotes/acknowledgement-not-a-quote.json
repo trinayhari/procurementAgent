@@ -1,0 +1,10 @@
+{
+  "why": "An acknowledgement with no prices must not become a $0 quote.",
+  "text": "Hello,\n\nReceived your request for the sewer package — we will have pricing to you by Thursday.\n\nRegards,\nFerguson Waterworks\n",
+  "expect_regex": {
+    "is_quote": false,
+    "total": null,
+    "freight": null,
+    "lead_days": null
+  }
+}

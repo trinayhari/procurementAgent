@@ -1,0 +1,463 @@
+{
+  "doc_id": "bldg-wa-mi-2512-087",
+  "plan_type": "building_plan",
+  "authored_by": "agent:corpus-acquisition",
+  "authored_at": "2026-08-12",
+  "completeness": "partial",
+  "notes": "Single-family house, Sears Plat Lot 1. Truth transcribed from four sheets read as rendered images (the CAD text layer interleaves note columns): S-0.0 General Structural Notes (concrete strengths, sheathing specs, anchor bolts, hold-down schedule, joist hangers), A3 Foundation Plan (footing schedule, slab/crawlspace notes), A4 Main Floor Framing Plan, A8 Roof Framing Plan. Sheets A5/A6/A7 (floor plans, upper framing), A9-A12 (elevations/sections), E1-E2 (electrical) and C4.01/C8.0 (civil) were NOT enumerated, so this is partial. Only one quantity is stated anywhere on the sheets read (the 1,974 SF crawlspace vapor retarder); every other quantity is left null rather than derived, because a derived takeoff would be a guess dressed as truth. This is a single house with no repeated units — the extraction's REPEATED UNITS rule must NOT scale anything here.",
+  "items": [
+    {
+      "category": "concrete",
+      "name": "3,000 psi Concrete — Footings",
+      "aliases": [
+        "3000 psi concrete footings",
+        "concrete footings f'c = 3,000 psi",
+        "3,000 psi concrete — spread and continuous footings"
+      ],
+      "quantity": null,
+      "unit": "CY",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S-0.0, General Structural Notes — Foundation (f'c = 3,000 psi: footings)"
+    },
+    {
+      "category": "concrete",
+      "name": "3,000 psi Concrete — Foundation Walls",
+      "aliases": [
+        "3000 psi concrete foundation walls",
+        "concrete foundation wall f'c = 3,000 psi"
+      ],
+      "quantity": null,
+      "unit": "CY",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S-0.0, General Structural Notes — Foundation (f'c = 3,000 psi: foundation walls)"
+    },
+    {
+      "category": "concrete",
+      "name": "2,500 psi Concrete — Interior Slabs on Grade",
+      "aliases": [
+        "2500 psi concrete interior slab on grade",
+        "interior slab on grade f'c = 2,500 psi"
+      ],
+      "quantity": null,
+      "unit": "CY",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S-0.0, General Structural Notes — Foundation (2,500 psi: interior slabs on grade)"
+    },
+    {
+      "category": "concrete",
+      "name": "3,500 psi Concrete — Garage & Exterior Slabs on Grade, 4\" thick",
+      "aliases": [
+        "3500 psi concrete garage slab on grade",
+        "4 inch garage slab on grade",
+        "exterior slab on grade f'c = 3,500 psi",
+        "4\" conc. slab on grade — garage/porch"
+      ],
+      "quantity": null,
+      "unit": "CY",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet S-0.0 (3,500 psi: garage & ext. slabs on grade) and Sheet S-0.0 garage/porch slab notes (4\" conc. slab on 4\" min. granular fill)"
+    },
+    {
+      "category": "concrete",
+      "name": "24\" Sq. x 8\" Thick Spread Footing",
+      "aliases": [
+        "24 inch square x 8 inch thick footing",
+        "24\" sq. x 8\" thick ftg."
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet A3, Foundation Plan — footing schedule"
+    },
+    {
+      "category": "concrete",
+      "name": "30\" Sq. x 12\" Thick Spread Footing",
+      "aliases": [
+        "30 inch square x 12 inch thick footing",
+        "30\" sq. x 12\" thick ftg."
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet A3, Foundation Plan — footing schedule"
+    },
+    {
+      "category": "concrete",
+      "name": "36\" Sq. x 12\" Thick Spread Footing",
+      "aliases": [
+        "36 inch square x 12 inch thick footing",
+        "36\" sq. x 12\" thick ftg."
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet A3, Foundation Plan — footing schedule"
+    },
+    {
+      "category": "concrete",
+      "name": "42\" Sq. x 12\" Thick Spread Footing w/ (4) #4 Each Way Bottom",
+      "aliases": [
+        "42 inch square x 12 inch thick footing",
+        "42\" sq. x 12\" thick ftg. w/ (4) #4 ea. way bot."
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet A3, Foundation Plan — footing schedule"
+    },
+    {
+      "category": "concrete",
+      "name": "48\" Sq. x 12\" Thick Spread Footing w/ (4) #4 Each Way Bottom",
+      "aliases": [
+        "48 inch square x 12 inch thick footing",
+        "48\" sq. x 12\" thick ftg. w/ (4) #4 ea. way bot."
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet A3, Foundation Plan — footing schedule"
+    },
+    {
+      "category": "concrete",
+      "name": "10-mil Vapor Retarder — Crawl Space",
+      "aliases": [
+        "10 mil vapor barrier crawl space",
+        "crawlspace vapor retarder",
+        "10-mil polyethylene vapor barrier"
+      ],
+      "quantity": 1974,
+      "unit": "SF",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet A3, Foundation Plan — \"CRAWL SPACE / 10 MIL VAPOR RETARDER / 1974 S.F.\""
+    },
+    {
+      "category": "concrete",
+      "name": "10-mil Vapor Retarder — under Slab on Grade",
+      "aliases": [
+        "10 mil vapor retarder under slab",
+        "under-slab vapor barrier"
+      ],
+      "quantity": null,
+      "unit": "SF",
+      "qty_tolerance": 0.05,
+      "required": false,
+      "source": "Sheet A3, Foundation Plan — \"4\" CONCRETE SLAB ON GRADE OVER 10 MIL VAPOR RETARDER O/ 4\" GRANULAR FILL\""
+    },
+    {
+      "category": "concrete",
+      "name": "4\" Granular Fill under Slab on Grade",
+      "aliases": [
+        "4 inch granular fill",
+        "compacted granular fill under slab",
+        "4\" min. granular fill"
+      ],
+      "quantity": null,
+      "unit": "SF",
+      "qty_tolerance": 0.05,
+      "required": false,
+      "source": "Sheet A3 slab-on-grade note and Sheet S-0.0 garage/porch slab notes"
+    },
+    {
+      "category": "rebar",
+      "name": "#4 Rebar (Grade 60) — Spread footing bottom mat, (4) each way",
+      "aliases": [
+        "#4 rebar footing bottom bars",
+        "(4) #4 each way bottom",
+        "no. 4 reinforcing bar grade 60"
+      ],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A3 footing schedule (42\" and 48\" footings, (4) #4 ea. way bot.); grade from Sheet S-0.0 fy = 60,000 psi"
+    },
+    {
+      "category": "steel",
+      "name": "5/8\" Dia. Anchor Bolt w/ 3\"x3\"x1/4\" Plate Washer (sill plate)",
+      "aliases": [
+        "5/8 inch diameter anchor bolt",
+        "sill plate anchor bolt 5/8\"",
+        "anchor bolt w/ plate washer"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0, General Structural Notes — Foundation (min. 2 anchors per plate, 12\" max. from plate ends)"
+    },
+    {
+      "category": "framing",
+      "name": "9-1/2\" TJI 210 Floor Joist @ 16\" O.C.",
+      "aliases": [
+        "9 1/2 inch TJI 210 floor joist",
+        "9-1/2\" I-joist at 16 inches on center",
+        "TJI 210 joist"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A4, Main Floor Framing Plan (general note 1 and plan callouts)"
+    },
+    {
+      "category": "framing",
+      "name": "23/32\" OSB Sturd-I-Floor Subfloor, T&G",
+      "aliases": [
+        "23/32 inch OSB subfloor",
+        "23/32\" APA rated Sturd-I-Floor",
+        "tongue and groove OSB subfloor"
+      ],
+      "quantity": null,
+      "unit": "SF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0 Floor Framing notes; Sheet A4 general note 1"
+    },
+    {
+      "category": "framing",
+      "name": "7/16\" OSB Roof Sheathing (APA rated 24/16)",
+      "aliases": [
+        "7/16 inch OSB roof sheathing",
+        "7/16\" APA rated roof sheathing"
+      ],
+      "quantity": null,
+      "unit": "SF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0, Roof Framing notes"
+    },
+    {
+      "category": "framing",
+      "name": "7/16\" OSB Exterior Wall Sheathing",
+      "aliases": [
+        "15/32\" Plywood Exterior Wall Sheathing",
+        "15/32\" plywood wall sheathing",
+        "7/16 inch OSB wall sheathing",
+        "7/16\" OSB wall sheathing",
+        "exterior wall sheathing 7/16\" OSB",
+        "exterior wall sheathing OSB"
+      ],
+      "quantity": null,
+      "unit": "SF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0, Standard Exterior Wall Sheathing Specifications (7/16\" OSB or 15/32\" plywood — an either/or, not two materials)"
+    },
+    {
+      "category": "framing",
+      "name": "Prefabricated Wood Roof Truss @ 24\" O.C.",
+      "aliases": [
+        "common trusses at 24 inches on center",
+        "wood roof truss 24\" o.c.",
+        "prefabricated roof truss"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A8, Roof Framing Plan (\"COMMON TRUSSES @ 24\" O.C.\"; truss profiles A, B, C, D, E)"
+    },
+    {
+      "category": "framing",
+      "name": "4x10 Header (H3-6 / H3-7 / H3-9)",
+      "aliases": [
+        "4x10 header",
+        "4 x 10 HDR",
+        "4x10 door/window header"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A8, Roof Framing Plan header callouts"
+    },
+    {
+      "category": "framing",
+      "name": "3-1/2\"x9\" Glulam Header (H3-8)",
+      "aliases": [
+        "3-1/2 x 9 GLB header",
+        "3.5x9 glulam beam header",
+        "3-1/2\"x9\" GLB HDR"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A8, Roof Framing Plan"
+    },
+    {
+      "category": "framing",
+      "name": "4x10 Continuous Dropped Girder (B1)",
+      "aliases": [
+        "4x10 dropped girder",
+        "4 x 10 continuous girder"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A4, Main Floor Framing Plan (\"(B1-) 4x10 CONT. DROPPED GIRDER (TYP. U.N.O.)\")"
+    },
+    {
+      "category": "framing",
+      "name": "1-3/4\"x11-7/8\" LVL Ledger",
+      "aliases": [
+        "1 3/4 x 11 7/8 LVL",
+        "1-3/4\"x11-7/8\" laminated veneer lumber ledger"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A4, Main Floor Framing Plan (ledger fastened to wall w/ (2) rows of Simpson HD screws @ 24\" o.c.)"
+    },
+    {
+      "category": "framing",
+      "name": "2x6 Pressure-Treated Ledger",
+      "aliases": [
+        "P.T. 2x6 ledger",
+        "2x6 pressure treated ledger to foundation wall"
+      ],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A4, Main Floor Framing Plan (fastened to fdn. wall w/ 1/2\" x 4\" Simpson Titen HD @ 16\" o.c.)"
+    },
+    {
+      "category": "framing",
+      "name": "4x4 DF#2 Post (typical crawlspace post)",
+      "aliases": [
+        "4x4 post",
+        "typical post DF#2 4x4",
+        "4x4 P.T. post"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet A3, Foundation Plan legend (\"TYPICAL POST IS DF#2 4X4, U.N.O.\") and typical crawlspace post note"
+    },
+    {
+      "category": "framing",
+      "name": "(2) 2x6 King Studs at header bearing",
+      "aliases": [
+        "(2) 2x6 kings",
+        "double 2x6 king stud",
+        "2x6 king studs"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet A8, Roof Framing Plan bearing callouts"
+    },
+    {
+      "category": "framing",
+      "name": "Simpson STHD14 Hold-down (HD-1)",
+      "aliases": [
+        "STHD14 holdown",
+        "Simpson Strong-Tie STHD14",
+        "HD-1 hold-down"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0, Hold-Down Schedule; symbols shown on Sheet A3"
+    },
+    {
+      "category": "framing",
+      "name": "Simpson CS16 Strap Tie (HD-5), 14\" end length",
+      "aliases": [
+        "CS16 strap tie",
+        "Simpson Strong-Tie CS16",
+        "HD-5 strap tie"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0, Hold-Down Schedule"
+    },
+    {
+      "category": "framing",
+      "name": "Simpson MSTC40 Strap Tie (HD-6)",
+      "aliases": [
+        "MSTC40 strap tie",
+        "Simpson Strong-Tie MSTC40",
+        "HD-6 strap tie"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0, Hold-Down Schedule"
+    },
+    {
+      "category": "framing",
+      "name": "Simpson MSTC66 Strap Tie (HD-7)",
+      "aliases": [
+        "MSTC66 strap tie",
+        "Simpson Strong-Tie MSTC66",
+        "HD-7 strap tie"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0, Hold-Down Schedule"
+    },
+    {
+      "category": "framing",
+      "name": "Simpson LUS210 Joist Hanger",
+      "aliases": [
+        "LUS210 hanger",
+        "Simpson Strong-Tie LUS210 joist hanger"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet S-0.0, Floor Framing notes (typical 2x joist hangers, single ply)"
+    },
+    {
+      "category": "framing",
+      "name": "Simpson LUS210-2 Joist Hanger (double)",
+      "aliases": [
+        "LUS210-2 hanger",
+        "Simpson LUS210-2 double joist hanger"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet S-0.0, Floor Framing notes (typical 2x joist hangers, doubles)"
+    },
+    {
+      "category": "framing",
+      "name": "Simpson H2.5T Truss/Rafter Clip",
+      "aliases": [
+        "H2.5T clip",
+        "Simpson Strong-Tie H2.5T hurricane clip",
+        "H2.5 clip"
+      ],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet S-0.0, Roof Framing notes (one clip per truss/rafter at each bearing point)"
+    }
+  ],
+  "forbidden": []
+}

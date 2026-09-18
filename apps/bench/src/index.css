@@ -1,0 +1,26 @@
+:root{
+  --bg:#f6f7f9;--panel:#ffffff;--panel-2:#f2f4f7;--panel-3:#eaedf2;
+  --border:#e7e9ee;--border-strong:#d5d8e0;
+  --text:#1b2025;--text-2:#5e636e;--text-3:#959aa4;
+  --primary:#2784d5;--primary-2:#1f6cb0;--primary-soft:#e6f1fb;--primary-softer:#f2f8fd;
+  --violet:#7c3aed;--violet-soft:#f0eafe;
+  --success:#15a34a;--success-soft:#e6f7ed;--warn:#b6790c;--warn-soft:#f8f0db;--danger:#dc2626;--danger-soft:#fbe9e9;
+  --on-primary:#ffffff;
+  --shadow-sm:0 1px 2px rgba(16,24,40,.05);
+  --shadow:0 1px 3px rgba(16,24,40,.07),0 1px 2px rgba(16,24,40,.04);
+  --shadow-md:0 6px 16px -4px rgba(16,24,40,.10),0 2px 6px -2px rgba(16,24,40,.06);
+  /* A tool, not a product surface: system fonts (no webfont round-trip on a
+     localhost dev tool) and a mono face for ids, quantities and metrics. */
+  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;font-size:13px}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none;padding:0}
+button:disabled{cursor:not-allowed}
+input,select{font:inherit;outline:none;color:inherit}
+a{color:var(--primary)}
+::selection{background:rgba(39,132,213,.18)}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:10px;border:3px solid var(--bg);background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:var(--text-3)}

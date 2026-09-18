@@ -1,0 +1,181 @@
+{
+  "doc_id": "bldg-or-portland-adu-shed-crawl",
+  "plan_type": "building_plan",
+  "authored_by": "agent:corpus-acquisition",
+  "authored_at": "2026-08-12",
+  "completeness": "partial",
+  "notes": "City of Portland free pre-approved detached ADU, shed-roof / post-and-beam-over-crawlspace variant — a single 576 SF dwelling unit with no repetition, so nothing should be scaled. Truth is transcribed from sheet 03 'FOUNDATION POST AND BEAM' (foundation plan, Section View A, Section View B, Detail 1, Detail 2, subfloor installation detail and the 12 foundation plan notes), read as a rendered image. The wall-framing, roof-framing, elevation, window/door-schedule and energy sheets (01, 02, 04-08) are NOT enumerated, so completeness is partial. Three quantities are derived from a single dimension the drawings state outright — the foundation plan dimensions the building 24'-0\" x 24'-0\" and the cover sheet calls it a 576 SF ADU — so perimeter items are 4 x 24 = 96 LF and the floor plate is 576 SF. Those carry a 0.10 tolerance because waste, overhang and the concrete landing are not accounted for. Everything else has no count or length anywhere on the sheet and is left null rather than scaled off a 1/4\" drawing. Sister document bldg-or-portland-adu-gable-slab (not in this corpus) is the slab-on-grade variant of the same program; this one is deliberately the post-and-beam crawlspace version, so a slab-on-grade extraction here is a misread of the foundation system.",
+  "items": [
+    {
+      "category": "concrete",
+      "name": "6\" x 12\" Continuous Concrete Footing",
+      "aliases": ["6x12 concrete footing", "6 by 12 continuous footing", "continuous perimeter footing 6\"x12\""],
+      "quantity": 96,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Section View A and Detail 1 (\"6 x 12 CONCRETE FOOTING WITH 1 - #4 REBAR CONTINUOUS\"); length = 24'-0\" x 24'-0\" building perimeter dimensioned on the foundation plan"
+    },
+    {
+      "category": "concrete",
+      "name": "20\" x 20\" x 10\" Concrete Pier Footing",
+      "aliases": ["20x20x10 concrete footing", "20\" square pier pad", "interior post footing 20\" x 20\""],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet 03, Section View A (\"20\\\" x 20\\\" x 10\\\" CONCRETE FOOTING\") under the interior 4x6 posts; the plan tags the piers but states no count"
+    },
+    {
+      "category": "concrete",
+      "name": "Concrete Landing",
+      "aliases": ["concrete landing at entry", "entry landing slab"],
+      "quantity": null,
+      "unit": "SF",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet 03 foundation plan, front wall (\"CONCRETE LANDING, SEE FLOOR PLAN NOTE #7\") — size not dimensioned on this sheet"
+    },
+    {
+      "category": "concrete",
+      "name": "6-mil Polyethylene Vapor Retarder (crawl space ground cover)",
+      "aliases": ["6 mil polyethylene vapor barrier", "vapor barrier crawlspace", "min 6 mil poly ground cover"],
+      "quantity": 576,
+      "unit": "SF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Detail 2 (\"MIN 6 MIL POLYETHYLENE EXTENDING TO FOUNDATION WALLS, JOINT LAPPED MIN 12\\\"\") and foundation plan note 7; area = the 24' x 24' footprint stated on the foundation plan / 576 SF on the cover sheet"
+    },
+    {
+      "category": "rebar",
+      "name": "#4 Rebar — Footing, 1 continuous",
+      "aliases": ["#4 rebar continuous in footing", "1 - #4 rebar continuous", "no. 4 bar footing longitudinal"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Section View A and Detail 1 (\"6 x 12 CONCRETE FOOTING WITH 1 - #4 REBAR CONTINUOUS\")"
+    },
+    {
+      "category": "rebar",
+      "name": "#4 Rebar — Stem wall uprights @ 48\" max spacing",
+      "aliases": ["#4 rebar upright 48 inch spacing", "#4 vertical rebar in stem wall", "no. 4 upright bar"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Section View A and Detail 1 (\"#4 REBAR UPRIGHT 48\\\" MAX SPACING\")"
+    },
+    {
+      "category": "rebar",
+      "name": "#4 Rebar — Stem wall horizontal, top 12\"",
+      "aliases": ["#4 horizontal top 12 inches", "#4 horizontal rebar in stem wall"],
+      "quantity": null,
+      "unit": "LB",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Section View A and Detail 1 (\"#4 HORIZONTAL TOP 12\\\"\")"
+    },
+    {
+      "category": "steel",
+      "name": "1/2\" Dia. Anchor Bolt w/ 3\"x3\"x0.229\" Plate Washer",
+      "aliases": ["1/2 inch anchor bolt", "sill plate anchor bolt 1/2\"", "anchor bolt with 3x3 plate washer"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, foundation plan notes 1-5 and Detail 1 (1/2\" dia., 7\" min embedment, 6'-0\" o.c. max, 12\" max from end of wall, min 2 per sill plate)"
+    },
+    {
+      "category": "framing",
+      "name": "2x6 Pressure-Treated Mudsill",
+      "aliases": ["mudsill 2x6 P.T.", "2x6 pressure treated sill plate", "P.T. mudsill"],
+      "quantity": 96,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Section View A and Detail 1 (\"MUDSILL 2 x 6 P.T.\"); length = the dimensioned 24' x 24' perimeter"
+    },
+    {
+      "category": "framing",
+      "name": "2x8 Floor Joist @ 24\" O.C.",
+      "aliases": ["2 x 8 floor joists 24 inches on center", "2x8 joist at 24\" o.c."],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Section View A (\"2\\\" x 8\\\" FLOOR JOISTS 24\\\" O.C. BLOCKING REQUIRED PER R502.7\")"
+    },
+    {
+      "category": "framing",
+      "name": "4x8 Girder Beam",
+      "aliases": ["4 x 8 beam", "4x8 girder", "4\"x8\" beam"],
+      "quantity": null,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Section View A and Section View B (\"4 x 8 BEAM\" / \"4\\\" x 8\\\" BEAM\")"
+    },
+    {
+      "category": "framing",
+      "name": "4x6 Post",
+      "aliases": ["4 x 6 post", "4x6 wood post", "crawlspace post 4x6"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Section View A (\"4 x 6 POST\")"
+    },
+    {
+      "category": "framing",
+      "name": "Simpson PBS Post Base",
+      "aliases": ["Simpson PBS post base or equal", "PBS post base", "post base connector"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03 foundation plan detail (\"SIMPSON PBS POST BASE OR EQUAL\")"
+    },
+    {
+      "category": "framing",
+      "name": "3/4\" Wood Structural Panel Floor Sheathing",
+      "aliases": ["3/4 inch wood structural panel floor sheathing", "3/4\" plywood subfloor", "3/4\" OSB subfloor"],
+      "quantity": 576,
+      "unit": "SF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03, Subfloor Installation detail (3/4\" wood structural panel, long dimension perpendicular to joists, 8d nails 6\" o.c. edges and field, construction adhesive); area = the 24' x 24' footprint / 576 SF stated on the cover sheet"
+    },
+    {
+      "category": "framing",
+      "name": "8\" x 16\" Screened Foundation Vent",
+      "aliases": ["8x16 foundation vent", "screened crawlspace vent", "under-floor ventilation vent"],
+      "quantity": null,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet 03 foundation plan note 9 (one 8\" x 16\" screened vent within 3 feet of each corner); the note sets a rule, not a total, so the count is not stated"
+    },
+    {
+      "category": "framing",
+      "name": "18\" x 24\" Crawl Space Access",
+      "aliases": ["18x24 crawl access", "crawl space access hatch"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet 03 foundation plan (\"18x24 CRAWL ACCESS\"), one shown; foundation plan note 11 requires crawl space access per R408.4"
+    },
+    {
+      "category": "framing",
+      "name": "R-30 Floor Insulation",
+      "aliases": ["R30 insulation", "R-30 batt insulation under floor"],
+      "quantity": 576,
+      "unit": "SF",
+      "qty_tolerance": 0.1,
+      "required": false,
+      "source": "Sheet 03, Section View A (\"R30 INSULATION\"); area = the 24' x 24' footprint"
+    }
+  ],
+  "forbidden": []
+}

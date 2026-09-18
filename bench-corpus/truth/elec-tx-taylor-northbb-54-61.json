@@ -1,0 +1,106 @@
+{
+  "doc_id": "elec-tx-taylor-northbb-54-61",
+  "plan_type": "electrical_plan",
+  "authored_by": "agent:evals",
+  "authored_at": "2026-09-17",
+  "completeness": "partial",
+  "notes": "THE UNIT-SCALING ANCHOR. North BB Creek Townhouses block N, units 54-61: ONE building of EIGHT townhouse units in a 19-sheet combined residential set (arch + MEP + structural). Only the representative units are annotated (54/61 end units, 55/56 interior); units 57-60 are drawn blank, so a correct BOM multiplies per-unit symbol counts x8. The electrical content is symbols on the MEP plan sheets (A9-A11) and the text layer carries almost none of it, so the pipeline escalates to vision on the three electrical sheets. Sheet A16 is a generic symbol legend ('ALL SYMBOLS MAY NOT APPLY') and must not become BOM lines; the panel schedule is deferred to E-sheets NOT in this PDF, so the only panel/service items are the ones the electrical notes (A11) require per unit. Quantities below are the whole-building anchors ground-truthed by vision agents over page tiles on 2026-07-22 (see memory: extraction-test-fixtures) and carry wide tolerances because they are symbol counts. Per-unit counts that were NOT scaled (a got/want ratio near 1/8) are the failure this document exists to catch; the bench reports them as scale_errors.",
+  "items": [
+    {
+      "category": "lighting",
+      "name": "Ceiling Light Fixture",
+      "aliases": [
+        "ceiling light",
+        "ceiling light fixture (symbol: light)",
+        "ceiling mounted light fixture",
+        "ceiling mounted luminaire",
+        "recessed ceiling light",
+        "surface mount light fixture",
+        "surface mounted ceiling light"
+      ],
+      "quantity": 116,
+      "unit": "EA",
+      "qty_tolerance": 0.15,
+      "required": true,
+      "source": "Sheets A9-A11 electrical symbols, all 8 units (≈14.5 per unit x 8)"
+    },
+    {
+      "category": "lighting",
+      "name": "Ceiling Fan with Light",
+      "aliases": [
+        "ceiling fan/light combo",
+        "fan light combination",
+        "ceiling fan light"
+      ],
+      "quantity": 16,
+      "unit": "EA",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheets A9-A11 (2 per unit x 8)"
+    },
+    {
+      "category": "devices",
+      "name": "Duplex Receptacle",
+      "aliases": [
+        "duplex receptacle, 125V, 20A",
+        "duplex convenience receptacle",
+        "receptacle outlet",
+        "120V receptacle",
+        "duplex receptacle 15A",
+        "duplex receptacle 20A"
+      ],
+      "quantity": 240,
+      "unit": "EA",
+      "qty_tolerance": 0.2,
+      "required": true,
+      "source": "Sheets A9-A11 (≈30 per unit x 8). Devices are 125V-rated on 120V circuits — the name carries no voltage so neither reading is a contradiction."
+    },
+    {
+      "category": "devices",
+      "name": "Smoke / Carbon Monoxide Detector",
+      "aliases": [
+        "combination smoke and carbon monoxide alarm",
+        "smoke alarm",
+        "smoke and carbon monoxide detector",
+        "smoke detector",
+        "smoke/CO detector",
+        "smoke/co detector"
+      ],
+      "quantity": 26,
+      "unit": "EA",
+      "qty_tolerance": 0.25,
+      "required": true,
+      "source": "Sheets A9-A11 and A11 electrical notes (code-mandated, per bedroom + hall per unit)"
+    },
+    {
+      "category": "equipment",
+      "name": "Electrical Panelboard, per unit",
+      "aliases": [
+        "panelboard",
+        "load center",
+        "electrical panel",
+        "panel"
+      ],
+      "quantity": 8,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet A11 electrical notes — one panel per dwelling unit; schedule deferred to E-sheets"
+    },
+    {
+      "category": "equipment",
+      "name": "150A Main Service Disconnect",
+      "aliases": [
+        "main service disconnect 150A",
+        "150 amp main disconnect",
+        "service disconnect"
+      ],
+      "quantity": 8,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet A11 electrical notes: main service disconnect min 150A, per unit"
+    }
+  ],
+  "forbidden": []
+}

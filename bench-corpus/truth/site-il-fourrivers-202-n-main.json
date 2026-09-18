@@ -1,0 +1,60 @@
+{
+  "doc_id": "site-il-fourrivers-202-n-main",
+  "plan_type": "site_plan",
+  "authored_by": "agent:corpus-acquisition",
+  "authored_at": "2026-08-12",
+  "completeness": "partial",
+  "notes": "Small 5-sheet sanitary-service bid set. Quantities transcribed verbatim from the SUMMARY OF QUANTITIES table on Sheet 3 (12 pay items) and cross-checked against the matching leader callouts on the Sheet 4 plan & profile, which agree item for item. Only the four pay items that map to a registered site_plan category (sewer, storm, erosion) are listed: the other eight — aggregate base course, Class D patches, curb & gutter and its removal, pavement marking, PCC sidewalk and sidewalk removal, traffic control — are surfacing/restoration work for which site_plan has no category, so labelling them would force a wrong category rather than measure anything. Completeness is 'partial' for the same reason, and because incidental materials (trench bedding, backfill, restoration) are not pay items and are not enumerated anywhere on the set. Scope note: the proposed water service is marked 'BY OTHERS' (installed by the City of Rockford Water Division per Sheet 4 note 2) and the building-side cleanout is 'PRIVATE (BLDG) CONNECTION BY OTHERS' — neither is this contract's material, but they are drawn, so an extraction that lists them is wrong-but-understandable rather than a hallucination, and they are deliberately left out of `forbidden`.",
+  "items": [
+    {
+      "category": "sewer",
+      "name": "6\" Dia. Sanitary Sewer Service",
+      "aliases": ["sanitary sewer service, 6 inch diameter", "6\" sanitary service lateral", "san sew svc 6\""],
+      "quantity": 14,
+      "unit": "LF",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet 3, Summary of Quantities item 8; Sheet 4 callout \"SAN SEW SVC 6\" 14 LF\""
+    },
+    {
+      "category": "storm",
+      "name": "21\" Storm Sewer, Class A, Type 2",
+      "aliases": ["storm sewers class a type 2 21 inch", "21\" storm sewer pipe", "storm sew cl a 2 21\""],
+      "quantity": 30,
+      "unit": "LF",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet 3, Summary of Quantities item 11; Sheet 4 callout \"STORM SEW CL A 2 21\" 30.0 FT @ 1.48%\""
+    },
+    {
+      "category": "erosion",
+      "name": "Inlet Filter",
+      "aliases": ["inlet filters", "inlet protection", "drop-in inlet protection"],
+      "quantity": 2,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet 3, Summary of Quantities item 5; Sheet 4 callout \"INLET FILTERS 2 EA TOTAL\"; detail \"INLET PROTECTION — PAVED AREAS, DROP-IN PROTECTION\" on Sheet 3"
+    },
+    {
+      "category": "storm",
+      "name": "21\" Storm Sewer Removal",
+      "aliases": ["storm sewer removal 21 inch", "remove 21\" storm sewer"],
+      "quantity": 30,
+      "unit": "LF",
+      "qty_tolerance": 0.05,
+      "required": false,
+      "source": "Sheet 3, Summary of Quantities item 10 — a removal pay item, not procured material, so it is optional rather than required"
+    }
+  ],
+  "forbidden": [
+    {
+      "name": "sanitary manhole",
+      "why": "Sheet 5 carries the FRSA STANDARD MANHOLE DETAIL and Sheet 4 labels two existing manholes (MH# 034-080, MH# 034-078) with rim/invert data, but the Summary of Quantities has no manhole pay item — no manhole is constructed by this contract"
+    },
+    {
+      "name": "catch basin",
+      "why": "catch basin is a legend symbol on Sheet 2 (\"STORM MH, CATCH BASIN, CURB & GUTTER INLET, CURB INLET\"); no catch basin is installed and none appears in the Summary of Quantities"
+    }
+  ]
+}

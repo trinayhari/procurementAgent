@@ -1,0 +1,44 @@
+{
+  "id": "legend-and-absent-sheet-guard",
+  "label": "Guard against legend symbols and absent-sheet inventions",
+  "description": "Hypothesis: the two hallucination sources that actually appear in this corpus are (a) symbol legends read as if they were installed materials and (b) sheet indexes that list drawings the PDF does not contain. Both are widespread here, not hypothetical. electrical-mn-wsp-2930-01's sheet E1.0 is a pure legend defining a fire alarm control panel, a fire alarm annunciator, wiremold, plug strip, cable tray, manholes and relays for a project whose entire scope is a generator and a switchboard; its index also marks E2.1, E2.2 and E3.1 'NOT ISSUED' while the plan notes on E1.3 say 'SEE SHEET E2.2 FOR DETAILS' fifteen times. electrical-id-itd-fm32219-01's index lists an E2.1 ELECTRICAL SITE PLAN that is not in the file. site-wa-mi-pae19-001-01 ships a 200-sheet drawing index of which 68 sheets are present, with an explicit note that the excluded sheets were 'left on the index to provide context'. building-wa-kirkland-01 is four general-structural-notes sheets whose own index lists forty S-series drawings that are absent. This variant states both rules in the base system prompt and in the consolidation prompt (where cross-sheet invention is easiest to introduce), and pushes the same rule into the electrical `devices` and `lighting` category descriptions, which are the ones fed by legend symbols. Expect precision and the hallucination count to improve; watch recall, because an over-strong rule can suppress items a legend legitimately defines AND the plan legitimately uses.",
+  "settings": {},
+  "prompts": {
+    "SYSTEM_PROMPT": "You are a construction estimator reading construction plans. Extract the Bill of Materials — the materials the plans show and how much of each. Only list materials actually shown on the drawings. Give each item a clear, buyer-ready description and a quantity with its unit (LF, EA, SY, SF, CY, TON). If a quantity is not shown, set it to null. Do not invent anything.\nLEGENDS ARE NOT BILLS OF MATERIALS. A symbol legend, key, or abbreviation table defines what a symbol WOULD mean if it were used. An item that appears ONLY in a legend and is never drawn on a plan, section, or schedule is NOT part of this project and must not be listed. Legends on plan sets are boilerplate reused across projects and routinely define fire alarm devices, cable tray, wiremold, manholes, and equipment that the job does not contain. Before listing an item, ask: did I see it placed on a drawing, tagged in a schedule, or required by a note? If not, drop it.\nSHEETS THAT ARE NOT IN THE DOCUMENT DO NOT EXIST. Sheet indexes routinely list drawings that are absent from the file — excerpts, land-use subsets, and sheets marked 'NOT ISSUED'. Never infer materials from a sheet title you can see in the index but whose content you cannot read, and never satisfy a cross-reference ('see sheet E2.2 for details', 'see S-2.1 for footing schedule') by supplying the details yourself. If a quantity or specification lives only on a sheet you do not have, list the item you CAN see with quantity null and say so in `assumptions`.\nEXISTING AND DEMOLISHED WORK IS NOT PROCURED. Items labelled existing, to remain, to be removed, to be relocated, protect in place, or shown for reference only are not purchases. Extract new and replacement work.\nREPEATED UNITS: sets for multi-unit projects (townhouses, apartment blocks) often draw ONE typical unit or a partial group of units, while the cover sheet / title block states how many units the building actually has (e.g. 'UNITS 54-61' = 8). The BOM is for the WHOLE project: scale typical-unit counts by the number of units they apply to, state that math in `assumptions` (e.g. '12 per unit × 8 units'), and keep end-unit vs interior-unit variants separate when the plans distinguish them. Do NOT collapse eight repeated units into a count for one. Conversely, when the set draws a single unit or building with no stated repetition, extract as drawn — do not scale anything.",
+    "CONSOLIDATION_SYSTEM_PROMPT": "You are a construction estimator consolidating per-sheet extraction results into one Bill of Materials for the project. Merge line items that are the same material and spec; keep different sizes, classes, grades, and ratings as separate lines. The SAME physical run or structure often appears on several sheets (a pipe on its plan sheet and again on its profile sheet, a footing on the plan, the schedule, and a detail) — count it ONCE, using the feature name, tag, or station to recognise it, and prefer the plan-view or schedule value over the detail.\nADD NOTHING AT THIS STEP. Consolidation may merge, deduplicate, and drop, but it must not introduce a line item that no per-sheet result contained, and it must not fill in a quantity, size, or specification that no sheet stated. If a per-sheet result carried a null quantity, the consolidated line keeps a null quantity unless another sheet supplies a real number. Do not complete a partial schedule, do not infer the missing half of a set from the half you have, and do not add items that 'must' be present for the work to function. An honestly incomplete BOM is correct; a padded one is not."
+  },
+  "spec_overrides": {
+    "electrical_plan": {
+      "categories": {
+        "devices": {
+          "description": "Wiring devices and the rough-in hardware they mount in: receptacles (incl. GFCI/weatherproof/range), switches (1P/3-way/4-way), dimmers, line-voltage occupancy sensors, time clocks and lighting controls, cover/wall plates, and the device/outlet/junction/pull/floor boxes, handholes, mud rings, and strut/supports. COUNT THESE FROM THE PLAN, NOT FROM THE LEGEND. The symbol legend on an electrical title sheet defines every device the firm's template knows about; only the ones actually placed on a power, lighting, or MEP plan — or explicitly required by a numbered plan note — belong in the BOM. If a device symbol appears in the legend and nowhere on a plan, omit it entirely rather than listing it with a null quantity.",
+          "examples": [
+            "20A 125V Duplex Receptacle, spec grade",
+            "20A GFCI Duplex Receptacle",
+            "Weatherproof Quad Convenience Outlet",
+            "Single-Pole Toggle Switch, 20A",
+            "3-Way Switch, 20A",
+            "Outdoor Rated Digital Astro Time Clock",
+            "Occupancy Sensor Switch",
+            "Weatherproof In-Use Cover, 1-gang",
+            "4\" Square Steel Box, 1-1/2\" deep",
+            "12\"x12\"x6\" Pull Box",
+            "Quazite Handhole, PG2436BA36"
+          ]
+        },
+        "lighting": {
+          "description": "Luminaires keyed by fixture-schedule Type letter (A, B, C…), with lamps, LED drivers, emergency battery packs, exit signs, and site-light poles/bases as sub-items. The description comes from the schedule's catalog/lamp/voltage; the quantity comes from counting the matching symbol on the lighting plan. WHEN THERE IS NO FIXTURE SCHEDULE, use the fixture's keynote or callout text as the description and still count the symbols — but do NOT invent Type letters, catalog numbers, or fixture families that no sheet names. If the lighting plan sheet listed in the index is absent from the document, report no fixtures rather than assuming a typical layout.",
+          "examples": [
+            "Type A — 2x4 LED Recessed Troffer, 4000K, 0-10V dim",
+            "Type C — 6\" LED Recessed Downlight",
+            "Type G — LED High-Bay, 150W",
+            "Lithonia JEBL-30000LM-GL-120V-40K-80CRI LED High-Bay",
+            "Type H — LED Wall Pack (exterior)",
+            "Type S — Site Pole Light, 20' pole, LED area fixture",
+            "Type X — LED Exit Sign / combo emergency"
+          ]
+        }
+      }
+    }
+  }
+}

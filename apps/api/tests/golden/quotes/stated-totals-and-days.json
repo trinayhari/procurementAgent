@@ -1,0 +1,29 @@
+{
+  "why": "Supplier states subtotal, freight and grand total explicitly and lead time in days.",
+  "text": "Quote #Q-20931\n\nMaterial subtotal: $42,300.00\nFreight/delivery charge: $980.00\nGrand total: $43,280.00\n\nLead time 10 business days. Pricing firm for 15 days.\n",
+  "expect_regex": {
+    "is_quote": true,
+    "total": 43280.0,
+    "freight": 980.0,
+    "material_cost": 42300.0,
+    "lead_days": 10
+  },
+  "llm_shaped": {
+    "is_quote": true,
+    "supplier_name": null,
+    "material_cost": 42300.0,
+    "freight": 980.0,
+    "total": 43280.0,
+    "lead_days": 10,
+    "validity": "15 days",
+    "line_items": [],
+    "notes": null
+  },
+  "expect_finalized": {
+    "material_cost": 42300.0,
+    "total": 43280.0,
+    "lead_days": 10,
+    "extended": [],
+    "notes_is": null
+  }
+}

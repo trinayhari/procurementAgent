@@ -1,0 +1,47 @@
+{
+  "why": "A line with a non-numeric quantity keeps the supplier-stated extended; numeric lines are recomputed in code; header lead falls back to the longest line lead.",
+  "llm_shaped": {
+    "is_quote": true,
+    "supplier_name": "HD Supply",
+    "material_cost": null,
+    "freight": 400.0,
+    "total": null,
+    "lead_days": null,
+    "validity": null,
+    "line_items": [
+      {
+        "name": "Silt fence",
+        "quantity": "1,200 LF",
+        "unit_price": 1.85,
+        "extended": 2221.0,
+        "lead_days": 5
+      },
+      {
+        "name": "Inlet protection",
+        "quantity": "TBD",
+        "unit_price": 95.0,
+        "extended": 1900.0,
+        "lead_days": 14
+      },
+      {
+        "name": "Erosion control blanket",
+        "quantity": "3,400 SY",
+        "unit_price": 1.1,
+        "extended": null,
+        "lead_days": 0
+      }
+    ],
+    "notes": "Inlet protection count to be confirmed on site."
+  },
+  "expect_finalized": {
+    "material_cost": 7860.0,
+    "total": 8260.0,
+    "lead_days": 14,
+    "extended": [
+      2220.0,
+      1900.0,
+      3740.0
+    ],
+    "notes_contains": "Computed from line items: material subtotal, total, lead time."
+  }
+}

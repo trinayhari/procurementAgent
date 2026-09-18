@@ -1,0 +1,10 @@
+{
+  "doc_id": "ctrl-owner-contractor-agreement",
+  "plan_type": "building_plan",
+  "authored_by": "agent:evals",
+  "authored_at": "2026-09-17",
+  "completeness": "full",
+  "notes": "NEGATIVE CONTROL. This is a one-page owner/contractor agreement (contract prose). It is NOT a plan set and contains no materials. The correct BOM is EMPTY: completeness is `full` with zero items, so every extracted line is an `extra` and precision reads 0.0 — the only labelled measure the bench has of pure hallucination on a non-plan document. Recall/F1 are undefined here by design (no required items).",
+  "items": [],
+  "forbidden": []
+}

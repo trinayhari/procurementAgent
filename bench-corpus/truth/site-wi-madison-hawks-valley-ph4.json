@@ -1,0 +1,191 @@
+{
+  "doc_id": "site-wi-madison-hawks-valley-ph4",
+  "plan_type": "site_plan",
+  "authored_by": "agent:corpus-acquisition",
+  "authored_at": "2026-08-12",
+  "completeness": "partial",
+  "notes": "Residential subdivision infrastructure set for Hawks Valley Phase 4 (City of Madison project 11773). The document is a SCAN — 19 of its 28 pages carry no text at all — except sheets U-5 (Sanitary Sewer Schedule) and U-6 (Storm Sewer Schedule), which are vector. This truth covers only those two schedules; the water main, plan & profile, erosion control and detail sheets are raster and were not enumerated, so completeness is 'partial' and the `water` and `erosion` categories are deliberately empty rather than guessed. Pipe quantities are the schedules' PLAN (PAY) LGTH totals, summed per size across all three streets. The storm schedule also gives a PIPE LGTH column (structure wall to wall, 3-17% shorter than pay length depending on size), so storm pipe tolerances are widened to 0.10 — and to 0.20 on the single 30\" run, where the two readings differ by 17% — so that either defensible reading scores as correct. Sanitary has only one length column, so those are tight. Sums (plan/pay feet): sanitary 8\" = 138+140+66+250+220+185 = 999; storm 36\" = 90; 30\" = 36; 24\" = 256+258+39+55 = 608; 18\" = 31+60 = 91; 15\" = 31+114+55 = 200; 12\" = 31+37+32+29+14+12+49 = 204.",
+  "items": [
+    {
+      "category": "sewer",
+      "name": "8\" PVC SDR-35 Sanitary Sewer Main",
+      "aliases": ["8 inch PVC SDR-35 sanitary sewer", "8\" sanitary sewer pipe, SDR-35", "8\" PVC gravity sewer"],
+      "quantity": 999,
+      "unit": "LF",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet U-5, Proposed Sanitary Pipes — six runs, plan (pay) lengths summed"
+    },
+    {
+      "category": "sewer",
+      "name": "Sanitary Sewer Access Structure (SAS)",
+      "aliases": ["sanitary manhole", "sewer access structure", "sanitary sewer manhole"],
+      "quantity": 6,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet U-5, Proposed Sanitary Structures — SAS #1 through SAS #6"
+    },
+    {
+      "category": "storm",
+      "name": "36\" Storm Sewer Pipe, Type I",
+      "aliases": ["36 inch storm sewer pipe", "36\" RCP storm sewer", "36\" reinforced concrete pipe"],
+      "quantity": 90,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Pipes — run P-1"
+    },
+    {
+      "category": "storm",
+      "name": "30\" Storm Sewer Pipe, Type I",
+      "aliases": ["30 inch storm sewer pipe", "30\" RCP storm sewer"],
+      "quantity": 36,
+      "unit": "LF",
+      "qty_tolerance": 0.2,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Pipes — run P-2 (plan/pay 36 ft, pipe length 30 ft — hence the wide tolerance)"
+    },
+    {
+      "category": "storm",
+      "name": "24\" Storm Sewer Pipe, Type I",
+      "aliases": ["24 inch storm sewer pipe", "24\" RCP storm sewer"],
+      "quantity": 608,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Pipes — runs P-3, P-4, P-5, P-6"
+    },
+    {
+      "category": "storm",
+      "name": "18\" Storm Sewer Pipe, Type I",
+      "aliases": ["18 inch storm sewer pipe", "18\" RCP storm sewer"],
+      "quantity": 91,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Pipes — runs P-3A, P-10"
+    },
+    {
+      "category": "storm",
+      "name": "15\" Storm Sewer Pipe, Type I",
+      "aliases": ["15 inch storm sewer pipe", "15\" RCP storm sewer"],
+      "quantity": 200,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Pipes — runs P-7, P-8, P-11"
+    },
+    {
+      "category": "storm",
+      "name": "12\" Storm Sewer Pipe, Type I",
+      "aliases": ["12 inch storm sewer pipe", "12\" RCP storm sewer"],
+      "quantity": 204,
+      "unit": "LF",
+      "qty_tolerance": 0.1,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Pipes — runs P-3B, P-3C, P-4A, P-5A, P-5B, P-10A, P-11A"
+    },
+    {
+      "category": "storm",
+      "name": "5x5 Storm Sewer Access Structure (SAS)",
+      "aliases": ["5'x5' storm manhole", "5x5 SAS", "5 by 5 sewer access structure"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Structures — S-2"
+    },
+    {
+      "category": "storm",
+      "name": "4x4 Storm Sewer Access Structure (SAS)",
+      "aliases": ["4'x4' storm manhole", "4x4 SAS", "4 by 4 sewer access structure"],
+      "quantity": 4,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Structures — S-3, S-4, S-5, S-6"
+    },
+    {
+      "category": "storm",
+      "name": "3x3 Storm Sewer Access Structure (SAS)",
+      "aliases": ["3'x3' storm manhole", "3x3 SAS", "3 by 3 sewer access structure"],
+      "quantity": 2,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Structures — S-3A, S-10"
+    },
+    {
+      "category": "storm",
+      "name": "H Inlet Structure",
+      "aliases": ["H inlet", "curb inlet structure type H", "storm inlet"],
+      "quantity": 9,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Structures — S-3B, S-3C, S-4A, S-5A, S-5B, S-8, S-10A, S-11, S-11A"
+    },
+    {
+      "category": "storm",
+      "name": "24\" RCP Apron Endwall w/ Gate",
+      "aliases": ["24 inch apron endwall", "24\" RCP AE", "24\" flared end section with gate"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Structures — S-7"
+    },
+    {
+      "category": "storm",
+      "name": "15\" RCP Apron Endwall w/ Gate",
+      "aliases": ["15 inch apron endwall", "15\" RCP AE", "15\" flared end section with gate"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": true,
+      "source": "Sheet U-6, Proposed Storm Structures — S-9"
+    },
+    {
+      "category": "storm",
+      "name": "R-3067-7004-V Casting (frame & grate)",
+      "aliases": ["R-3067-7004-V casting", "Neenah R-3067 frame and grate, type V"],
+      "quantity": 10,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": false,
+      "source": "Sheet U-6 storm structure notes — S-2, S-3B, S-3C, S-4, S-4A, S-5, S-5A, S-8, S-10A, S-11A"
+    },
+    {
+      "category": "storm",
+      "name": "R-3067-7004-VB Casting (frame & grate, low point)",
+      "aliases": ["R-3067-7004-VB casting", "Neenah R-3067 frame and grate, type VB"],
+      "quantity": 5,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": false,
+      "source": "Sheet U-6 storm structure notes — S-3, S-3A, S-5B, S-10, S-11 (all flagged LP = low point inlet structure)"
+    },
+    {
+      "category": "storm",
+      "name": "R-1550 Casting",
+      "aliases": ["R-1550 casting", "Neenah R-1550 frame and lid"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": false,
+      "source": "Sheet U-6 storm structure notes — S-6"
+    },
+    {
+      "category": "storm",
+      "name": "Storm Sewer Collar",
+      "aliases": ["pipe collar", "concrete collar connection"],
+      "quantity": 1,
+      "unit": "EA",
+      "qty_tolerance": 0.05,
+      "required": false,
+      "source": "Sheet U-6, Proposed Storm Structures — S-1, structure type COLLAR"
+    }
+  ],
+  "forbidden": []
+}
