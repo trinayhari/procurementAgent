@@ -115,6 +115,17 @@ bench-corpus/
   (only the listed items are verified). **Precision is only scored on `full`
   docs**; on `partial` docs an extracted item with no truth match is `unknown`,
   not a false positive, because the truth simply may not cover it.
+- **Negative control** — a `full` truth with `items: []`. The document is not a
+  plan set (a schedule, a contract), the correct BOM is nothing, and every
+  extracted line is an `extra`: the only labelled measure of pure hallucination.
+  An empty `partial` truth is rejected by `validate` (it measures nothing).
+- **Name hygiene.** The matcher's size gate requires every dimension the truth
+  name states to appear in the extraction, so keep `name` to the buyer-ready
+  description (`1/2" Anchor Bolt`) and put schedule detail in `source` or in
+  a longer alias. Counts `(2)`, spacing `@ 16" O.C.`, trailing parentheticals
+  and catalogue numbers are read as conflict-only (they block a match only
+  when both sides state different values), so they are safe in a name; a
+  plate-washer size or embedment depth is a dimension and is not.
 - `qty_tolerance` — fractional tolerance, default `0.05`. Use a wider tolerance
   for genuinely estimated quantities (symbol counts on dense sheets).
 - `required: false` — a "nice to have" item. Missing it does not count against
@@ -308,8 +319,20 @@ Matching rules, in order:
    Treating all three roles alike is what made the first live run report a
    correctly-found fixture as BOTH a miss and an extra, understating recall on
    a 2-document electrical run by roughly a third.
+   Notation is folded before any of this so both sides agree on what a size
+   is: `1/2"` → `0.5`, `1-3/4"` → `1.75`, `2'-0"` → `24"`, `3,000` → `3000`,
+   `2x6` → `2 x 6`; `SDR-26` / `Schedule 40` / `Class 350` are spec values
+   however punctuated; `3/0` is an AWG gauge (a code, not a fraction). Counts
+   `(2)`, spacing `@ 16" O.C.` (feet folded to inches) and alpha-led catalogue
+   numbers (`R-3067-7004-V`) are conflict-only.
+
+   An exact normalised match scores 1.0 and a fuzzy one at most 0.99, so the
+   exact line wins a tie. A single bare word (`hydrant`, `panel`) is a subset
+   of every line that contains it and is NOT a match unless the other side is
+   at most two tokens.
 4. Matching is **global and greedy by descending score**, one-to-one — a truth
-   item is consumed by at most one extracted item.
+   item is consumed by at most one extracted item. Ties are broken by category
+   agreement (a sewer manhole goes to the sewer truth item, not the storm one).
 5. `category_ok` is recorded but does NOT gate a match: a right item in the wrong
    category is a hit with `category_ok=False`, which is a different (smaller)
    failure than not finding it.
@@ -322,6 +345,15 @@ Metric definitions:
   first (`LF`/`FT`/`FEET` are the same; `EA`/`EACH`; `SY`/`SQYD`; `CY`; `TON`).
 - `forbidden` beats everything: an extracted item matching a forbidden entry is
   `kind="forbidden"` and never also an `extra`.
+- `usable_recall` = required hits whose stated quantity is within tolerance
+  AND whose stated unit matches / required truth items — the share of lines
+  that could go on an RFQ as-is. Recall says the model saw the item; this says
+  downstream can use it. A field the truth leaves `null` cannot be wrong.
+- Each hit carries `quantity_ratio` (= got / want). `counts.scale_errors` is
+  the number of wrong quantities whose ratio sits within 10% of an integer
+  k (2..64) or 1/k — the never-scaled typical unit (1/8), the stacked CAD
+  text layer (3×) and plan + profile summed (2×) all show up here, apart from
+  misreads. `counts.quantity_wrong` is every wrong quantity.
 
 Every metric must be `None` rather than `0.0` when it is undefined. A zero and an
 unmeasurable are different facts and the UI shows them differently.
@@ -471,7 +503,13 @@ python -m app.eval run --docs a,b --variant baseline --trials 1
 python -m app.eval runs                        # recent runs + headline metrics
 python -m app.eval show <run_id>               # per-doc detail, miss/extra lists
 python -m app.eval compare <run_id> <run_id>   # metric deltas
+python -m app.eval rescore <run_id> [...]      # re-score stored trials with the CURRENT scorer + truth — no model calls
 ```
+
+`rescore` exists because every trial persists the raw extraction: a matcher
+or ground-truth change is evaluated against every run already paid for. The
+first live baseline moved recall 0.565 → 0.635 on re-score alone (scorer and
+truth artefacts, not model behaviour) — always re-score before re-running.
 
 Human-readable by default; `--json` on every subcommand for machine use.
 
