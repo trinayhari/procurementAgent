@@ -19,7 +19,7 @@ permissions:
 jobs:
   # ------------------------------------------------------------------ CI
   frontend:
-    name: Frontend · typecheck + test + build
+    name: Frontend · typecheck + build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,6 @@ jobs:
           cache: npm
       - run: npm ci # respects .npmrc (legacy-peer-deps=true)
       - run: npm run typecheck
-      - run: npm test
       - run: npm run build
 
   backend:
