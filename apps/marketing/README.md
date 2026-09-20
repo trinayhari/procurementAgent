@@ -43,7 +43,15 @@ rhythm only; copy, nouns and mocks are Proq's.
 
 ## Deployment
 
-Not wired up. The repo's `vercel.json` builds `@proq/web` only; shipping this
-page means a second Vercel project pointed at the same repo with
-`buildCommand: npm run build --workspace @proq/marketing` and
-`outputDirectory: apps/marketing/dist`.
+Served at https://tryproq.dev by the Vercel project `proq-marketing`
+(team `trinayharis-projects`). The project is connected to this GitHub repo
+with **Root Directory** `apps/marketing`; `vercel.json` in this folder pins
+`npm install` / `npm run build` / `dist` so the repo-level `vercel.json`
+(which builds `@proq/web` for app.tryproq.dev) never applies here.
+
+- Push to `main`: production deploy to tryproq.dev.
+- Push to any other branch or PR: preview deploy at
+  `proq-marketing-git-<branch>-trinayharis-projects.vercel.app` (Vercel login
+  required; previews are SSO-protected, custom domains are public).
+- Manual deploy from this folder: `vercel` (preview) or `vercel --prod`.
+  The local link lives in `.vercel/project.json` (gitignored).
