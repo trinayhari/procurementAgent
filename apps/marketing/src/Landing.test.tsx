@@ -1,4 +1,4 @@
-// Page-level behaviour: the CTAs only become links once VITE_DEMO_URL is
+// Page-level behaviour: the CTAs are mailto links unless VITE_DEMO_URL is
 // configured, the nav goes solid on scroll, and the "Who it's for" accordion
 // keeps exactly one panel open (or none).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -17,16 +17,15 @@ describe('Landing', () => {
   beforeEach(() => reducedMotion(true))
   afterEach(() => { cleanup(); vi.unstubAllEnvs(); reducedMotion(false) })
 
-  it('renders the CTAs as inert buttons when VITE_DEMO_URL is unset', async () => {
+  it('renders the CTAs as mailto links when VITE_DEMO_URL is unset', async () => {
     vi.stubEnv('VITE_DEMO_URL', '')
     const Landing = await loadLanding()
     render(<Landing />)
     for (const label of CTA_LABELS) {
-      const el = screen.getByText(label)
-      expect(el.tagName).toBe('BUTTON')
-      expect(el.getAttribute('type')).toBe('button')
+      const el = screen.getByRole('link', { name: label })
+      expect(el.getAttribute('href')).toMatch(/^mailto:proqrfq@gmail\.com\?subject=/)
     }
-    expect(screen.queryByRole('link', { name: 'Request a buyout' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Request a buyout' })).toBeNull()
   })
 
   it('renders the CTAs as links to VITE_DEMO_URL when it is set', async () => {

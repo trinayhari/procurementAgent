@@ -9,10 +9,12 @@ import Marquee from './Marquee'
 // → the flow (the centrepiece) → what's in a buyout (light) → who it's for +
 // how we charge → footer CTA.
 
-const DEMO_URL = import.meta.env.VITE_DEMO_URL
+// Every CTA opens a conversation by email unless VITE_DEMO_URL points them at
+// a scheduling link instead.
+const CONTACT_EMAIL = 'proqrfq@gmail.com'
+const MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Proq: run a buyout for us')}`
+const CTA_URL = import.meta.env.VITE_DEMO_URL || MAILTO
 
-// Until a scheduling link is configured the CTAs render as inert buttons;
-// better a dead control than a guessed address. Set VITE_DEMO_URL to wire them.
 function Cta({ variant = 'primary', size, className = '', children }: {
   variant?: 'primary' | 'ghost'
   size?: 'lg'
@@ -20,9 +22,7 @@ function Cta({ variant = 'primary', size, className = '', children }: {
   children: ReactNode
 }) {
   const cls = `btn btn--${variant}${size ? ` btn--${size}` : ''}${className ? ` ${className}` : ''}`
-  return DEMO_URL
-    ? <a className={cls} href={DEMO_URL}>{children}</a>
-    : <button type="button" className={cls}>{children}</button>
+  return <a className={cls} href={CTA_URL}>{children}</a>
 }
 
 const STATS = [

@@ -39,7 +39,7 @@ rhythm only; copy, nouns and mocks are Proq's.
 
 | Variable         | Effect |
 | ---------------- | ------ |
-| `VITE_DEMO_URL`  | Destination for "Request a buyout" / "Talk to us" / "Start a conversation". Unset, those render as inert buttons rather than a guessed address. |
+| `VITE_DEMO_URL`  | Destination for "Request a buyout" / "Talk to us" / "Start a conversation". Unset, those open a `mailto:` to the Proq contact inbox (`CONTACT_EMAIL` in `Landing.tsx`). |
 
 ## Deployment
 
