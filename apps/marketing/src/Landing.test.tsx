@@ -64,23 +64,42 @@ describe('Landing', () => {
     expect(nav.className).toBe('nav')
   })
 
+  it('paints the nav solid on first render when the page loads already scrolled', async () => {
+    const Landing = await loadLanding()
+    Object.defineProperty(window, 'scrollY', { value: 80, configurable: true })
+    try {
+      render(<Landing />)
+      expect(screen.getByRole('navigation', { name: 'Primary' }).className).toBe('nav nav--solid')
+    } finally {
+      Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+    }
+  })
+
   it('accordion opens the first item by default, swaps on click, and can close entirely', async () => {
     const Landing = await loadLanding()
     render(<Landing />)
     const btns = ['Commercial & institutional GCs', 'Self-perform & civil', 'MEP long-lead']
       .map((n) => screen.getByRole('button', { name: n }))
     const panels = btns.map((b) => document.getElementById(b.getAttribute('aria-controls')!)!)
+    // Closed panels stay in the DOM for the collapse animation, so they must
+    // be both aria-hidden and inert to disappear from AT and the tab order.
+    const closed = () => panels.map((p) => p.getAttribute('aria-hidden') === 'true')
+    const inert = () => panels.map((p) => p.hasAttribute('inert'))
     expect(btns.map((b) => b.getAttribute('aria-expanded'))).toEqual(['true', 'false', 'false'])
-    expect(panels.map((p) => p.hidden)).toEqual([false, true, true])
+    expect(closed()).toEqual([false, true, true])
+    expect(inert()).toEqual([false, true, true])
+    expect(panels.some((p) => p.hidden)).toBe(false)
     expect(panels[0].getAttribute('aria-labelledby')).toBe(btns[0].id)
 
     fireEvent.click(btns[2])
     expect(btns.map((b) => b.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'true'])
-    expect(panels.map((p) => p.hidden)).toEqual([true, true, false])
+    expect(closed()).toEqual([true, true, false])
+    expect(inert()).toEqual([true, true, false])
     expect(panels[2].textContent).toContain('Switchgear, RTUs, generators')
 
     fireEvent.click(btns[2]) // clicking the open one closes it; nothing is open
     expect(btns.map((b) => b.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false'])
-    expect(panels.every((p) => p.hidden)).toBe(true)
+    expect(closed()).toEqual([true, true, true])
+    expect(inert()).toEqual([true, true, true])
   })
 })

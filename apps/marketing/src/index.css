@@ -60,8 +60,8 @@ img { display: block; max-width: 100%; }
 /* ── Bands ─────────────────────────────────────────────────────────────── */
 
 .band { position: relative; background: var(--bg); color: var(--fg); }
-.band--dark { --bg: var(--ink); --fg: var(--white); --fg-2: rgba(245,245,245,.62); --fg-3: rgba(245,245,245,.38); --line: var(--ink-line); }
-.band--light { --bg: var(--paper); --fg: var(--black); --fg-2: rgba(16,16,16,.64); --fg-3: rgba(16,16,16,.42); --line: var(--paper-line); }
+.band--dark { --bg: var(--ink); --fg: var(--white); --fg-2: rgba(245,245,245,.62); --fg-3: rgba(245,245,245,.5); --line: var(--ink-line); }
+.band--light { --bg: var(--paper); --fg: var(--black); --fg-2: rgba(16,16,16,.64); --fg-3: rgba(16,16,16,.58); --line: var(--paper-line); }
 
 .shell { max-width: var(--max); margin: 0 auto; padding-inline: var(--edge); }
 .section { padding-block: clamp(80px, 10vw, 144px); }
@@ -143,8 +143,8 @@ img { display: block; max-width: 100%; }
 .nav__links { display: flex; align-items: center; gap: 28px; }
 .nav__links a { font-size: 15px; color: rgba(245,245,245,.72); }
 .nav__links a:hover { color: var(--white); }
-.nav .btn { --fg: var(--white); --bg: var(--ink); padding: 12px 18px; font-size: 15px; }
-@media (max-width: 760px) { .nav__links a { display: none; } }
+.nav .btn { --fg: var(--white); --bg: var(--ink); min-height: 44px; padding: 0 18px; font-size: 15px; }
+@media (max-width: 760px) { .nav__links a:not(.btn) { display: none; } }
 
 /* ── Hero ──────────────────────────────────────────────────────────────── */
 
@@ -174,7 +174,7 @@ img { display: block; max-width: 100%; }
   border-top: 1px solid rgba(245,245,245,.14);
   color: var(--fg-3);
 }
-.hero__foot a { color: var(--fg-2); }
+.hero__foot a { display: inline-flex; align-items: center; min-height: 44px; margin-block: -14px; color: var(--fg-2); }
 .hero__foot a:hover { color: var(--fg); }
 
 /* ── Pain + marquee ────────────────────────────────────────────────────── */
@@ -199,8 +199,9 @@ img { display: block; max-width: 100%; }
 @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) {
   .marquee { -webkit-mask-image: none; mask-image: none; }
+  .marquee + .marquee { display: none; }
   .marquee__track { animation: none; width: auto; flex-wrap: wrap; row-gap: 8px; }
-  .marquee__track > .marquee__item:nth-child(n + 9) { display: none; }
+  .marquee__item--dup { display: none; }
 }
 
 /* ── Stats ─────────────────────────────────────────────────────────────── */
@@ -220,7 +221,7 @@ img { display: block; max-width: 100%; }
   min-width: 0;
 }
 .stat__n { font-size: clamp(38px, 4vw, 54px); line-height: 1; letter-spacing: -.05em; font-weight: 500; font-variant-numeric: tabular-nums; }
-.stat__l { font-size: 15px; line-height: 1.4; color: var(--fg-2); }
+.stat__l { font-size: 16px; line-height: 1.4; color: var(--fg-2); }
 .stat__s { margin-top: auto; color: var(--fg-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; }
 @media (max-width: 760px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat { padding: 22px 18px; } }
 @media (max-width: 420px) { .stats { grid-template-columns: minmax(0, 1fr); } }
@@ -329,7 +330,7 @@ img { display: block; max-width: 100%; }
 .inbox__pre { color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inbox__time { color: var(--fg-3); font-size: 11px; white-space: nowrap; }
 .inbox__msg { padding: 16px 14px 14px; }
-.inbox__msg h4 { font-size: 14px; font-weight: 500; letter-spacing: -.01em; margin-bottom: 10px; }
+.inbox__title { font-size: 14px; font-weight: 500; letter-spacing: -.01em; text-wrap: balance; margin-bottom: 10px; }
 .inbox__msg p { color: var(--fg-2); margin-top: 8px; }
 .inbox__msg strong { color: var(--fg); font-weight: 500; }
 .attach { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 10px; border: 1px solid var(--ink-line); border-radius: 4px; font-size: 12px; }
@@ -377,7 +378,7 @@ img { display: block; max-width: 100%; }
 .msg__body { margin-top: 4px; color: var(--fg-2); line-height: 1.45; }
 .msg__body strong { color: var(--fg); font-weight: 500; }
 .msg__card { margin-top: 10px; border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; }
-.msg__card h5 { margin: 0 0 6px; font-size: 14px; font-weight: 500; color: var(--fg); letter-spacing: -.01em; }
+.msg__title { margin: 0 0 6px; font-size: 14px; font-weight: 500; color: var(--fg); letter-spacing: -.01em; }
 .msg__list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .msg__list li { display: flex; align-items: flex-start; gap: 8px; color: var(--fg-2); }
 .msg__list .tick { color: var(--accent); display: inline-flex; flex: none; margin-top: 3px; }
@@ -435,6 +436,9 @@ img { display: block; max-width: 100%; }
 .acc__panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s ease; }
 .acc__panel[data-open="true"] { grid-template-rows: 1fr; }
 .acc__panel > div { overflow: hidden; }
+/* Closed panels stay in the grid for the collapse animation but are inert and
+   aria-hidden; visibility follows once the collapse ends, and comes back at once on open. */
+.acc__panel[aria-hidden="true"] > * { visibility: hidden; transition: visibility 0s .3s; }
 .acc__inner {
   display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px clamp(32px, 6vw, 96px);
   padding: 4px 0 34px;
@@ -445,7 +449,7 @@ img { display: block; max-width: 100%; }
 .acc__meta span em { font-style: normal; color: var(--fg-2); text-align: right; }
 .acc__inner .body { max-width: 56ch; font-size: 17px; }
 @media (max-width: 760px) { .acc__inner { grid-template-columns: minmax(0, 1fr); } }
-@media (prefers-reduced-motion: reduce) { .acc__panel, .acc__plus::before, .acc__plus::after { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .acc__panel, .acc__panel[aria-hidden="true"] > *, .acc__plus::before, .acc__plus::after { transition: none; } }
 
 /* ── Pricing framing ───────────────────────────────────────────────────── */
 

@@ -1,17 +1,31 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePrefersReducedMotion } from './lib'
 
 // The hero background: a field of faint dots on the near-black canvas, with a
 // slow diagonal sweep of brightness passing through it, the only motion on
 // the fold. Pure canvas, no assets. With reduced motion it renders one static
 // frame; the first frame is always drawn synchronously so a hidden or paused
-// tab still shows the field.
+// tab still shows the field. The loop only runs while the canvas is on screen.
 
 const GAP = 26
 
 export default function HeroField() {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const reduced = usePrefersReducedMotion()
+  const [inView, setInView] = useState(true)
+  // Animation clock, kept across loop restarts so the sweep resumes where it
+  // stopped rather than jumping back to the start.
+  const clock = useRef(8)
+
+  // Stop the rAF loop once the hero has scrolled off screen; restart on return.
+  // Without IntersectionObserver the canvas is treated as always in view.
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(([e]) => setInView(e.isIntersecting), { threshold: 0 })
+    io.observe(canvas)
+    return () => io.disconnect()
+  }, [])
 
   useEffect(() => {
     const canvas = ref.current
@@ -22,10 +36,10 @@ export default function HeroField() {
     let w = 0
     let h = 0
     let raf = 0
-    let t = 8
     let last = 0
 
     const draw = () => {
+      const t = clock.current
       ctx.clearRect(0, 0, w, h)
       const cols = Math.ceil(w / GAP) + 1
       const rows = Math.ceil(h / GAP) + 1
@@ -64,7 +78,7 @@ export default function HeroField() {
     }
 
     const loop = (now: number) => {
-      if (last) t += Math.min(0.05, (now - last) / 1000)
+      if (last) clock.current += Math.min(0.05, (now - last) / 1000)
       last = now
       draw()
       raf = requestAnimationFrame(loop)
@@ -73,13 +87,13 @@ export default function HeroField() {
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(canvas)
-    if (!reduced) raf = requestAnimationFrame(loop)
+    if (!reduced && inView) raf = requestAnimationFrame(loop)
 
     return () => {
       ro.disconnect()
       cancelAnimationFrame(raf)
     }
-  }, [reduced])
+  }, [reduced, inView])
 
   return <canvas ref={ref} className="hero__field" aria-hidden="true" />
 }

@@ -1,7 +1,7 @@
 // The flow section is a WAI-ARIA tablist that also advances itself every 5s.
 // These cover the a11y wiring, the keyboard contract, the clock (advance,
-// wrap, pause on hover / off-screen / reduced motion) and which mock each
-// step shows.
+// wrap, pause on hover / focus / off-screen / reduced motion, stop for good
+// after a manual pick), the connector lines and which mock each step shows.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import Flow from './Flow'
@@ -100,6 +100,36 @@ describe('Flow tabs', () => {
     expect(screen.getByRole('tabpanel').textContent).toContain('PO-1042')
   })
 
+  it('draws one connector line per visible system card once the stage is wide enough', () => {
+    // happy-dom has no layout; give every element a plausible box so the
+    // stage passes its 700px width gate and the connector geometry resolves.
+    const proto = HTMLElement.prototype
+    const keys = ['offsetWidth', 'offsetHeight', 'offsetLeft', 'offsetTop'] as const
+    const saved = Object.fromEntries(keys.map((k) => [k, Object.getOwnPropertyDescriptor(proto, k)]))
+    Object.defineProperty(proto, 'offsetWidth', { configurable: true, get: () => 1000 })
+    Object.defineProperty(proto, 'offsetHeight', { configurable: true, get: () => 160 })
+    Object.defineProperty(proto, 'offsetLeft', { configurable: true, get: () => 40 })
+    Object.defineProperty(proto, 'offsetTop', { configurable: true, get: () => 30 })
+    try {
+      render(<Flow />)
+      const paths = () => document.querySelectorAll('.stage__lines path')
+      expect(paths()).toHaveLength(0) // step 1: nothing is connected yet
+      fireEvent.click(tabs()[1])
+      expect(paths()).toHaveLength(3)
+      fireEvent.click(tabs()[2])
+      expect(paths()).toHaveLength(4)
+      expect(document.querySelectorAll('.stage__lines circle.on').length).toBeGreaterThan(0)
+      fireEvent.click(tabs()[0])
+      expect(paths()).toHaveLength(0)
+    } finally {
+      for (const k of keys) {
+        const d = saved[k]
+        if (d) Object.defineProperty(proto, k, d)
+        else delete (proto as unknown as Record<string, unknown>)[k]
+      }
+    }
+  })
+
   it('renders a full progress bar and does not auto-advance under reduced motion', () => {
     vi.useFakeTimers()
     try {
@@ -118,7 +148,7 @@ describe('Flow auto-advance', () => {
   beforeEach(() => { reducedMotion(false); vi.useFakeTimers() })
   afterEach(() => { cleanup(); vi.useRealTimers() })
 
-  it('advances every 5s, wraps 4→1, and restarts the clock on a manual pick', () => {
+  it('advances every 5s, wraps 4→1, and stops for good after a manual pick', () => {
     render(<Flow />)
     const bar = () => tabs()[selected()].querySelector('.flow-tab__bar') as HTMLElement
     act(() => { vi.advanceTimersByTime(2500) })
@@ -135,13 +165,55 @@ describe('Flow auto-advance', () => {
     expect(selected()).toBe(0)
     expect(document.querySelector('.stage')).toBeTruthy()
 
-    // Choosing a tab by hand restarts the clock from zero.
+    // Choosing a tab by hand stops the clock: the carousel never moves under
+    // someone who has interacted with it.
     act(() => { vi.advanceTimersByTime(4000) })
     fireEvent.click(tabs()[2])
-    act(() => { vi.advanceTimersByTime(4000) })
-    expect(selected()).toBe(2) // 4s since the click, not 8s since mount
-    act(() => { vi.advanceTimersByTime(1100) })
-    expect(selected()).toBe(3)
+    expect(selected()).toBe(2)
+    expect((tabs()[2].querySelector('.flow-tab__bar') as HTMLElement).style.transform).toBe('scaleX(0)')
+    act(() => { vi.advanceTimersByTime(30000) })
+    expect(selected()).toBe(2)
+    const section = document.getElementById('flow')!
+    fireEvent.mouseEnter(section)
+    fireEvent.mouseLeave(section)
+    act(() => { vi.advanceTimersByTime(30000) })
+    expect(selected()).toBe(2)
+  })
+
+  it('stops for good after a keyboard pick as well', () => {
+    render(<Flow />)
+    fireEvent.keyDown(tabs()[0], { key: 'ArrowRight' })
+    expect(selected()).toBe(1)
+    fireEvent.blur(tabs()[1], { relatedTarget: document.body })
+    act(() => { vi.advanceTimersByTime(30000) })
+    expect(selected()).toBe(1)
+  })
+
+  it('pauses while a tab has keyboard focus and resumes once focus leaves the section', () => {
+    render(<Flow />)
+    fireEvent.focus(tabs()[0])
+    act(() => { vi.advanceTimersByTime(20000) })
+    expect(selected()).toBe(0)
+    // Focus moving between tabs inside the section is not a leave.
+    fireEvent.blur(tabs()[0], { relatedTarget: tabs()[1] })
+    fireEvent.focus(tabs()[1])
+    act(() => { vi.advanceTimersByTime(20000) })
+    expect(selected()).toBe(0)
+    fireEvent.blur(tabs()[1], { relatedTarget: document.body })
+    act(() => { vi.advanceTimersByTime(5100) })
+    expect(selected()).toBe(1)
+  })
+
+  it('keeps its progress across a hover pause rather than restarting the step', () => {
+    render(<Flow />)
+    const section = document.getElementById('flow')!
+    act(() => { vi.advanceTimersByTime(2500) })
+    fireEvent.mouseEnter(section)
+    act(() => { vi.advanceTimersByTime(20000) })
+    expect(selected()).toBe(0)
+    fireEvent.mouseLeave(section)
+    act(() => { vi.advanceTimersByTime(2600) })
+    expect(selected()).toBe(1) // 2.5s before the pause plus 2.6s after, not a fresh 5s
   })
 
   it('pauses while hovered and resumes on leave', () => {

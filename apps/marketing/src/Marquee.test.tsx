@@ -21,7 +21,16 @@ describe('Marquee', () => {
     rows.forEach((r) => expect(r.getAttribute('aria-hidden')).toBe('true'))
     expect(rows[0].className).not.toContain('marquee--reverse')
     expect(rows[1].className).toContain('marquee--reverse')
-    // Each track holds the list twice so the -50% translate loops seamlessly.
-    rows.forEach((r) => expect(r.querySelectorAll('.marquee__item')).toHaveLength(16))
+    // Each track holds the list twice so the -50% translate loops seamlessly;
+    // the second copy is marked so reduced motion can drop it.
+    rows.forEach((r) => {
+      const items = Array.from(r.querySelectorAll('.marquee__item'))
+      expect(items).toHaveLength(16)
+      expect(items.map((el) => el.classList.contains('marquee__item--dup'))).toEqual([
+        ...Array(8).fill(false), ...Array(8).fill(true),
+      ])
+      const firstCopy = items.slice(0, 8).map((el) => el.textContent)
+      expect(new Set(firstCopy).size).toBe(8)
+    })
   })
 })

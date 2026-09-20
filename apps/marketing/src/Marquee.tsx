@@ -1,8 +1,8 @@
 // Two rows of the questions a PE fields all week, scrolling in opposite
 // directions. The visual rows are aria-hidden; a plain list carries the text
 // for assistive tech. Motion is CSS-only and switched off by
-// prefers-reduced-motion (see index.css), where the rows render as a wrapped
-// static list instead.
+// prefers-reduced-motion (see index.css), where the first row renders as a
+// wrapped static list with each question once and the second row is dropped.
 
 const QUOTES = [
   'Did the steel quote come in?',
@@ -17,12 +17,13 @@ const QUOTES = [
 
 function Row({ items, reverse }: { items: string[]; reverse?: boolean }) {
   // The track holds the list twice so the -50% translate loops seamlessly.
+  // The second copy is marked so the reduced-motion static list can drop it.
   const doubled = [...items, ...items]
   return (
     <div className={`marquee${reverse ? ' marquee--reverse' : ''}`} aria-hidden="true">
       <div className="marquee__track">
         {doubled.map((q, i) => (
-          <span key={i} className="marquee__item">{q}</span>
+          <span key={i} className={`marquee__item${i >= items.length ? ' marquee__item--dup' : ''}`}>{q}</span>
         ))}
       </div>
     </div>
@@ -36,7 +37,7 @@ export default function Marquee() {
       <ul className="sr-only">
         {QUOTES.map((q) => <li key={q}>{q}</li>)}
       </ul>
-      <Row items={QUOTES.slice(0, half).concat(QUOTES.slice(half))} />
+      <Row items={QUOTES} />
       <Row items={QUOTES.slice(half).concat(QUOTES.slice(0, half))} reverse />
     </>
   )

@@ -1,18 +1,20 @@
 // The hero canvas must always paint one frame synchronously, keep animating
-// with rAF when motion is allowed, and stop at that frame under reduced
-// motion (and on unmount).
+// with rAF while motion is allowed and the canvas is on screen, and stop at
+// that frame under reduced motion, off screen, and on unmount.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, act } from '@testing-library/react'
 import HeroField from './HeroField'
-import { canvasCtx, reducedMotion } from './testSetup'
+import { canvasCtx, reducedMotion, setInView } from './testSetup'
 
 describe('HeroField', () => {
   let raf: ReturnType<typeof vi.spyOn>
   let caf: ReturnType<typeof vi.spyOn>
+  let frame: FrameRequestCallback | null
   beforeEach(() => {
     canvasCtx.clearRect.mockClear()
     canvasCtx.fillRect.mockClear()
-    raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 7)
+    frame = null
+    raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { frame = cb; return 7 })
     caf = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
   })
   afterEach(() => { cleanup(); raf.mockRestore(); caf.mockRestore(); reducedMotion(false) })
@@ -26,6 +28,27 @@ describe('HeroField', () => {
     expect(raf).toHaveBeenCalledTimes(1)
     unmount()
     expect(caf).toHaveBeenCalledWith(7)
+  })
+
+  it('repaints on every animation frame and reschedules itself', () => {
+    render(<HeroField />)
+    expect(frame).not.toBeNull()
+    act(() => { frame!(16) })
+    expect(canvasCtx.clearRect).toHaveBeenCalledTimes(2)
+    expect(raf).toHaveBeenCalledTimes(2)
+    act(() => { frame!(32) })
+    expect(canvasCtx.clearRect).toHaveBeenCalledTimes(3)
+    expect(raf).toHaveBeenCalledTimes(3)
+  })
+
+  it('cancels the loop while scrolled off screen and restarts it on return', () => {
+    render(<HeroField />)
+    expect(raf).toHaveBeenCalledTimes(1)
+    act(() => setInView(false))
+    expect(caf).toHaveBeenCalledWith(7)
+    expect(raf).toHaveBeenCalledTimes(1) // no new frame scheduled while hidden
+    act(() => setInView(true))
+    expect(raf).toHaveBeenCalledTimes(2)
   })
 
   it('renders a single static frame under reduced motion', () => {

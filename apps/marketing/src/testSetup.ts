@@ -3,8 +3,6 @@
 // visibility) without re-declaring the shape.
 import { vi } from 'vitest'
 
-export type MediaQueryStub = MediaQueryList & { set: (matches: boolean) => void }
-
 // matchMedia: a controllable list. `reducedMotion(true)` flips the query and
 // notifies listeners the way a real OS toggle would.
 const listeners = new Set<() => void>()

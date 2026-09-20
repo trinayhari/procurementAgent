@@ -112,6 +112,9 @@ function Accordion() {
     <div className="acc">
       {WHO.map((w, i) => {
         const isOpen = open === i
+        // React 18 drops boolean `inert` (it is not in its attribute table), so
+        // the closed state is written as an empty string, which it passes through.
+        const inert = isOpen ? undefined : ('' as unknown as boolean)
         return (
           <div className="acc__item" key={w.t}>
             <h3>
@@ -133,7 +136,8 @@ function Accordion() {
               id={`who-panel-${i}`}
               role="region"
               aria-labelledby={`who-btn-${i}`}
-              hidden={!isOpen}
+              aria-hidden={!isOpen}
+              inert={inert}
             >
               <div>
                 <div className="acc__inner">
@@ -306,7 +310,7 @@ export default function Landing() {
             </div>
           </div>
           <div className="foot__meta">
-            <span>© 2026 Proq</span>
+            <span>© {new Date().getFullYear()} Proq</span>
             <span>Procurement-as-a-Service for general contractors</span>
           </div>
         </div>

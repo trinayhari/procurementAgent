@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { CSSProperties, FocusEvent, KeyboardEvent, ReactNode } from 'react'
 import { Check, usePrefersReducedMotion } from './lib'
 
 // "One buyout, start to finish.": four auto-advancing steps over an
@@ -33,7 +33,7 @@ type Sys = {
 
 const SYSTEMS: Sys[] = [
   {
-    chip: 'Bill of materials', color: '#2f8ce0',
+    chip: 'Bill of materials', color: 'var(--accent)',
     title: 'Riverside WTP · Rev B · 212 lines',
     built: ['Drafted from 142 sheets', 'Sent to J. Ortiz for engineer review'],
     sourced: ['Approved by J. Ortiz', 'Addendum 2 reflected · 12" DI main now Cl 52'],
@@ -66,12 +66,18 @@ export default function Flow() {
   const [step, setStep] = useState(0)
   const [progress, setProgress] = useState(0)
   const [hover, setHover] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const [manual, setManual] = useState(false)
   const [inView, setInView] = useState(true)
   const progressRef = useRef(0)
   const sectionRef = useRef<HTMLElement | null>(null)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
-  const paused = reduced || hover || !inView
+  // The clock pauses while the pointer or keyboard focus is on the section,
+  // while it is off screen, and under reduced motion. Once the visitor picks a
+  // step by hand it stops for good: the carousel never moves under someone
+  // who has interacted with it.
+  const paused = reduced || hover || focused || manual || !inView
 
   useEffect(() => {
     if (paused) return
@@ -99,7 +105,14 @@ export default function Flow() {
     progressRef.current = 0
     setProgress(0)
     setStep(i)
+    setManual(true)
   }, [])
+
+  // Blur only counts once focus has left the section entirely, not when it
+  // moves between tabs.
+  const onBlur = (e: FocusEvent<HTMLElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false)
+  }
 
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
     const n = STEPS.length
@@ -121,6 +134,8 @@ export default function Flow() {
       className="band band--dark section"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={onBlur}
     >
       <div className="shell">
         <div className="head">
@@ -182,7 +197,8 @@ export default function Flow() {
 
 type Line = { d: string; x: number; y: number; on: boolean }
 
-function Stage({ step }: { step: number }) {
+// Memoised so the 10Hz progress tick in Flow only re-renders the tab list.
+const Stage = memo(function Stage({ step }: { step: number }) {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const sourceRef = useRef<HTMLDivElement | null>(null)
   const cardRefs = useRef<(HTMLDivElement | null)[]>([])
@@ -248,7 +264,7 @@ function Stage({ step }: { step: number }) {
         <span className="mono">Incoming · Riverside WTP</span>
         <div className="mk" ref={sourceRef}>
           <div className="inbox__head">
-            <span className="mk__chip" style={{ '--chip': '#2f8ce0' } as CSSProperties}><i />Inbox</span>
+            <span className="mk__chip" style={{ '--chip': 'var(--accent)' } as CSSProperties}><i />Inbox</span>
             <span className="inbox__search">Search</span>
           </div>
           <div className="inbox__row inbox__row--on">
@@ -270,7 +286,7 @@ function Stage({ step }: { step: number }) {
             <span className="inbox__time">Yesterday</span>
           </div>
           <div className="inbox__msg">
-            <h4>Plan set received: Riverside WTP, Rev B, 142 sheets</h4>
+            <div className="inbox__title">Plan set received: Riverside WTP, Rev B, 142 sheets</div>
             <div className="msg__meta"><b>Dana Whitfield</b><span>PM · to Procurement</span></div>
             <p>
               Rev B is out. Addendum 2 moved the 12" DI main to <strong>Cl 52</strong> and added the bypass on C-401. Can we get the water utilities package priced before the 14th? Pour is the 21st.
@@ -317,7 +333,7 @@ function Stage({ step }: { step: number }) {
       )}
     </div>
   )
-}
+})
 
 // ── Step 4: award delivered in chat ─────────────────────────────────────
 
@@ -341,7 +357,7 @@ function Msg({ who, when, bot, initials, className, children }: {
   )
 }
 
-function Chat() {
+const Chat = memo(function Chat() {
   return (
     <div className="chat fade">
       <aside className="chat__rail" aria-hidden="true">
@@ -361,7 +377,7 @@ function Chat() {
 
         <Msg who="Proq" when="9:14 AM" bot>
           <div className="msg__card">
-            <h5>Riverside WTP · Water utilities award ready</h5>
+            <p className="msg__title">Riverside WTP · Water utilities award ready</p>
             Five quoted lines, three vendors. Recommending a split: pipe and hydrants to <strong>Ferguson Waterworks</strong>, valves and fittings to <strong>Core &amp; Main</strong>. <strong>$1,620 under</strong> the best single bid with freight priced in; both inside the 14 Oct need date.
             <ul className="msg__list">
               <li><span className="tick"><Check size={13} /></span>Quotes leveled to the line · 5 of 7 suppliers</li>
@@ -385,4 +401,4 @@ function Chat() {
       </div>
     </div>
   )
-}
+})
