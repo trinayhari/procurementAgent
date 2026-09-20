@@ -2,9 +2,9 @@
 
 interface ImportMetaEnv {
   /**
-   * Where "Book a demo" / "Talk to the founders" should point — a scheduling
-   * link (Cal.com, Calendly) or a `mailto:`. When unset the CTAs render as the
-   * inert buttons the design specifies, rather than a guessed address.
+   * Where "Request a buyout" / "Talk to us" / "Start a conversation" should
+   * point, e.g. a scheduling link (Cal.com, Calendly). When unset the CTAs
+   * fall back to a mailto: for the Proq contact inbox (see Landing.tsx).
    */
   readonly VITE_DEMO_URL?: string
 }

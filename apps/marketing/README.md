@@ -1,6 +1,6 @@
 # @proq/marketing
 
-The public Proq landing page. A standalone Vite + React app — it shares nothing
+The public Proq landing page. A standalone Vite + React app; it shares nothing
 with `@proq/web` at runtime and talks to no backend.
 
 ```bash
@@ -10,34 +10,48 @@ npm run build --workspace @proq/marketing
 
 ## Where the design comes from
 
-Ported from the Claude Design project *AI procurement for contractors*
-(`Proq Landing.dc.html`). Two pieces of that project are reproduced here:
+The page positions Proq as **Procurement-as-a-Service**: we run the buy for
+general contractors, agents do the work, the GC approves every award. The
+visual system is modelled on the current crop of services-style AI landing
+pages (near-black canvas, one accent, alternating black / off-white bands,
+tight geometric type, square controls, mono micro-labels): structure and
+rhythm only; copy, nouns and mocks are Proq's.
 
-- **`src/ds.css`** — the Modernist design system, vendored from
-  `_ds/modernist-…/styles.css`. Treat it as generated: retune it in the design
-  project and re-copy, so the two don't drift. The only local change is that the
-  Archivo `@import` is dropped in favour of loading it from `index.html`.
-- **`src/index.css`** — page-level styles, including the product-mock palette.
-  That palette is the *product's* (`apps/web/src/index.css`), not Modernist's:
-  the embedded screenshots deliberately look like the app rather than the
-  marketing chrome.
-
-The design's `<sc-if>` switches survive as props on `<Landing>`:
-`altHeadline`, `showProductScreen`, `showAgentFeed`.
-
-Three responsive rules go beyond the source design, each marked with a
-`Beyond the design:` comment — the source has no mobile handling for the nav row
-or the "Always running" split.
+- **`src/index.css`**: the whole stylesheet. Tokens live on `:root`; each
+  `.band--dark` / `.band--light` sets the same four local tokens (`--bg`,
+  `--fg`, `--fg-2`, `--line`) so every component is theme-agnostic. Type is
+  Inter Tight at weight 500 with tight tracking; IBM Plex Mono carries the
+  uppercase labels. Both load from Google Fonts in `index.html`.
+- **`src/Landing.tsx`**: section order and copy: hero → the pain (marquee +
+  proof strip) → what we do → the flow → what's in a buyout → who it's for +
+  how we charge → footer CTA.
+- **`src/Flow.tsx`**: the centrepiece: four auto-advancing, clickable,
+  keyboard-navigable steps (5s each; paused on hover, off under
+  `prefers-reduced-motion`) over an "illustrative example" panel that mocks
+  the real work: inbox card, connected BOM / packages / suppliers / award
+  cards with a measured connector tree, then a chat thread where the award is
+  approved in one reply.
+- **`src/HeroField.tsx`**: the hero background: a canvas dot field with a slow
+  diagonal sweep. No image or video assets.
+- **`src/Marquee.tsx`**: the two counter-scrolling rows of PE questions.
 
 ## Configuration
 
 | Variable         | Effect |
 | ---------------- | ------ |
-| `VITE_DEMO_URL`  | Destination for "Book a demo" / "Talk to the founders". Unset, those render as the inert buttons the design specifies rather than a guessed address. |
+| `VITE_DEMO_URL`  | Destination for "Request a buyout" / "Talk to us" / "Start a conversation". Unset, those open a `mailto:` to the Proq contact inbox (`CONTACT_EMAIL` in `Landing.tsx`). |
 
 ## Deployment
 
-Not wired up. The repo's `vercel.json` builds `@proq/web` only; shipping this
-page means a second Vercel project pointed at the same repo with
-`buildCommand: npm run build --workspace @proq/marketing` and
-`outputDirectory: apps/marketing/dist`.
+Served at https://tryproq.dev by the Vercel project `proq-marketing`
+(team `trinayharis-projects`). The project is connected to this GitHub repo
+with **Root Directory** `apps/marketing`; `vercel.json` in this folder pins
+`npm install` / `npm run build` / `dist` so the repo-level `vercel.json`
+(which builds `@proq/web` for app.tryproq.dev) never applies here.
+
+- Push to `main`: production deploy to tryproq.dev.
+- Push to any other branch or PR: preview deploy at
+  `proq-marketing-git-<branch>-trinayharis-projects.vercel.app` (Vercel login
+  required; previews are SSO-protected, custom domains are public).
+- Manual deploy from this folder: `vercel` (preview) or `vercel --prod`.
+  The local link lives in `.vercel/project.json` (gitignored).
