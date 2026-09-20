@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { Check, usePrefersReducedMotion } from './lib'
 
-// "One buyout, start to finish." — four auto-advancing steps over an
+// "One buyout, start to finish.": four auto-advancing steps over an
 // illustrative panel that mocks the actual work: the plan set arriving, the
 // buy being built and connected, the sourcing round updating in place, and
 // the award landing in the team's chat for a one-line approval.
@@ -255,7 +255,7 @@ function Stage({ step }: { step: number }) {
             <span className="avatar">DW</span>
             <div style={{ minWidth: 0 }}>
               <div className="inbox__from">Dana Whitfield</div>
-              <div className="inbox__subj">Plan set received — Riverside WTP, Rev B, 142 sheets</div>
+              <div className="inbox__subj">Plan set received: Riverside WTP, Rev B, 142 sheets</div>
               <div className="inbox__pre">Rev B is out. Addendum 2 moved the 12" DI main to Cl 52 and…</div>
             </div>
             <span className="inbox__time">8:41 AM</span>
@@ -264,13 +264,13 @@ function Stage({ step }: { step: number }) {
             <span className="avatar">CM</span>
             <div style={{ minWidth: 0 }}>
               <div className="inbox__from">Core &amp; Main</div>
-              <div className="inbox__subj">RE: Eastgate storm — delivery window</div>
+              <div className="inbox__subj">RE: Eastgate storm delivery window</div>
               <div className="inbox__pre">Confirming the 24" RCP for the week of the 6th…</div>
             </div>
             <span className="inbox__time">Yesterday</span>
           </div>
           <div className="inbox__msg">
-            <h4>Plan set received — Riverside WTP, Rev B, 142 sheets</h4>
+            <h4>Plan set received: Riverside WTP, Rev B, 142 sheets</h4>
             <div className="msg__meta"><b>Dana Whitfield</b><span>PM · to Procurement</span></div>
             <p>
               Rev B is out. Addendum 2 moved the 12" DI main to <strong>Cl 52</strong> and added the bypass on C-401. Can we get the water utilities package priced before the 14th? Pour is the 21st.

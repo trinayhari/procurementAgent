@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { usePrefersReducedMotion } from './lib'
 
 // The hero background: a field of faint dots on the near-black canvas, with a
-// slow diagonal sweep of brightness passing through it — the only motion on
+// slow diagonal sweep of brightness passing through it, the only motion on
 // the fold. Pure canvas, no assets. With reduced motion it renders one static
 // frame; the first frame is always drawn synchronously so a hidden or paused
 // tab still shows the field.

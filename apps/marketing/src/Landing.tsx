@@ -4,14 +4,14 @@ import Flow from './Flow'
 import HeroField from './HeroField'
 import Marquee from './Marquee'
 
-// Proq landing page — Procurement-as-a-Service for general contractors.
+// Proq landing page: Procurement-as-a-Service for general contractors.
 // Section order: hero → the pain (marquee + proof strip) → what we do (light)
 // → the flow (the centrepiece) → what's in a buyout (light) → who it's for +
 // how we charge → footer CTA.
 
 const DEMO_URL = import.meta.env.VITE_DEMO_URL
 
-// Until a scheduling link is configured the CTAs render as inert buttons —
+// Until a scheduling link is configured the CTAs render as inert buttons;
 // better a dead control than a guessed address. Set VITE_DEMO_URL to wire them.
 function Cta({ variant = 'primary', size, className = '', children }: {
   variant?: 'primary' | 'ghost'
@@ -153,7 +153,7 @@ function Accordion() {
   )
 }
 
-// A quiet wireframe wave under the footer CTA — three sine curves in the
+// A quiet wireframe wave under the footer CTA: three sine curves in the
 // band's line colour, nothing more.
 function Wave() {
   const path = (amp: number, phase: number, y: number) => {
@@ -192,7 +192,7 @@ export default function Landing() {
             <span style={{ display: 'block' }}>We run the buy.</span>
           </h1>
           <p className="lede hero__lede">
-            Proq runs materials procurement for general contractors — takeoff, sourcing, RFQs, quote leveling, awards and expediting. AI agents do the work. Your team approves every award.
+            Proq runs materials procurement for general contractors: takeoff, sourcing, RFQs, quote leveling, awards and expediting. AI agents do the work. Your team approves every award.
           </p>
           <div className="hero__ctas">
             <Cta size="lg">Request a buyout</Cta>
