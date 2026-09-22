@@ -62,11 +62,17 @@ export default function Approve({
     }
   }
 
-  const card = css('background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:24px')
+  // Kept as strings so a variant can append declarations before css() turns
+  // them into a style object (an object concatenated with a string would
+  // stringify to "[object Object]" and lose every declaration).
+  const cardCss = 'background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-sm);padding:24px'
+  const rowCss = 'display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:8px 0;border-top:1px solid var(--border)'
+  const buttonCss = 'width:100%;height:40px;border-radius:9px;background:var(--primary);color:var(--on-primary,#fff);font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:var(--shadow-sm)'
+  const card = css(cardCss)
   const h1 = css('margin:0 0 4px;font-size:19px;font-weight:700;letter-spacing:-.01em')
   const sub = css('margin:0 0 18px;font-size:13px;color:var(--text-3)')
-  const row = css('display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:8px 0;border-top:1px solid var(--border)')
-  const button = css('width:100%;height:40px;border-radius:9px;background:var(--primary);color:var(--on-primary,#fff);font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:var(--shadow-sm)')
+  const row = css(rowCss)
+  const button = css(buttonCss)
 
   const unavailableReason = (status?: string | null): string => {
     switch (status) {
@@ -85,7 +91,7 @@ export default function Approve({
         </div>
 
         {phase === 'loading' ? (
-          <div style={css(card + ';text-align:center;color:var(--text-3);font-size:13px')}>
+          <div style={css(cardCss + ';text-align:center;color:var(--text-3);font-size:13px')}>
             Loading the award…
           </div>
         ) : phase === 'unavailable' || phase === 'error' ? (
@@ -133,7 +139,7 @@ export default function Approve({
                   <span style={css('font-weight:600')}>{money(s.total)}</span>
                 </div>
               ))}
-              <div style={css(row + ';font-size:14px;border-top:2px solid var(--border-strong,var(--border))')}>
+              <div style={css(rowCss + ';font-size:14px;border-top:2px solid var(--border-strong,var(--border))')}>
                 <span style={css('font-weight:700')}>Total</span>
                 <span style={css('font-weight:700')}>{money(preview.total)}</span>
               </div>
@@ -156,7 +162,7 @@ export default function Approve({
 
             <Box
               as="button" type="button" onClick={approve} disabled={phase === 'confirming'}
-              style={css(button + `;opacity:${phase === 'confirming' ? '.7' : '1'}`)}
+              style={css(buttonCss + `;opacity:${phase === 'confirming' ? '.7' : '1'}`)}
               hover="background:var(--primary-2)"
             >
               {phase === 'confirming' && <span style={css('width:15px;height:15px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;animation:pcSpin .7s linear infinite')}></span>}

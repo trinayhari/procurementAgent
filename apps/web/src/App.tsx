@@ -367,8 +367,12 @@ export default function App() {
   // the site; we only rewrite in place when the current URL already denotes
   // this page (initial load, or normalizing a hand-typed/partial hash) so
   // those cases don't add spurious entries.
+  // A public token page (#/approve/<token>, #/invite/<token>) owns the URL
+  // while it is showing: rewriting it to #/dashboard here would turn a reload
+  // of the approval page into the login screen and lose the link.
+  const tokenPage = !!approveToken || (!!inviteToken && !user)
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined' || tokenPage) return
     const h = hashFor(s)
     if (window.location.hash === h) return
     if (hashFor({ ...s, ...parseHash() }) === h) {
@@ -376,7 +380,7 @@ export default function App() {
     } else {
       window.history.pushState(null, '', h)
     }
-  }, [s.nav, s.projectId, s.tab, s.compare, s.comparePkg])
+  }, [s.nav, s.projectId, s.tab, s.compare, s.comparePkg, tokenPage])
 
   // Honour manual hash edits and browser back/forward by re-syncing state.
   // Transient chrome (mobile drawer, open supplier) is dropped so arriving at

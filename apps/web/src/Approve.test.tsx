@@ -48,7 +48,15 @@ describe('Approve page', () => {
     expect(screen.getByText('$18,420')).toBeTruthy()
     expect(screen.getByText('$27,720')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Approve award' }))
+    // The primary button keeps its styling (a css() object concatenated with
+    // a string once rendered it as unstyled text).
+    const approveButton = screen.getByRole('button', { name: 'Approve award' }) as HTMLButtonElement
+    expect(approveButton.style.background).toContain('var(--primary)')
+    expect(approveButton.style.width).toBe('100%')
+    const totalRow = screen.getByText('Total').parentElement as HTMLElement
+    expect(totalRow.style.display).toBe('flex')
+
+    fireEvent.click(approveButton)
     expect(await screen.findByText('Award approved')).toBeTruthy()
     expect(posts).toHaveLength(1)
     expect(screen.getByText('PO-12-0042')).toBeTruthy()
@@ -112,6 +120,10 @@ describe('App routing', () => {
     render(<App />)
     expect(await screen.findByText('Approve Water Utilities award')).toBeTruthy()
     expect(screen.queryByPlaceholderText('you@company.com')).toBeNull()
+    // The URL keeps the token while the page shows (the hash mirror used to
+    // rewrite it to #/dashboard, so a reload lost the link).
+    await new Promise((r) => setTimeout(r, 20))
+    expect(window.location.hash).toBe(`#/approve/${TOKEN}`)
   })
 
   it('dismissing an unavailable link lands on the app (login when signed out)', async () => {
