@@ -74,9 +74,11 @@ def process_interaction(payload: dict) -> None:
     """Background entry point for one interactivity payload."""
     with SessionLocal() as db:
         try:
-            handle_interaction(db, payload)
+            outcome = handle_interaction(db, payload)
         except Exception:  # noqa: BLE001
             logger.exception("slack interaction failed")
+            return
+    logger.info("slack interaction from team %s: %s", (payload.get("team") or {}).get("id"), outcome)
 
 
 def handle_interaction(db: Session, payload: dict) -> Optional[str]:

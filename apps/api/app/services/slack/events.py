@@ -177,9 +177,13 @@ def process(envelope: dict) -> None:
     """Background entry point for one event_callback envelope."""
     with SessionLocal() as db:
         try:
-            handle_event(db, envelope)
+            outcome = handle_event(db, envelope)
         except Exception:  # noqa: BLE001 - a failed event must not crash the worker
             logger.exception("slack event failed: %s", envelope.get("event_id"))
+            return
+    # Every drop has a reason in the log: an event from a workspace with no
+    # installation, or in a channel nobody linked, is otherwise silent.
+    logger.info("slack event %s (%s): %s", envelope.get("event_id"), (envelope.get("event") or {}).get("type"), outcome)
 
 
 def handle_event(db: Session, envelope: dict) -> Optional[str]:

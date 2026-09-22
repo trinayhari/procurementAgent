@@ -687,3 +687,22 @@ def test_link_requires_installation(auth):
     pid = _new_project(client, headers, "Riverside WTP")
     r = client.put(f"/api/slack/channels/{CHANNEL}", headers=headers, json={"projectId": pid})
     assert r.status_code == 409
+
+
+def test_events_and_clicks_without_an_installation_are_dropped_with_a_log_line(client, signed, slack_fakes, intake_stub, caplog):
+    """No installation for the team (a dev server with no Slack app): the
+    request is acknowledged, nothing runs, and the log says why."""
+    import logging
+
+    seen, _ = intake_stub
+    with caplog.at_level(logging.INFO, logger="procureai.slack"):
+        body = json.dumps(_message_event(files=[PLAN_FILE], event_id="EvNoInstall")).encode()
+        assert client.post("/api/webhooks/slack/events", content=body, headers=_signed_headers(body)).status_code == 200
+        assert _post_interaction(client, {
+            "type": "block_actions", "team": {"id": TEAM}, "user": {"id": "U0PM", "team_id": TEAM},
+            "channel": {"id": CHANNEL}, "message": {"ts": "1.2"},
+            "actions": [{"type": "button", "action_id": "approve_award", "value": "http://x/#/approve/tok"}],
+        }).status_code == 200
+    assert seen == [] and slack_fakes.downloads == []
+    assert "slack event EvNoInstall (message): ignored:no_installation" in caplog.text
+    assert f"slack interaction from team {TEAM}: ignored:no_installation" in caplog.text
