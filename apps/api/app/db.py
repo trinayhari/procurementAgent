@@ -55,6 +55,8 @@ SCOPED_TABLES = (
     "inbound_emails",
     "approval_tokens",
     "package_recommendations",
+    "slack_installations",
+    "slack_channel_links",
 )
 
 

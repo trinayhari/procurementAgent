@@ -16,6 +16,7 @@ from app.api.routes import (
     projects,
     quotes,
     rfqs,
+    slack,
     sourcing,
     suppliers,
     team,
@@ -31,6 +32,7 @@ from app.repositories import jobs as jobs_repo
 from app.services import scheduler
 from app.services.notify import setup as notify_setup
 from app.services.rfq import followups as _followups  # noqa: F401 - registers its scheduler job
+from app.services.notify import slack as _slack_notifier  # noqa: F401  (registers the Slack channel)
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +121,7 @@ app.include_router(approvals.router)
 
 # Every other route requires an authenticated user.
 _authed = [Depends(get_current_user)]
-for module in (dashboard, projects, sourcing, suppliers, documents, intake, rfqs, quotes, timeline, jobs, audit, team, health_routes):
+for module in (dashboard, projects, sourcing, suppliers, documents, intake, rfqs, quotes, timeline, jobs, audit, team, slack, health_routes):
     app.include_router(module.router, dependencies=_authed)
 
 # The eval bench (docs/eval-harness.md) is a local tuning tool: unauthenticated,

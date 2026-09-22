@@ -58,6 +58,13 @@ def test_every_route_requires_auth(client):
         # single-use token is the credential (404/410 without a real one).
         ("/api/approvals/{token}", "GET"),
         ("/api/approvals/{token}", "POST"),
+        # Slack: the callback gates on a signed state token, the webhooks on
+        # Slack's request signature (skipped only in development with no
+        # secret configured; tests/test_slack.py covers the 401s).
+        ("/api/webhooks/slack/oauth/callback", "GET"),
+        ("/api/webhooks/slack/events", "POST"),
+        ("/api/webhooks/slack/interactions", "POST"),
+        ("/api/webhooks/slack/commands", "POST"),
     }
     checked = 0
     for route in app.routes:

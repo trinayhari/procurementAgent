@@ -438,6 +438,143 @@
         }
       }
     },
+    "/api/webhooks/slack/oauth/callback": {
+      "get": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Oauth Callback",
+        "description": "Where Slack sends the user after the consent screen. `state` proves\nwhich org and user started the install; the code is exchanged for the\nbot token and the browser lands back on Proq's settings page.",
+        "operationId": "oauth_callback_api_webhooks_slack_oauth_callback_get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/slack/events": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Events",
+        "operationId": "events_api_webhooks_slack_events_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/slack/interactions": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Interactions",
+        "operationId": "interactions_api_webhooks_slack_interactions_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/slack/commands": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Commands",
+        "operationId": "commands_api_webhooks_slack_commands_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/approvals/{token}": {
       "get": {
         "tags": [
@@ -2554,6 +2691,119 @@
         }
       }
     },
+    "/api/projects/{project_id}/rfqs/{rfq_id}/followups": {
+      "get": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Get Rfq Followups",
+        "operationId": "get_rfq_followups_api_projects__project_id__rfqs__rfq_id__followups_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "rfq_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rfq Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RfqFollowupStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/rfqs/{rfq_id}/followups/run": {
+      "post": {
+        "tags": [
+          "sourcing"
+        ],
+        "summary": "Run Rfq Followups",
+        "description": "Chase every outstanding recipient now: ignores the delay and the\nsend window, still honours replies, the per-recipient max, and a nudge\nalready in flight. 409 while the scheduler holds this RFQ.",
+        "operationId": "run_rfq_followups_api_projects__project_id__rfqs__rfq_id__followups_run_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "rfq_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rfq Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowupRunResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/suppliers": {
       "get": {
         "tags": [
@@ -3284,6 +3534,103 @@
         }
       }
     },
+    "/api/intake/test": {
+      "post": {
+        "tags": [
+          "intake"
+        ],
+        "summary": "Run Intake Test",
+        "operationId": "run_intake_test_api_intake_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntakeTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeTestResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/projects/{project_id}/intake": {
+      "get": {
+        "tags": [
+          "intake"
+        ],
+        "summary": "List Project Intake",
+        "operationId": "list_project_intake_api_projects__project_id__intake_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IntakeRow"
+                  },
+                  "title": "Response List Project Intake Api Projects  Project Id  Intake Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/rfqs/{rfq_id}": {
       "get": {
         "tags": [
@@ -3372,54 +3719,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ThreadMessage"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/rfqs/{rfq_id}/followup": {
-      "post": {
-        "tags": [
-          "rfqs"
-        ],
-        "summary": "Draft Followup",
-        "description": "Command: generate an AI follow-up nudge for a non-responsive supplier.\n\nStubbed \u2014 returns a templated message. Replace with an LLM call.",
-        "operationId": "draft_followup_api_rfqs__rfq_id__followup_post",
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "rfq_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Rfq Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FollowupDraft"
                 }
               }
             }
@@ -3917,6 +4216,206 @@
             }
           }
         }
+      }
+    },
+    "/api/slack/status": {
+      "get": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Slack Status",
+        "description": "Server configuration + this org's installation and linked channels.",
+        "operationId": "slack_status_api_slack_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/slack/install-url": {
+      "get": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Install Url",
+        "description": "The Slack consent URL, with a state bound to this org + user (10 min).",
+        "operationId": "install_url_api_slack_install_url_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackInstallUrl"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/slack/channels": {
+      "get": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "List Channels",
+        "operationId": "list_channels_api_slack_channels_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SlackChannelLink"
+                  },
+                  "type": "array",
+                  "title": "Response List Channels Api Slack Channels Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/slack/channels/{channel_id}": {
+      "put": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Link Channel",
+        "description": "Link (or relink) a channel to one of the org's projects.",
+        "operationId": "link_channel_api_slack_channels__channel_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Channel Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackChannelLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackChannelLink"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Unlink Channel",
+        "operationId": "unlink_channel_api_slack_channels__channel_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Channel Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/installation": {
+      "delete": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Uninstall",
+        "description": "Disconnect the workspace: drop the token and every link, and revoke\nthe token at Slack (best effort: a failed revoke still disconnects).",
+        "operationId": "uninstall_api_slack_installation_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/health/providers": {
@@ -5946,18 +6445,45 @@
         "title": "EmailConfig",
         "description": "Effective outbound-email configuration, straight from the environment.\n\nLets the UI state the truth instead of implying mail is going out: when\n`configured` is false nothing is delivered, and when `senderAddressSet` is\nfalse `fromAddress` is only a placeholder."
       },
-      "FollowupDraft": {
+      "FollowupRunResult": {
         "properties": {
-          "body": {
-            "type": "string",
-            "title": "Body"
+          "rfqsScanned": {
+            "type": "integer",
+            "title": "Rfqsscanned"
+          },
+          "nudgesSent": {
+            "type": "integer",
+            "title": "Nudgessent"
+          },
+          "skippedOutsideHours": {
+            "type": "integer",
+            "title": "Skippedoutsidehours"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors",
+            "default": []
+          },
+          "recipients": {
+            "items": {
+              "$ref": "#/components/schemas/RecipientFollowupStatus"
+            },
+            "type": "array",
+            "title": "Recipients"
           }
         },
         "type": "object",
         "required": [
-          "body"
+          "rfqsScanned",
+          "nudgesSent",
+          "skippedOutsideHours",
+          "recipients"
         ],
-        "title": "FollowupDraft"
+        "title": "FollowupRunResult",
+        "description": "Outcome of POST .../followups/run (the manual \"chase now\")."
       },
       "FoundSupplier": {
         "properties": {
@@ -6169,6 +6695,159 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "IntakeDocument": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "planType": {
+            "type": "string",
+            "title": "Plantype"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "planType"
+        ],
+        "title": "IntakeDocument"
+      },
+      "IntakeRow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "fromEmail": {
+            "type": "string",
+            "title": "Fromemail"
+          },
+          "fromName": {
+            "type": "string",
+            "title": "Fromname"
+          },
+          "receivedAt": {
+            "type": "string",
+            "title": "Receivedat"
+          },
+          "processedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processedat"
+          },
+          "attachments": {
+            "type": "integer",
+            "title": "Attachments"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "subject",
+          "fromEmail",
+          "fromName",
+          "receivedAt",
+          "attachments",
+          "summary"
+        ],
+        "title": "IntakeRow"
+      },
+      "IntakeTestRequest": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject",
+            "default": ""
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "default": ""
+          },
+          "attachments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Attachments"
+          }
+        },
+        "type": "object",
+        "title": "IntakeTestRequest"
+      },
+      "IntakeTestResult": {
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "projectCreated": {
+            "type": "boolean",
+            "title": "Projectcreated"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/IntakeDocument"
+            },
+            "type": "array",
+            "title": "Documents"
+          },
+          "needBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needby"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectId",
+          "projectCreated",
+          "documents",
+          "summary"
+        ],
+        "title": "IntakeTestResult"
       },
       "Invite": {
         "properties": {
@@ -8292,6 +8971,71 @@
         "title": "QuoteIngestResult",
         "description": "Status payload for the quote-ingest poller (mirrors the search poller)."
       },
+      "RecipientFollowupStatus": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "supplierName": {
+            "type": "string",
+            "title": "Suppliername",
+            "default": ""
+          },
+          "sentAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentat"
+          },
+          "repliedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repliedat"
+          },
+          "replied": {
+            "type": "boolean",
+            "title": "Replied",
+            "default": false
+          },
+          "followups": {
+            "items": {
+              "$ref": "#/components/schemas/RfqFollowup"
+            },
+            "type": "array",
+            "title": "Followups",
+            "default": []
+          },
+          "nextDueAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextdueat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "RecipientFollowupStatus",
+        "description": "Per-recipient chase state for GET .../rfqs/{rfq_id}/followups."
+      },
       "RegisterRequest": {
         "properties": {
           "email": {
@@ -8541,6 +9285,62 @@
         ],
         "title": "RfqFolder"
       },
+      "RfqFollowup": {
+        "properties": {
+          "n": {
+            "type": "integer",
+            "title": "N"
+          },
+          "sentAt": {
+            "type": "string",
+            "title": "Sentat"
+          },
+          "messageId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messageid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n",
+          "sentAt"
+        ],
+        "title": "RfqFollowup",
+        "description": "One nudge to a recipient. `messageId` is null while the send is in\nflight (an intent); see services/rfq/followups.py."
+      },
+      "RfqFollowupStatus": {
+        "properties": {
+          "rfqId": {
+            "type": "string",
+            "title": "Rfqid"
+          },
+          "max": {
+            "type": "integer",
+            "title": "Max"
+          },
+          "recipients": {
+            "items": {
+              "$ref": "#/components/schemas/RecipientFollowupStatus"
+            },
+            "type": "array",
+            "title": "Recipients"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rfqId",
+          "max",
+          "recipients"
+        ],
+        "title": "RfqFollowupStatus"
+      },
       "RfqGenerateRequest": {
         "properties": {
           "supplier_ids": {
@@ -8676,6 +9476,31 @@
               }
             ],
             "title": "Mock"
+          },
+          "repliedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repliedat"
+          },
+          "followups": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RfqFollowup"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followups"
           }
         },
         "type": "object",
@@ -9185,6 +10010,178 @@
           "message"
         ],
         "title": "SelectResult"
+      },
+      "SlackChannelLink": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "teamId": {
+            "type": "string",
+            "title": "Teamid"
+          },
+          "channelId": {
+            "type": "string",
+            "title": "Channelid"
+          },
+          "channelName": {
+            "type": "string",
+            "title": "Channelname",
+            "default": ""
+          },
+          "projectId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projectid"
+          },
+          "projectName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projectname"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "teamId",
+          "channelId"
+        ],
+        "title": "SlackChannelLink",
+        "description": "A Slack channel the agent listens in, and the project it feeds."
+      },
+      "SlackChannelLinkRequest": {
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "channelName": {
+            "type": "string",
+            "title": "Channelname",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectId"
+        ],
+        "title": "SlackChannelLinkRequest"
+      },
+      "SlackInstallUrl": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "SlackInstallUrl"
+      },
+      "SlackStatus": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing",
+            "default": []
+          },
+          "installed": {
+            "type": "boolean",
+            "title": "Installed"
+          },
+          "teamId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teamid"
+          },
+          "teamName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teamname"
+          },
+          "botUserId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Botuserid"
+          },
+          "installedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installedat"
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/SlackChannelLink"
+            },
+            "type": "array",
+            "title": "Channels",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "installed"
+        ],
+        "title": "SlackStatus",
+        "description": "Whether the Slack app is set up on the server and installed by this org.\n\n`configured` is server-side (the three PROCUREAI_SLACK_* variables);\n`installed` is per organization (an OAuth install exists)."
       },
       "Stage": {
         "type": "string",
