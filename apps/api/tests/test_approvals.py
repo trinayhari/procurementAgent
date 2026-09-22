@@ -223,7 +223,7 @@ def test_po_number_is_in_the_winner_email(project, monkeypatch):
             sent.append({"to": to, "subject": subject, "body": body})
             return rfq_sender.SentMessage(message_id=f"m-{len(sent)}", thread_id="t")
 
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: Rec())
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: Rec())
     r = client.post(f"/api/approvals/{token}")
     assert r.status_code == 200, r.text
     for p in r.json()["poNumbers"]:

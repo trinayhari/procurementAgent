@@ -34,13 +34,8 @@ logger = logging.getLogger("procureai.notify.email")
 
 
 def _sender(db: Session, org_id: str):
-    """The org's EmailSender. `get_sender(db, org_id)` is the AgentMail
-    signature (one inbox per org); the zero-arg fallback exists only until the
-    transport branch merges and goes away then."""
-    try:
-        return get_sender(db, org_id)
-    except TypeError:
-        return get_sender()
+    """The org's EmailSender (its AgentMail agent inbox, or the mock)."""
+    return get_sender(db, org_id)
 
 SIGN_OFF = "Proq"
 

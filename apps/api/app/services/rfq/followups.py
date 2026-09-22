@@ -315,13 +315,8 @@ def _rfq_sender_user(db: Session, org_id: str, rfq_id: str):
 
 
 def _sender_for(db: Session, org_id: str):
-    """The org's agent inbox (AgentMail: one inbox per org, stream A). The
-    zero-argument fallback covers the pre-AgentMail sender and goes away at
-    merge."""
-    try:
-        return rfq_sender.get_sender(db, org_id)
-    except TypeError:
-        return rfq_sender.get_sender()
+    """The org's agent inbox (AgentMail: one inbox per org), or the mock."""
+    return rfq_sender.get_sender(db, org_id)
 
 
 def _package_awarded(db: Session, org_id: str, rfq: dict) -> bool:

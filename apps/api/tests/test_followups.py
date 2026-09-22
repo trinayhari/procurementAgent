@@ -84,8 +84,9 @@ def _org(client, headers):
 
 
 def _sent_rfq(client, headers, pid, n=2, sent_at=SENT):
-    """A sent RFQ whose recipients carry an RFC Message-ID (as stream A's
-    sender records it) and whose send time is pinned to `sent_at`."""
+    """A sent RFQ whose recipients carry a message id (as the AgentMail sender
+    records it) and whose send time, on the row and per recipient, is pinned
+    to `sent_at`."""
     bom_id = make_confirmed_bom(client, headers, pid)
     sids = run_supplier_search(client, headers, pid, bom_id)
     rfq = generate_rfq(client, headers, pid, bom_id, sids[:n])
@@ -93,7 +94,7 @@ def _sent_rfq(client, headers, pid, n=2, sent_at=SENT):
     assert r.status_code == 200 and r.json()["status"] == "Awaiting", r.text
     # The RFQ itself went through whatever sender is patched in; only nudges
     # are of interest to the tests.
-    sender = rfq_sender.get_sender()  # the same recorder whichever signature
+    sender = rfq_sender.get_sender(None, None)  # the patched recorder
     if hasattr(sender, "sent"):
         sender.sent.clear()
     org_id = _org(client, headers)
@@ -102,6 +103,7 @@ def _sent_rfq(client, headers, pid, n=2, sent_at=SENT):
         recipients = json.loads(row.recipients)
         for i, rcp in enumerate(recipients):
             rcp["messageId"] = f"<rfq-{i}@proq>"
+            rcp["sentAt"] = sent_at.isoformat()
         row.recipients = json.dumps(recipients)
         row.sent_at = sent_at.replace(tzinfo=None)
         db.commit()
