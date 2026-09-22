@@ -320,8 +320,9 @@ def test_audit_entry_and_notice_are_emitted_per_nudge(project, policy, recorder,
     ev = events[0]
     assert ev["entityId"] == rfq["id"] and ev["actorId"] == "system"
     assert ev["detail"]["email"] == rcp["email"] and ev["detail"]["n"] == 1 and ev["detail"]["mock"] is True
-    [n] = notifier.notices
-    assert n.kind == "followup.sent" and n.org_id == org_id and n.project_id == pid
+    # Other channels emit too (rfq.sent from the send itself); count ours.
+    [n] = [x for x in notifier.notices if x.kind == "followup.sent"]
+    assert n.org_id == org_id and n.project_id == pid
     assert n.title == f"Hydrants Package: chased {rcp['name']} (nudge 1 of 2)"
     assert n.meta == {"rfqId": rfq["id"], "email": rcp["email"], "n": 1}
 
@@ -373,7 +374,8 @@ def test_manual_run_forces_a_nudge_now_but_respects_the_max(project, policy, rec
     assert [[f["n"] for f in x["followups"]] for x in r.json()["recipients"]] == [[1], [1]]
     assert client.post(url, headers=headers).json()["nudgesSent"] == 2
     assert client.post(url, headers=headers).json()["nudgesSent"] == 0
-    assert len(recorder.sent) == 4 and len(notifier.notices) == 4
+    assert len(recorder.sent) == 4
+    assert len([x for x in notifier.notices if x.kind == "followup.sent"]) == 4
     # A manual chase is audited to the person who clicked, not "system".
     with SessionLocal() as db:
         events = audit_repo.list_events(db, org_id, project_id=pid, action="rfq.followup_sent")

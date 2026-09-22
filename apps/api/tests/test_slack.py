@@ -426,16 +426,13 @@ def test_approve_click_from_unknown_user_is_refused(client, signed, slack_fakes,
     assert len(slack_fakes.ephemerals) == 1
 
 
-def test_approve_click_when_approvals_not_wired(client, signed, slack_fakes, monkeypatch):
-    import app.services as services_pkg
-
-    monkeypatch.delattr(services_pkg, "approvals", raising=False)
+def test_approve_click_with_unknown_token_reports_the_error(client, signed, slack_fakes):
     headers, me = _register(client, "pm@alpha-gc.com", "Alpha GC")
     _install(me["organizationId"], me["id"])
     _post_interaction(client, _approve_payload("http://localhost:5173/#/approve/tok_abc"))
     assert slack_fakes.updates == []
     [eph] = slack_fakes.ephemerals
-    assert "not wired up yet" in eph["text"]
+    assert "could not issue the award" in eph["text"]
 
 
 def test_approve_click_failure_is_reported_ephemerally(client, signed, slack_fakes, monkeypatch):

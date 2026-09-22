@@ -335,6 +335,8 @@ export async function executeApproval(
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new ApprovalError(res.status, describeApiError(data, `Approval failed (${res.status})`))
   return data as ApprovalResult
+}
+
 // ----------------------------------------------------------------- Slack API
 // The agent as a coworker in the customer's Slack: install the app (OAuth),
 // link channels to projects, and it posts progress + award cards there. The

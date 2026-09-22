@@ -32,7 +32,6 @@ from app.repositories import jobs as jobs_repo
 from app.services import scheduler
 from app.services.notify import setup as notify_setup
 from app.services.rfq import followups as _followups  # noqa: F401 - registers its scheduler job
-from app.services.notify import slack as _slack_notifier  # noqa: F401  (registers the Slack channel)
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ def _on_startup() -> None:
         # owns the `riverside` project these attach to) is the right home.
         if settings.storage_backend != "s3" and settings.seed_demo_data:
             documents_repo.rehydrate_uploads(db, settings.upload_dir, DEMO_ORG_ID)
-    notify_setup.install()  # email + activity-feed channels for services.notify
+    notify_setup.install()  # email, activity-feed and Slack channels for services.notify
     # Periodic work (supplier follow-ups etc.); durable state is in the DB.
     scheduler.start()
 
