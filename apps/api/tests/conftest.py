@@ -24,6 +24,9 @@ os.environ.update(
         "PROCUREAI_OPENAI_API_KEY": "",
         "PROCUREAI_OPENAI_BASE_URL": "",
         "PROCUREAI_SEED_DEMO_DATA": "false",
+        # The bench is off by default now (a deployment that forgets
+        # PROCUREAI_ENV must not expose it); tests/test_bench_api.py needs it on.
+        "PROCUREAI_BENCH_ENABLED": "true",
         "PROCUREAI_ENV": "development",
         "PROCUREAI_DATABASE_URL": "sqlite:///" + tempfile.mktemp(suffix="-test.db"),
         "PROCUREAI_UPLOAD_DIR": tempfile.mkdtemp(prefix="procureai-test-uploads-"),

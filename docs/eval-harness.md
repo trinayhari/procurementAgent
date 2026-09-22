@@ -557,9 +557,12 @@ implemented as written. Everything else matches.
 
 ## 3. Bench API — `/bench/*`
 
-Dev-only, **unauthenticated**, mounted only when `settings.bench_enabled`
-(default: true when `env != "production"`, always false in production). This is a
-local tuning tool; it is never exposed publicly. `apps/api/app/main.py` already
+Dev-only, **unauthenticated**, mounted only when `PROCUREAI_BENCH_ENABLED=true`
+AND `env != "production"`. Both guards matter: the flag is OFF by default so a
+deployment that forgets `PROCUREAI_ENV` still does not expose the bench, and
+production refuses it even when the flag is on. Set the flag in your local
+environment (or the bench launch config) to use it. This is a local tuning
+tool; it is never exposed publicly. `apps/api/app/main.py` already
 mounts the stub router — fill it in, don't re-wire it.
 
 Schemas live in `apps/api/app/schemas/bench.py` (Pydantic v2), so the generated

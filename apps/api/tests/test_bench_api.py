@@ -644,3 +644,18 @@ def test_compare_leaves_a_delta_undefined_when_one_side_is_unmeasurable(
     assert per_doc["site-test-02"]["b"] is None
     assert per_doc["site-test-02"]["trials_b"] == 0
     assert per_doc["site-test-01"]["a"]["recall"] == 0.5
+
+
+def test_bench_is_off_by_default_so_a_missing_env_cannot_expose_it():
+    """The flag alone is the wall when PROCUREAI_ENV is wrong.
+
+    Production refuses the bench regardless (see the test above), but a
+    deployment that never sets PROCUREAI_ENV is not "production" and would
+    mount an unauthenticated router on the public internet. The default keeps
+    that deployment safe, so both guards have to fail before anything leaks.
+    """
+    from app.config import Settings
+
+    # The declared default, not a constructed instance: the test environment
+    # sets PROCUREAI_BENCH_ENABLED=true so the bench routes exist here.
+    assert Settings.model_fields["bench_enabled"].default is False

@@ -127,9 +127,12 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------- eval bench (dev)
     # The accuracy harness for plan extraction (see docs/eval-harness.md). It is
-    # an UNAUTHENTICATED local tuning tool, so it is mounted only outside
-    # production. Never set this true on a public deployment.
-    bench_enabled: bool = True
+    # an UNAUTHENTICATED local tuning tool, so it is mounted only when this flag
+    # is explicitly on AND the app is not in production. OFF by default: a
+    # deployment that forgets PROCUREAI_ENV must not expose it, which is exactly
+    # what happened once. Set PROCUREAI_BENCH_ENABLED=true for local tuning
+    # (the bench launch configs and docs/eval-harness.md do).
+    bench_enabled: bool = False
     # Corpus root (plan PDFs + ground truth). Relative paths resolve from the
     # repo root, not apps/api.
     bench_corpus_dir: str = "bench-corpus"

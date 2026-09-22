@@ -148,8 +148,10 @@ for module in (dashboard, projects, sourcing, suppliers, documents, intake, inbo
     app.include_router(module.router, dependencies=_authed)
 
 # The eval bench (docs/eval-harness.md) is a local tuning tool: unauthenticated,
-# and mounted only outside production. Production hard-refuses it regardless of
-# the flag, so a stray PROCUREAI_BENCH_ENABLED can't expose the corpus.
+# and mounted only when PROCUREAI_BENCH_ENABLED is explicitly on AND the app is
+# not in production. Two independent guards, because either one alone has a
+# failure mode: production hard-refuses it regardless of the flag, and the flag
+# is off by default so a deployment that never sets PROCUREAI_ENV is still safe.
 if settings.bench_enabled and settings.env != "production":
     app.include_router(bench.router)
 elif settings.bench_enabled:
