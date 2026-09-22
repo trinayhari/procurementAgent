@@ -1109,8 +1109,8 @@ function Settings({ m }: MProps) {
       const r = await sendTestEmail()
       setTestResult(
         r.mocked
-          ? 'Mock mode — no Gmail connected, so nothing was delivered; the send was only logged. See docs/email-setup.md.'
-          : `Sent to ${r.to} from ${r.fromAddr}${r.cc ? `, copied to ${r.cc}` : ''} — check your inbox.`,
+          ? 'Mock mode: no AgentMail key set, so nothing was delivered; the send was only logged. See docs/email-setup.md.'
+          : `Sent to ${r.to} from ${r.fromAddr}${r.cc ? `, copied to ${r.cc}` : ''}. Check your inbox.`,
       )
     } catch (ex) {
       setTestErr(ex instanceof Error ? ex.message : 'Test send failed')
@@ -1119,8 +1119,8 @@ function Settings({ m }: MProps) {
       getEmailConfig().then(setEmailCfg).catch(() => {})
     }
   }
-  // Live provider check (GET /api/health/providers) — only on an explicit
-  // click: it refreshes the Gmail token and makes a model call for real.
+  // Live provider check (GET /api/health/providers): only on an explicit
+  // click, it creates or reads the org's agent inbox and makes a model call for real.
   const [probing, setProbing] = useState(false)
   const [probe, setProbe] = useState<ProvidersHealth | null>(null)
   const [probeErr, setProbeErr] = useState<string | null>(null)
@@ -1160,22 +1160,22 @@ function Settings({ m }: MProps) {
             <div style={{ flex: 1 }}>
               <div style={css('font-size:13.5px;font-weight:600')}>Sent from</div>
               <div style={css('font-size:12px;color:var(--text-3)')}>
-                Every RFQ, award notice and update leaves the workspace's connected Gmail account, showing your name and company. Supplier replies come back to it, which is how quotes are ingested.
+                Every RFQ, award notice and update leaves your organization's agent inbox, showing your name and company. Suppliers reply to it, which is how quotes are ingested.
               </div>
               {emailCfg && !emailCfg.configured && (
                 <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>
-                  No Gmail account connected — nothing is delivered, sends are only logged.
+                  No AgentMail key set: nothing is delivered, sends are only logged.
                   {(emailCfg.missing || []).length > 0 && <> Missing: <span style={css("font-family:'JetBrains Mono',monospace;font-weight:500")}>{(emailCfg.missing || []).join(', ')}</span>.</>} See docs/email-setup.md.
                 </div>
               )}
-              {emailCfg && emailCfg.configured && emailCfg.gmail && emailCfg.gmail.lastError && (
+              {emailCfg && emailCfg.configured && emailCfg.agentmail && emailCfg.agentmail.lastError && (
                 <div style={css('font-size:12px;color:var(--danger);font-weight:600;margin-top:4px')}>
-                  Gmail is configured but the last call failed: {String(emailCfg.gmail.lastError)}
+                  AgentMail is configured but the last call failed: {String(emailCfg.agentmail.lastError)}
                 </div>
               )}
             </div>
-            <span style={css(`font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border);flex:none;${emailCfg && emailCfg.configured && emailCfg.senderAddressSet ? '' : 'color:var(--warn)'}`)}>
-              {!emailCfg ? '…' : emailCfg.configured && emailCfg.senderAddressSet ? emailCfg.fromAddress : 'Not configured'}
+            <span style={css(`font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border);flex:none;${emailCfg && emailCfg.configured && emailCfg.inboxAddress ? '' : 'color:var(--warn)'}`)}>
+              {!emailCfg ? '…' : !emailCfg.configured ? 'Not configured' : emailCfg.inboxAddress || 'Not created yet'}
             </span>
           </div>
           <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
@@ -1212,7 +1212,7 @@ function Settings({ m }: MProps) {
             <div style={{ flex: 1 }}>
               <div style={css('font-size:13.5px;font-weight:600')}>Connections</div>
               <div style={css('font-size:12px;color:var(--text-3)')}>
-                Gmail delivers RFQs and reads replies; the AI model turns replies into structured quotes.
+                AgentMail delivers RFQs and receives replies; the AI model turns replies into structured quotes.
                 {emailCfg && emailCfg.llm && (
                   emailCfg.llm.configured
                     ? (emailCfg.llm.lastError
@@ -1223,8 +1223,8 @@ function Settings({ m }: MProps) {
               </div>
               {probe && (
                 <div style={css('font-size:12px;margin-top:6px;display:flex;flex-direction:column;gap:3px')}>
-                  <div style={css(`font-weight:600;color:${probe.gmail.ok ? 'var(--success)' : 'var(--danger)'}`)}>
-                    Gmail: {probe.gmail.ok ? `connected as ${probe.gmail.emailAddress} (send + read OK)` : (probe.gmail.error || 'failed')}
+                  <div style={css(`font-weight:600;color:${probe.email.ok ? 'var(--success)' : 'var(--danger)'}`)}>
+                    AgentMail: {probe.email.ok ? `inbox ${probe.email.inboxAddress} ready` : (probe.email.error || 'failed')}
                   </div>
                   <div style={css(`font-weight:600;color:${probe.llm.ok ? 'var(--success)' : 'var(--danger)'}`)}>
                     AI model: {probe.llm.ok ? `${probe.llm.model} answered` : (probe.llm.error || 'failed')}
@@ -1233,7 +1233,7 @@ function Settings({ m }: MProps) {
               )}
               {probeErr && <div style={css('font-size:12px;color:var(--danger);margin-top:4px')}>{probeErr}</div>}
             </div>
-            <Box as="button" onClick={runProbe} disabled={probing} title="Makes a real Gmail token refresh and a one-token model call" style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;flex:none;${probing ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
+            <Box as="button" onClick={runProbe} disabled={probing} title="Makes a real AgentMail inbox check and a one-token model call" style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;flex:none;${probing ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
               {probing ? 'Checking…' : 'Check connections'}
             </Box>
           </div>
@@ -2765,15 +2765,15 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 }
 
 // Shared RFQ modal. A draft is editable and can be sent (the user-approval step,
-// via Gmail or the logging mock). Once sent it becomes the conversation view:
-// the full email thread is read live from Gmail, and "Check for replies" pulls
+// via AgentMail or the logging mock). Once sent it becomes the conversation view:
+// the thread is our RFQ plus every stored supplier reply, and "Check for replies" pulls
 // any supplier response — flipping the RFQ to 'Replied' when one has arrived.
 // Attachable project documents for the RFQ modal — anything with a stored file.
 type AttachableDoc = { id?: string; name: string; hasFile?: boolean; fileMissing?: boolean; fileSize?: number | null }
 
 // Total attachment budget per email — mirrors services/rfq/sender.py
 // MAX_ATTACHMENT_TOTAL_BYTES; the backend 400 remains the backstop.
-const MAX_ATTACHMENT_TOTAL_BYTES = 15 * 1024 * 1024
+const MAX_ATTACHMENT_TOTAL_BYTES = 4 * 1024 * 1024
 function fmtBytes(n: number): string {
   if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(n >= 10 * 1024 * 1024 ? 0 : 1)} MB`
   if (n >= 1024) return `${Math.round(n / 1024)} KB`
@@ -3009,7 +3009,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
                   <div style={css('display:flex;align-items:center;gap:9px')}>
                     <div style={css('flex:1;min-width:0')}><div style={css('font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.name}</div><div style={css('font-size:11.5px;color:var(--text-3)')}>{r.email}</div></div>
                     {st === 'sent' && (r.mock
-                      ? <span title="No Gmail account is connected: the send was only logged, nothing was delivered." style={css('font-size:11px;font-weight:600;color:var(--warn)')}>Logged (mock)</span>
+                      ? <span title="No AgentMail key is set: the send was only logged, nothing was delivered." style={css('font-size:11px;font-weight:600;color:var(--warn)')}>Logged (mock)</span>
                       : <span style={css('font-size:11px;font-weight:600;color:var(--success)')}>Sent</span>)}
                     {st === 'failed' && <span style={css('font-size:11px;font-weight:600;color:var(--danger)')}>Failed</span>}
                     {st === 'unsent' && !draft && <span style={css('font-size:11px;font-weight:600;color:var(--text-3)')}>Not sent</span>}
@@ -3089,12 +3089,10 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
                   style={css(`display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);${loadingConv ? 'opacity:.6' : ''}`)}
                   hover="background:var(--panel-2)"><Svg size={13} sw={2} d='M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5' />{loadingConv ? 'Checking…' : 'Check for replies'}</Box>
               </div>
-              {conv && !conv.gmail && (
-                conv.readError
-                  ? <div style={css('font-size:11.5px;color:var(--danger);font-weight:600;margin-bottom:10px')}>Couldn’t read the live Gmail thread — {conv.readError} Showing what Proq has on record; supplier replies may be missing.</div>
-                  : conv.configured
-                    ? <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>No live Gmail thread for this RFQ yet — showing what Proq has on record.</div>
-                    : <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>Showing a local preview — set Gmail credentials to read the live thread.</div>
+              {conv && !conv.live && (
+                conv.configured
+                  ? <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>No supplier reply has reached the agent inbox for this RFQ yet.</div>
+                  : <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>Showing a local preview: set the AgentMail key so supplier replies arrive in this thread.</div>
               )}
               <div style={css('display:flex;flex-direction:column;gap:16px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);max-height:340px;overflow-y:auto')}>
                 {!conv && loadingConv && <div style={css('font-size:12.5px;color:var(--text-3);text-align:center;padding:18px')}>Loading conversation…</div>}
@@ -3109,10 +3107,10 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
         <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border);flex-wrap:wrap')}>
           <span style={css('flex:1;min-width:180px;font-size:11.5px;color:var(--text-3)')}>
             {draft
-              ? (recipients.length === 0 ? 'Nothing can be sent without a recipient.' : `Sends to every recipient${liveAttachIds.length ? ` with ${liveAttachIds.length} attachment${liveAttachIds.length === 1 ? '' : 's'}` : ''} via Gmail (or a logging mock if unconfigured). Emails can’t be recalled once sent.`)
+              ? (recipients.length === 0 ? 'Nothing can be sent without a recipient.' : `Sends to every recipient${liveAttachIds.length ? ` with ${liveAttachIds.length} attachment${liveAttachIds.length === 1 ? '' : 's'}` : ''} from your agent inbox (or a logging mock if unconfigured). Emails can’t be recalled once sent.`)
               : sendFailed
                 ? `${unsent.length} recipient${unsent.length === 1 ? '' : 's'} still unsent — retry only re-attempts those; suppliers already emailed are never sent twice.`
-                : 'The conversation is read live from Gmail — use Check for replies to refresh.'}
+                : 'Supplier replies arrive here automatically; use Check for replies to re-run parsing.'}
           </span>
           <Box as="button" onClick={requestClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{draft ? (dirty ? 'Cancel' : 'Close') : 'Close'}</Box>
           {draft && (
@@ -3294,7 +3292,7 @@ function TabQuotes({ m }: MProps) {
             const bits = [`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}`]
             if (st.needsReview) bits.push(`${st.needsReview} repl${st.needsReview === 1 ? 'y' : 'ies'} with no amount — open the RFQ conversation to review`)
             if (st.superseded) bits.push(`${st.superseded} earlier revision${st.superseded === 1 ? '' : 's'} replaced`)
-            setNote(bits.join(' · ') + (st.mocked ? ' (simulated — no Gmail connected)' : ''))
+            setNote(bits.join(' · ') + (st.mocked ? ' (simulated: no AgentMail key set)' : ''))
           }
           break
         }
@@ -3423,7 +3421,7 @@ function TabCompare({ m }: MProps) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [submitErr, setSubmitErr] = useState<string | null>(null)
-  // Supplier notifications that failed on the last award (Gmail down, token
+  // Supplier notifications that failed on the last award (AgentMail down, key
   // expired…) — the award stands, the emails can be re-sent once fixed.
   const [notifyFailed, setNotifyFailed] = useState<{ supplier: string; email?: string | null; error: string }[]>([])
   const [resending, setResending] = useState(false)

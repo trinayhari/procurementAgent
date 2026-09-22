@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # Blunt credential stuffing: 10 login attempts / 5 registrations per IP per minute.
 _login_limit = rate_limit("login", limit=10, window_s=60)
 _register_limit = rate_limit("register", limit=5, window_s=60)
-# Test emails go through the real Gmail quota when configured — keep it slow.
+# Test emails go through the real AgentMail quota when configured: keep it slow.
 _test_email_limit = rate_limit("test-email", limit=3, window_s=60)
 
 
@@ -90,16 +90,21 @@ def update_me(
 
 
 @router.get("/email-config", response_model=EmailConfig)
-def email_config(current_user: User = Depends(get_current_user)):
-    """The effective outbound-email setup: which mailbox mail leaves from,
-    whether Gmail is actually connected, and your Cc address.
+def email_config(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The effective outbound-email setup: the organization's agent inbox
+    (null until it has been created), whether AgentMail is configured and
+    answering, and your Cc address.
 
-    Every field derives from the PROCUREAI_GMAIL_* environment variables (see
-    docs/email-setup.md) — nothing here is per-user except `ccEmail` and the
-    display name baked into `fromHeader`.
+    Everything but `ccEmail` and the display name baked into `fromHeader`
+    derives from the PROCUREAI_AGENTMAIL_* environment variables and the
+    org's inbox (see docs/email-setup.md).
     """
-    cfg = rfq_sender.email_config()
-    cfg["fromHeader"] = rfq_sender.from_display(current_user)
+    org_id = current_user.organization_id
+    cfg = rfq_sender.email_config(db, org_id)
+    cfg["fromHeader"] = rfq_sender.from_display(current_user, address=cfg["inboxAddress"])
     cfg["ccEmail"] = current_user.cc_email
     cfg["llm"] = llm_health.status()
     return cfg
@@ -116,23 +121,33 @@ def send_test_email(
 ):
     """Verify the email configuration by sending a test message to yourself.
 
-    Uses exactly the same path as an RFQ send: the configured provider (Gmail
-    or the logging mock) and the workspace From address carrying your display
-    name. See docs/email-setup.md.
+    Uses exactly the same path as an RFQ send: the configured provider
+    (AgentMail, from the organization's agent inbox, or the logging mock) and
+    the From identity carrying your display name. See docs/email-setup.md.
     """
-    sender = rfq_sender.get_sender()
-    from_addr = rfq_sender.from_header(current_user)
-    shown_from = rfq_sender.from_display(current_user)  # same identity, readable
+    org_id = current_user.organization_id
+    try:
+        sender = rfq_sender.get_sender(db, org_id)
+    except Exception as exc:
+        reason = str(exc) or exc.__class__.__name__
+        audit_repo.log(
+            db, org_id, current_user, "email.test_failed", "user", current_user.id,
+            detail={"to": current_user.email, "error": reason},
+        )
+        raise HTTPException(status_code=502, detail=f"Test send failed: {reason}")
+    address = getattr(sender, "address", None)
+    from_addr = rfq_sender.from_header(current_user, address=address)
+    shown_from = rfq_sender.from_display(current_user, address=address)  # same identity, readable
     cc = rfq_sender.resolve_cc(current_user.cc_email, current_user.email, from_addr)
     body = (
         f"This is a test email from Proq.\n\n"
         f"From: {shown_from}\n"
         f"Requested by: {current_user.email}\n"
         + (f"Copied to: {cc}\n" if cc else "")
-        + "\nAll Proq email is sent from the workspace's connected Gmail account; "
+        + "\nAll Proq email for your organization is sent from its agent inbox; "
         "your own address is only ever copied (Cc) so you keep a record. Supplier "
-        "replies come back to the workspace mailbox, which is what feeds quote "
-        "ingest — see docs/email-setup.md in the repo.\n\n— Proq"
+        "replies come back to that inbox, which is what feeds quote ingest. "
+        "See docs/email-setup.md in the repo.\n\nProq"
     )
     try:
         sent = sender.send(

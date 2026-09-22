@@ -1,251 +1,182 @@
-# Email Setup — connecting the workspace mailbox
+# Email setup: agent inboxes on AgentMail
 
-This guide takes you from zero to RFQs being emailed, including the Google
-Cloud console steps, every `.env` variable, and how to verify it end to end.
-
-> **No "Send mail as" alias needed any more.** Outbound mail now always comes
-> from the one connected Gmail account, so the fiddly per-user alias
-> verification this guide used to require is gone. If you set aliases up for
-> Proq previously, you can remove them (see
-> [Undoing the old alias setup](#undoing-the-old-alias-setup)).
+This guide takes you from zero to RFQs being emailed and supplier replies
+flowing back in, including the AgentMail console steps, DNS at GoDaddy, every
+`.env` variable, and how to verify it end to end without sending anything.
 
 ## How it works (read this first)
 
-- The app sends all email through **one connected Gmail account**, using a
-  Google OAuth *refresh token* you mint once. RFQ sends use the `gmail.send`
-  scope; reading supplier quote replies uses `gmail.readonly`.
-- **Every message is `From:` that account** — the address in
-  `PROCUREAI_GMAIL_SENDER_ADDRESS`. There is no per-user From address.
-- **The buyer stays visible** through the display name. A send by Jane Doe of
-  Acme Construction goes out as
-  `"Jane Doe — Acme Construction" <bids@yourcompany.com>`. Missing name or
-  company just shortens the label.
-- **Users are copied, not impersonated.** Each user can set a **"Copy me on
-  emails"** address in **Settings**; it is added as `Cc:` on the RFQs, award
-  notices and test emails they trigger, so they keep a record. It is dropped
-  when it would duplicate the recipient or the sending mailbox.
-- **Replies deliberately go to the connected mailbox** — there is no
-  `Reply-To:` pointing at the user. That inbox is what quote ingest reads and
-  what rebuilds each RFQ conversation, so redirecting replies would silently
-  break both.
-- **Why one mailbox:** Gmail rewrites the `From:` header back to the connected
-  account unless the address is a verified alias, which used to make sends
-  arrive from the "wrong" sender. Sending from the account itself removes that
-  failure mode entirely.
-- **Not fully configured → mock mode.** All four `PROCUREAI_GMAIL_*` variables
-  (client id, client secret, refresh token **and** sender address) must be set
-  for anything to be delivered. Missing any one of them, sends are logged, not
-  delivered, and the UI says so explicitly (Settings → **Sent from** shows
-  *Not configured* and names the missing variables). Nothing real can go out
-  until you finish this guide, and the test suite force-blanks these variables
-  so tests can never send real email.
-- **Configured ≠ working.** A revoked or expired refresh token looks
-  configured until the first real call fails. Settings → **Email delivery**
-  shows the last Gmail / AI-model failure, and **Check connections** (or
-  `GET /api/health/providers`) makes a real token refresh, reads the mailbox
-  profile and makes a one-token model call so you can verify a freshly minted
-  token without sending anything.
-- **How replies are found.** "Check for replies" reads every Gmail thread an
-  RFQ send created (so a supplier who answers from a different address than
-  the one you emailed is still attributed to that RFQ), then searches by the
-  recipient addresses for suppliers who composed a fresh email with the RFQ
-  subject. Mail whose thread is known and different is skipped rather than
-  guessed. A later reply from the same supplier supersedes their earlier
-  quote; a reply with no readable amount is stored as **Needs review** on the
-  Quotes tab instead of being ranked.
+- **One agent inbox per customer organization.** The first time an
+  organization sends (an RFQ, a test email, an invite) Proq creates an inbox
+  for it through the AgentMail API and stores the address on the organization
+  (`organizations.agentmail_inbox_id`). The username is a slug of the org name
+  (`acme-construction@proq.tryproq.dev`), the display name is
+  `Proq for Acme Construction`, and the org id is passed as `client_id` so a
+  retried create never makes a second inbox.
+- **That address is the agent's identity for the customer.** The PM emails it
+  with a plan set, suppliers receive RFQs from it and reply to it, award
+  notices and follow-ups go out as replies in the same threads.
+- **The buyer stays visible** through the display name we record
+  (`"Jane Doe: Acme Construction" <acme-construction@proq.tryproq.dev>`) and
+  through Cc: each user can set a **"Copy me on emails"** address in
+  **Settings**; it is added as `Cc:` on the RFQs, award notices and test
+  emails they trigger. It is dropped when it would duplicate the recipient or
+  the inbox. A user's own address is never the From, and there is no
+  `Reply-To` pointing at the user: replies must land in the agent inbox,
+  which is the only place the webhook reads.
+- **Replies arrive by webhook, not polling.** One organization-level webhook
+  in AgentMail posts every `message.received` event (for every inbox) to
+  `POST /api/webhooks/agentmail`. The route verifies the Svix signature,
+  maps the inbox to the organization, downloads attachments into document
+  storage, stores the message as an `inbound_emails` row, and hands it to
+  `services/inbound`. A supplier reply is attributed to its RFQ by the
+  AgentMail **thread id** recorded on the recipient when the RFQ was sent
+  (fallback: the `In-Reply-To` header naming a message we sent), the
+  recipient gets `repliedAt`, and the reply is parsed into a quote. A later
+  reply from the same supplier supersedes their earlier quote; a reply with
+  no readable amount is stored as **Needs review** on the Quotes tab.
+- **Not configured, then mock mode.** With `PROCUREAI_AGENTMAIL_API_KEY` empty,
+  sends are logged, not delivered, and the UI says so (Settings shows
+  *Not configured* and names the variable). The test suite force-blanks the
+  key so tests can never send real email.
+- **Configured is not the same as working.** A revoked key looks configured
+  until the first real call fails. Settings shows the last AgentMail / AI
+  failure, and **Check connections** (`GET /api/health/providers`) creates or
+  reads the org's inbox for real so you can verify a fresh key without
+  sending anything.
+- **Attachment cap.** AgentMail accepts 6 MB per request with inline
+  attachments (base64 inflates by about a third), so RFQs cap chosen
+  documents at **4 MB** per email. Larger plan sets are better shared as a
+  link; URL-backed attachments (30 MB) are the escape hatch if that ever
+  changes.
 
 ---
 
-## Step 1 — Create a Google Cloud project & enable the Gmail API
+## Step 1: API key
 
-1. Go to <https://console.cloud.google.com> and sign in **as the Google
-   account that will send the email** (e.g. `bids@yourcompany.com`).
-2. Top bar → project picker → **New Project** → name it (e.g. `procureai-email`)
-   → **Create**, then make sure it's selected.
-3. **APIs & Services → Library** → search **"Gmail API"** → **Enable**.
+1. Sign in at <https://console.agentmail.to> and create an organization API
+   key (**API Keys** in the sidebar). Give it the default permissions; the
+   app creates inboxes, sends, replies and reads attachments.
+2. Put it in `apps/api/.env` (or the service variables in production):
 
-## Step 2 — Configure the OAuth consent screen
-
-1. **APIs & Services → OAuth consent screen** (Google may call this
-   **"Google Auth Platform → Branding/Audience"** in the new console).
-2. User type: **External** (unless the account is in your own Google
-   Workspace org — then **Internal** is simpler and skips Step 2.5).
-3. Fill the required fields (app name e.g. `Proq`, support email,
-   developer email). No logo/domains needed.
-4. **Scopes**: you can skip adding scopes here — the token-mint script
-   requests them directly. (Adding `.../auth/gmail.send` and
-   `.../auth/gmail.readonly` here is fine but not required.)
-5. **Test users** (External apps only): add the Gmail address from Step 1.
-   Only listed test users can authorize while the app is in *Testing* status.
-
-> ⚠️ **Token-expiry trap:** while the consent screen is in **Testing**
-> status, Google expires refresh tokens after **7 days** — email will
-> silently fall back to failing sends weekly. For anything beyond a quick
-> trial, go to **OAuth consent screen → Publish app** ("In production").
-> You do NOT need Google's verification review for your own use — ignore the
-> "unverified app" warning during consent. Internal (Workspace) apps don't
-> have this problem.
-
-## Step 3 — Create the OAuth client & mint the refresh token
-
-1. **APIs & Services → Credentials → + Create credentials →
-   OAuth client ID** → Application type: **Desktop app** → **Create**.
-2. **Download JSON** (a file like `client_secret_xxx.json`).
-3. On your machine:
-
-   ```bash
-   cd apps/api
-   .venv/bin/python scripts/mint_gmail_token.py path/to/client_secret_xxx.json
+   ```
+   PROCUREAI_AGENTMAIL_API_KEY=am_...
    ```
 
-4. A browser opens — **sign in as the sending account**, click through the
-   "Google hasn't verified this app" warning (Advanced → continue), and
-   **Allow** both permissions (send + read).
-5. The script prints four `PROCUREAI_GMAIL_*` lines. Keep them for Step 4.
+That alone is enough to send from AgentMail's default domain
+(`<slug>@agentmail.to`), which is fine for development. Free-tier messages
+carry a "Sent via AgentMail" footer; paid plans do not.
 
-   - "No refresh token returned"? Revoke the app's prior access at
-     <https://myaccount.google.com/permissions> and re-run.
+## Step 2: custom domain (`proq.tryproq.dev`)
 
-## Step 4 — Configure the backend `.env`
+Suppliers should see mail from your domain, not `agentmail.to`.
 
-Edit `apps/api/.env` (create it from `apps/api/.env.example` if needed):
+1. In the console go to **Domains** and add `proq.tryproq.dev` (or run
+   `client.domains.create("proq.tryproq.dev")`). AgentMail returns the DNS
+   records to add: an **MX** record (inbound mail), **TXT** records for SPF,
+   DKIM (one or more `<selector>._domainkey` names) and DMARC (`_dmarc`).
+2. Our registrar is **GoDaddy**. In the GoDaddy DNS manager for
+   `tryproq.dev`, add each record under the subdomain:
+   - **MX**: Name `proq`, Value the mail server AgentMail shows, Priority as
+     shown (typically 10).
+   - **TXT**: Name is the part before `.tryproq.dev` (`proq` for the SPF
+     record, `_dmarc.proq` for DMARC, `<selector>._domainkey.proq` for DKIM);
+     Value copied exactly from the console. GoDaddy accepts the long DKIM value
+     as one string.
+   Do not touch the apex records that serve `tryproq.dev` (marketing) or
+   `app.tryproq.dev` (the web app); everything here lives under `proq.`.
+3. Back in the console click **Verify**. Propagation takes minutes to a couple
+   of hours; the status goes `pending` to `verifying` to `verified`. Then set:
 
-```bash
-PROCUREAI_GMAIL_CLIENT_ID=<from the script output>
-PROCUREAI_GMAIL_CLIENT_SECRET=<from the script output>
-PROCUREAI_GMAIL_REFRESH_TOKEN=<from the script output>
-# The one From address for ALL outbound mail. Set it to the address of the
-# account you authorized in Step 3 — anything else gets rewritten by Gmail.
-PROCUREAI_GMAIL_SENDER_ADDRESS=bids@yourcompany.com
+   ```
+   PROCUREAI_AGENTMAIL_DOMAIN=proq.tryproq.dev
+   ```
 
-# Optional: how far back quote ingest scans for supplier replies (days).
-PROCUREAI_QUOTE_INGEST_LOOKBACK_DAYS=30
-```
+   Inboxes created before this stay on `agentmail.to`; new organizations get
+   the custom domain. To move an existing org, clear
+   `organizations.agentmail_inbox_id` and the next send creates a new inbox
+   (its old threads keep working: replies to them still reach the old inbox
+   as long as it exists, and the webhook maps any inbox to its org).
 
-Restart the backend. `.env` is git-ignored — **never commit it**, and rotate
-any credential that leaks.
+## Step 3: inbound webhook
 
-All four variables are required for delivery (`configured: true`); the sender
-address must be the account the token belongs to. Settings → **Sent from**
-reports the state, and `GET /api/auth/email-config` returns it as
-`{configured, mocked, senderAddressSet, fromAddress, fromHeader, ccEmail,
-missing, gmail: {lastError, …}, llm: {configured, model, lastError, …}}` —
-`missing` names any unset variable, `gmail.lastError` / `llm.lastError` are
-the last real failures observed (readable, e.g. "Gmail connection expired or
-was revoked (invalid_grant) — re-mint the refresh token…").
+1. Console, **Webhooks**, **Create Webhook**:
+   - URL: `https://<api host>/api/webhooks/agentmail`
+     (Railway: `https://<your-app>.up.railway.app/api/webhooks/agentmail`).
+   - Events: `message.received` (and `message.received.unauthenticated` if
+     you want mail from senders without SPF/DKIM to be processed too; the
+     route accepts both).
+   - Scope: organization-level (all inboxes). Do not create one per inbox.
+2. Copy the signing secret (starts with `whsec_`) and set:
 
-## Step 5 — Get yourself copied (per user, optional)
+   ```
+   PROCUREAI_AGENTMAIL_WEBHOOK_SECRET=whsec_...
+   ```
 
-1. Log in → **Settings** → **"Copy me on emails"** → enter your own address →
-   **Save**. Clearing it stops the copies.
-2. That address is `Cc:`'d on the RFQs and award notices **you** send, so the
-   thread is in your mailbox too. It never changes who the email is from, and
-   it is skipped when it would just duplicate the recipient.
-3. Nothing to configure in Gmail — no alias, no verification.
+   The route verifies every delivery (`svix-id`, `svix-timestamp`,
+   `svix-signature`; HMAC-SHA256 over `id.timestamp.body`, five-minute
+   tolerance). With the secret empty, verification is skipped in development
+   and **refused (503) in production**, so a production deploy without the
+   secret drops all inbound mail loudly rather than accepting spoofed posts.
+3. Optional multi-tenant isolation: create a pod in the console and set
+   `PROCUREAI_AGENTMAIL_POD_ID`; inboxes are then created inside it.
 
-> Replying from your own mailbox is fine for one-off notes, but keep the
-> conversation on the workspace mailbox where you can: quote ingest only reads
-> that inbox.
+## Step 4: verify
 
-## Step 6 — Verify
+1. Restart the API and sign in.
+2. **Settings** shows *Sent from* as *Not created yet* until the first send.
+   Click **Check connections**: the org's inbox is created and read back, and
+   the address appears.
+3. Click **Send test email**: a message from the org inbox to your login
+   address (Cc'd to your "Copy me" address if set). Reply to it from your mail
+   client: the reply shows up under `GET /api/inbound` within seconds
+   (`kind: unknown`, since a test email is not an RFQ).
+4. Send a real RFQ to yourself, reply with a price, and watch the RFQ flip to
+   **Quoted** with the reply in its conversation.
 
-In the app: **Settings → Email delivery → "Send test email"**. It sends a
-message **to your own login email** through exactly the RFQ path and reports
-the From address and Cc it used.
+## Environment variables
 
-- ✅ Arrived from `Your Name — Your Company <PROCUREAI_GMAIL_SENDER_ADDRESS>`
-  → you're done. That is the expected sender for every user.
-- ✅ Arrived, but from the connected account with **no** display name → the
-  account has no name/company set (Settings shows what's on file).
-- Settings → **Sent from** shows *Not configured*, or the test says "Mock
-  mode" → the three `PROCUREAI_GMAIL_*` creds aren't all set where the backend
-  runs (check Step 4 / Step 7).
-- Sent from `rfq@procureai.local` → that is the placeholder used when
-  `PROCUREAI_GMAIL_SENDER_ADDRESS` is empty; it is not a real mailbox. Set the
-  variable.
-- "Gmail connection expired or was revoked (invalid_grant)" → the refresh
-  token was revoked or expired (Testing-status 7-day trap — see Step 2).
-  Re-run Step 3, then Settings → **Check connections** to confirm.
-- **Check connections** says the connected mailbox differs from
-  `PROCUREAI_GMAIL_SENDER_ADDRESS` → set the variable to the address it names.
-
-Or from a terminal:
-
-```bash
-TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"..."}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["accessToken"])')
-curl -s -X GET  http://localhost:8000/api/auth/email-config -H "Authorization: Bearer $TOKEN"
-curl -s -X POST http://localhost:8000/api/auth/test-email  -H "Authorization: Bearer $TOKEN"
-```
-
-`email-config` answers "is this wired up?" without touching the network;
-`GET /api/auth/../health/providers` (`/api/health/providers`, 3 calls/min)
-actually refreshes the token, reads the mailbox profile and calls the model;
-the test send goes out for real when Gmail is configured. Every test send is
-recorded in the audit log (`GET /api/audit?action=email.test_sent`, failures
-under `email.test_failed`).
-
-## Step 7 — Production (Railway / Render)
-
-Set the same four variables in the host's service environment — **not** in a
-committed file:
-
-- Railway: service → **Variables** tab → **New Variable** for each (or
-  **Raw Editor** to paste all four at once). Railway restarts the service on
-  save.
-- Render: service → **Environment** tab (they're already declared as blank
-  secrets in `render.yaml`).
-
-```
-PROCUREAI_GMAIL_CLIENT_ID
-PROCUREAI_GMAIL_CLIENT_SECRET
-PROCUREAI_GMAIL_REFRESH_TOKEN
-PROCUREAI_GMAIL_SENDER_ADDRESS
-```
-
-Environment variables override anything in `.env`, and the backend reads them
-at startup — so a value changed in the dashboard needs a redeploy/restart to
-take effect. Then repeat Step 6 against the production URL.
-
-## Undoing the old alias setup
-
-Earlier versions used each user's own address as the `From:` header, which
-required verifying it as a **"Send mail as"** alias on the connected Gmail
-account. Nothing reads those aliases now. To clean up:
-
-1. Gmail (the connected account) → ⚙️ **See all settings** → **Accounts and
-   Import** → **"Send mail as"** → **delete** the addresses you added for Proq.
-2. Leave the account's own address in place — that's the one Proq sends from.
-
-Addresses users had entered as their sender were carried over automatically as
-their **"Copy me on emails"** address by migration `0016_user_cc_email`; no one
-needs to re-enter anything.
-
-## Troubleshooting
-
-| Symptom | Cause / fix |
+| Variable | Purpose |
 | --- | --- |
-| Test email says **mock mode** | One of the four `PROCUREAI_GMAIL_*` variables is empty in the environment the backend actually runs in (Settings names which). Env vars override `.env`. |
-| Settings shows "Gmail is configured but the last call failed" | The variables are set but Gmail refused the last call — the message says why (revoked token, rate limit, outage). Fix it, then **Check connections**. |
-| Settings shows "AI parsing unavailable" | The model call failed (bad key, wrong base URL for the key type, quota). Replies are still ingested by the basic parser; fix the key and **Check connections**. |
-| A reply shows as **Needs review** on Quotes | It arrived from a known supplier but no amount could be read (scan, "see attached" with no PDF text). Open the RFQ conversation and read it. |
-| Team invite "email failed" | Gmail refused the send; the reason is shown and the accept link can be copied and sent by hand, or **Resend** once fixed. |
-| Award message says "notifications could not be sent" | The award is recorded; the PO / decline emails that failed are listed on the purchase decision and can be re-sent with `POST /api/projects/{id}/packages/{pkg}/award/notify`. |
-| Suppliers see the connected account, not the user | Expected — that's the design. The user's name and company appear as the display name, and they're Cc'd (Step 5). |
-| Gmail rewrote my From address | Only happens if you point `PROCUREAI_GMAIL_SENDER_ADDRESS` at an address the token doesn't own. Use the account you authorized in Step 3. |
-| No Cc on outgoing mail | The user hasn't set **"Copy me on emails"**, or their Cc equals the recipient (a duplicate copy is dropped on purpose). |
-| Supplier replies never show up | Replies land in the connected mailbox by design (there is no `Reply-To`). If they're missing, check the token has `gmail.readonly` — see the row below. |
-| "connection expired or was revoked (invalid_grant)" on send | Refresh token revoked, or consent screen still in **Testing** (7-day expiry) — publish the app and re-mint (Step 2/3). |
-| Works for a week, then stops | Same 7-day Testing expiry. Publish the app. |
-| Quote ingest finds nothing | The token was minted send-only. Re-run Step 3 — the script requests `gmail.send` **and** `gmail.readonly`. Also check `PROCUREAI_QUOTE_INGEST_LOOKBACK_DAYS`. |
-| `429 Too many attempts` on the test button | Rate-limited to 3 test sends/minute. |
-| Gmail daily sending limits | Consumer Gmail ≈ 500 recipients/day, Workspace ≈ 2 000/day. RFQ sends cap at 10 recipients each; a Cc counts toward the recipient total. |
+| `PROCUREAI_AGENTMAIL_API_KEY` | Organization API key. Empty: mock sender, nothing delivered. |
+| `PROCUREAI_AGENTMAIL_DOMAIN` | Verified custom domain for new inboxes. Empty: `agentmail.to`. |
+| `PROCUREAI_AGENTMAIL_WEBHOOK_SECRET` | Svix signing secret of the webhook endpoint. Required in production. |
+| `PROCUREAI_AGENTMAIL_POD_ID` | Optional pod to create inboxes in. |
+| `PROCUREAI_AGENTMAIL_DISPLAY_NAME_PREFIX` | Inbox display name prefix, default `Proq for`. |
 
-## Security notes
+## Plan limits
 
-- The refresh token grants **send + read** on the connected mailbox — treat
-  it like a password. Rotate it (revoke at
-  <https://myaccount.google.com/permissions>, re-mint) if it ever leaks.
-- Duplicate-send protection, per-recipient failure tracking, and audit
-  logging apply to all sends — see [reliability-review.md](reliability-review.md).
+Inboxes are the unit AgentMail meters: Free 3, Developer 10, Startup 150,
+Enterprise custom (and 3k / 10k / 150k emails per month). Proq creates **one
+inbox per organization**, so the plan caps the number of customer
+organizations that can send. Custom domains need Developer or above. API
+calls are rate limited per organization (429 with `Retry-After`); the sender
+retries 429 and 5xx twice with a short pause.
+
+## Local testing without AgentMail
+
+The webhook path (store, attribute, parse, conversation) runs without an API
+key. Send an RFQ locally (mock send), then forge a supplier reply:
+
+```bash
+cd apps/api
+.venv/bin/python scripts/send_test_inbound.py \
+  --inbox acme@proq.tryproq.dev \
+  --thread <threadId from the RFQ recipient> \
+  --from "Sales <sales@pipe.example>" \
+  --text "Fire hydrant \$3,150 each, freight \$900, 4 weeks"
+```
+
+The script signs the payload exactly as Svix does when
+`PROCUREAI_AGENTMAIL_WEBHOOK_SECRET` (or `--secret`) is set, and posts to
+`http://localhost:8000/api/webhooks/agentmail` by default. Set the org's
+`agentmail_inbox_id` first (any address; `--inbox` must match) since a
+message for an unknown inbox is dropped. Mock sends record `mock-...` thread
+ids, which are never matched; edit the recipient's `threadId` in the RFQ row
+or pass `--in-reply-to` with the recipient's `messageId` after setting a
+provider-looking id. `tests/test_inbound_rfq_replies.py` does all of this
+in code.
+
+Then **Check for replies** on the RFQ (or `POST /api/projects/{id}/quotes/ingest`)
+re-runs the parse over any stored replies the webhook handler did not get
+through, and `POST /api/inbound/{id}/reprocess` re-runs one row.

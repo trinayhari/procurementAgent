@@ -142,27 +142,6 @@ class Settings(BaseSettings):
     # discovery). Leave empty to run a clearly-flagged mock supplier search.
     google_maps_api_key: str = ""
 
-    # ------------------------------------------- Gmail (single-mailbox OAuth2)
-    # Every outbound email leaves ONE connected Gmail account (see
-    # services/rfq/sender.py) — users are Cc'd, never used as the From address.
-    # Env vars, all PROCUREAI_-prefixed; docs/email-setup.md has the full guide:
-    #   PROCUREAI_GMAIL_CLIENT_ID / _CLIENT_SECRET  OAuth desktop client
-    #   PROCUREAI_GMAIL_REFRESH_TOKEN               minted once out-of-band by
-    #                                               scripts/mint_gmail_token.py
-    #                                               (gmail.send + gmail.readonly)
-    #   PROCUREAI_GMAIL_SENDER_ADDRESS              that account's own address
-    # All three OAuth vars empty → mock sender (logs only, nothing delivered).
-    gmail_client_id: str = ""
-    gmail_client_secret: str = ""
-    gmail_refresh_token: str = ""
-    # The single "From" address for all outbound mail, e.g. bids@yourcompany.com.
-    # Must be the mailbox the refresh token belongs to — Gmail rewrites anything
-    # else. Empty → sender.UNCONFIGURED_SENDER_ADDRESS, flagged as unconfigured
-    # by GET /api/auth/email-config rather than shown as a working address.
-    gmail_sender_address: str = ""
-    # How far back the quote-ingest poller looks for supplier replies.
-    quote_ingest_lookback_days: int = 30
-
     # ---------------------------------------------------- Email (AgentMail)
     # The agent has its own inbox per customer organization, e.g.
     # acme@<agentmail_domain> (see docs/agent-architecture.md). Customers

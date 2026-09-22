@@ -116,10 +116,9 @@ def save_recipients(db: Session, org_id: str, rfq_id: str, recipients: List[dict
 def record_outbound_message(
     db: Session, org_id: str, rfq_id: str, email: str, message_id: str
 ) -> None:
-    """Remember a Gmail message id *we* sent to this recipient after the RFQ
-    itself (award / decline notice). Quote ingest skips these ids so our own
-    mail is never parsed as a supplier reply (matters when the supplier
-    address is the workspace mailbox itself, e.g. a loop-back test)."""
+    """Remember the id of a message *we* sent this recipient after the RFQ
+    itself (award / decline notice). A supplier reply whose In-Reply-To names
+    one of these still attributes to the RFQ."""
     if not message_id or not email:
         return
     row = _get_row(db, org_id, rfq_id)

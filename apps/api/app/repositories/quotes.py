@@ -152,7 +152,7 @@ def award_package(
 
 
 def message_ids_for_project(db: Session, org_id: str, project_id: str) -> set:
-    """Gmail message ids already ingested for this project (for dedupe)."""
+    """Provider message ids already ingested for this project (for dedupe)."""
     rows = db.scalars(
         select(Quote.source_message_id).where(
             Quote.organization_id == org_id,

@@ -1,7 +1,7 @@
 """Shared test fixtures.
 
 SAFETY: provider credentials are force-blanked BEFORE the app is imported so
-tests can never hit real Google Maps, Gmail, or OpenAI — even when a developer
+tests can never hit real Google Maps, AgentMail, or OpenAI — even when a developer
 has live keys in apps/api/.env (environment variables take precedence over the
 dotenv file in pydantic-settings). Every external call in tests goes through
 the mock providers.
@@ -13,10 +13,6 @@ import tempfile
 os.environ.update(
     {
         "PROCUREAI_GOOGLE_MAPS_API_KEY": "",
-        "PROCUREAI_GMAIL_CLIENT_ID": "",
-        "PROCUREAI_GMAIL_CLIENT_SECRET": "",
-        "PROCUREAI_GMAIL_REFRESH_TOKEN": "",
-        "PROCUREAI_GMAIL_SENDER_ADDRESS": "",
         "PROCUREAI_AGENTMAIL_API_KEY": "",
         "PROCUREAI_AGENTMAIL_WEBHOOK_SECRET": "",
         "PROCUREAI_AGENTMAIL_DOMAIN": "",
@@ -43,7 +39,6 @@ from app.config import settings  # noqa: E402
 
 def _assert_mocked() -> None:
     assert not settings.google_maps_api_key
-    assert not settings.gmail_refresh_token
     assert not settings.openai_api_key
     assert not settings.agentmail_api_key
 

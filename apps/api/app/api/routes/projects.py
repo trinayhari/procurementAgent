@@ -48,6 +48,26 @@ from app.schemas.timeline import Timeline
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
+class _DeadSender:
+    """Stands in when the org's agent inbox cannot be resolved: every award
+    notice then fails with the reason, and the committed award is untouched."""
+
+    mocked = False
+
+    def __init__(self, reason: str):
+        self.reason = reason
+
+    def send(self, *args, **kwargs):
+        raise rfq_sender.EmailUnavailable(self.reason)
+
+
+def _award_sender(db: Session, org_id: str):
+    try:
+        return rfq_sender.get_sender(db, org_id)
+    except Exception as exc:
+        return _DeadSender(str(exc) or exc.__class__.__name__)
+
+
 # Projects are persisted (SQLite via SQLAlchemy) and scoped to the caller's
 # organization: `_require_project` 404s for an id that exists but belongs to
 # another tenant, so the response never confirms it exists. The per-project
@@ -482,7 +502,7 @@ def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payloa
         package_label=pkg_label_for_record,
         summary=summary,
         buyer=current_user,
-        sender=rfq_sender.get_sender(),
+        sender=_award_sender(db, org_id),
         superseded=previous,
     )
     n_awarded, n_declined = len(notify["notified"]), len(notify["declined"])
@@ -605,7 +625,7 @@ def resend_award_notifications(
         package_label=decision.get("packageLabel") or pkg_label,
         summary=summary,
         buyer=current_user,
-        sender=rfq_sender.get_sender(),
+        sender=_award_sender(db, org_id),
         only_emails=None if payload.all else failed_emails,
         superseded=purchase_decisions_repo.superseded_by_decision(db, org_id, decision["id"]),
     )

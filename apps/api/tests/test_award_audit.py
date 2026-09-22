@@ -84,7 +84,7 @@ def test_award_emails_suppliers_and_records_it(project):
     notified = [e for e in events if e["action"] == "package.award_notified"]
     assert notified, "expected a package.award_notified audit event"
     detail = notified[0]["detail"]
-    assert detail["mock"] is True  # tests never hit real Gmail
+    assert detail["mock"] is True  # tests never hit real AgentMail
     assert detail["awarded"]  # at least one awarded supplier was emailed
 
 

@@ -1,5 +1,5 @@
 import re
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -53,15 +53,23 @@ class RfqRecipient(BaseModel):
     supplierId: Optional[str] = None
     name: str
     email: str
+    # AgentMail id of the RFQ message we sent (`sentMessageId` is the same id
+    # under its older name) and the thread it created: a supplier reply in
+    # that thread is attributed to this RFQ.
+    messageId: Optional[str] = None
     sentMessageId: Optional[str] = None
-    threadId: Optional[str] = None  # Gmail thread the send landed in (for conversation fetch)
+    threadId: Optional[str] = None
+    sentAt: Optional[str] = None  # ISO UTC time of the successful send
+    repliedAt: Optional[str] = None  # ISO UTC time of the first supplier reply
     sendStatus: Optional[str] = None  # "sent" | "failed" | None (not yet attempted)
     sendError: Optional[str] = None  # human-readable failure reason when sendStatus="failed"
-    # Gmail ids of later messages we sent this recipient on the RFQ thread
-    # (award / decline notices); ingest skips them.
+    # Ids of later messages we sent this recipient on the RFQ thread (award /
+    # decline notices); a reply to one of them still attributes here.
     outboundMessageIds: Optional[List[str]] = None
-    # True when the "send" went through the logging mock (no Gmail configured)
-    # — recorded as sent for workflow purposes, but nothing was delivered.
+    # Follow-up nudges sent by the scheduler: [{sentAt, messageId}].
+    followups: Optional[List[Dict[str, Any]]] = None
+    # True when the "send" went through the logging mock (no AgentMail key):
+    # recorded as sent for workflow purposes, but nothing was delivered.
     mock: Optional[bool] = None
 
 
@@ -110,12 +118,11 @@ class RfqConversation(BaseModel):
     rfqId: str
     status: RfqStatus
     statusTone: Tone
-    gmail: bool  # True when messages came from a live Gmail thread
-    # Whether Gmail is configured at all (False → the thread is always local).
+    # True when the thread includes replies the agent inbox received; False
+    # when it is the stored RFQ plus ingested quotes rendered as replies.
+    live: bool
+    # Whether AgentMail is configured at all (False → mock sends, no replies).
     configured: bool = False
-    # When Gmail is configured but the live read failed, why — the thread
-    # below is then the locally stored copy, not the live conversation.
-    readError: Optional[str] = None
     thread: List[ConversationMessage]
 
 

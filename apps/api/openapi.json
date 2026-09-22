@@ -183,7 +183,7 @@
           "auth"
         ],
         "summary": "Email Config",
-        "description": "The effective outbound-email setup: which mailbox mail leaves from,\nwhether Gmail is actually connected, and your Cc address.\n\nEvery field derives from the PROCUREAI_GMAIL_* environment variables (see\ndocs/email-setup.md) \u2014 nothing here is per-user except `ccEmail` and the\ndisplay name baked into `fromHeader`.",
+        "description": "The effective outbound-email setup: the organization's agent inbox\n(null until it has been created), whether AgentMail is configured and\nanswering, and your Cc address.\n\nEverything but `ccEmail` and the display name baked into `fromHeader`\nderives from the PROCUREAI_AGENTMAIL_* environment variables and the\norg's inbox (see docs/email-setup.md).",
         "operationId": "email_config_api_auth_email_config_get",
         "responses": {
           "200": {
@@ -210,7 +210,7 @@
           "auth"
         ],
         "summary": "Send Test Email",
-        "description": "Verify the email configuration by sending a test message to yourself.\n\nUses exactly the same path as an RFQ send: the configured provider (Gmail\nor the logging mock) and the workspace From address carrying your display\nname. See docs/email-setup.md.",
+        "description": "Verify the email configuration by sending a test message to yourself.\n\nUses exactly the same path as an RFQ send: the configured provider\n(AgentMail, from the organization's agent inbox, or the logging mock) and\nthe From identity carrying your display name. See docs/email-setup.md.",
         "operationId": "send_test_email_api_auth_test_email_post",
         "responses": {
           "200": {
@@ -432,6 +432,25 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/agentmail": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Receive",
+        "operationId": "receive_api_webhooks_agentmail_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -2345,7 +2364,7 @@
           "sourcing"
         ],
         "summary": "Get Rfq Conversation",
-        "description": "Full email thread for an RFQ, read live from Gmail when configured.\n\nRead-only: we surface the original Gmail thread (our outbound plus any\nthreaded supplier replies) without changing the RFQ's status.",
+        "description": "Full email thread for an RFQ: our outbound plus every supplier reply\nthe agent inbox received in that thread.\n\nRead-only: built from stored rows (no provider call) without changing the\nRFQ's status.",
         "operationId": "get_rfq_conversation_api_projects__project_id__rfqs__rfq_id__conversation_get",
         "security": [
           {
@@ -3804,6 +3823,123 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inbound": {
+      "get": {
+        "tags": [
+          "inbound"
+        ],
+        "summary": "List Inbound",
+        "description": "Received emails, newest first. `kind` filters on the attribution:\nrfq_reply, intake or unknown (mail nobody claimed, for a human to look at).",
+        "operationId": "list_inbound_api_inbound_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InboundEmailOut"
+                  },
+                  "title": "Response List Inbound Api Inbound Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inbound/{row_id}/reprocess": {
+      "post": {
+        "tags": [
+          "inbound"
+        ],
+        "summary": "Reprocess",
+        "description": "Run attribution and handling again for one received email (after a\nfailure, or once the RFQ it answers has been sent).",
+        "operationId": "reprocess_api_inbound__row_id__reprocess_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "row_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Row Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundEmailOut"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -5485,13 +5621,16 @@
             "type": "boolean",
             "title": "Mocked"
           },
-          "senderAddressSet": {
-            "type": "boolean",
-            "title": "Senderaddressset"
-          },
-          "fromAddress": {
-            "type": "string",
-            "title": "Fromaddress"
+          "inboxAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inboxaddress"
           },
           "fromHeader": {
             "type": "string",
@@ -5517,9 +5656,9 @@
             "title": "Missing",
             "default": []
           },
-          "gmail": {
+          "agentmail": {
             "type": "object",
-            "title": "Gmail",
+            "title": "Agentmail",
             "default": {}
           },
           "llm": {
@@ -5532,12 +5671,45 @@
         "required": [
           "configured",
           "mocked",
-          "senderAddressSet",
-          "fromAddress",
           "fromHeader"
         ],
         "title": "EmailConfig",
-        "description": "Effective outbound-email configuration, straight from the environment.\n\nLets the UI state the truth instead of implying mail is going out: when\n`configured` is false nothing is delivered, and when `senderAddressSet` is\nfalse `fromAddress` is only a placeholder."
+        "description": "Effective outbound-email configuration for this organization.\n\nLets the UI state the truth instead of implying mail is going out: when\n`configured` is false nothing is delivered, and `inboxAddress` is null\nuntil the org's agent inbox has been created (first send)."
+      },
+      "EmailProbe": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "inboxAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inboxaddress"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "EmailProbe"
       },
       "FollowupDraft": {
         "properties": {
@@ -5689,67 +5861,6 @@
         ],
         "title": "GanttBar"
       },
-      "GmailProbe": {
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "title": "Ok"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          },
-          "emailAddress": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Emailaddress"
-          },
-          "senderAddress": {
-            "type": "string",
-            "title": "Senderaddress"
-          },
-          "senderAddressMatches": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Senderaddressmatches"
-          },
-          "sendScope": {
-            "type": "boolean",
-            "title": "Sendscope",
-            "default": false
-          },
-          "readScope": {
-            "type": "boolean",
-            "title": "Readscope",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "ok",
-          "senderAddress"
-        ],
-        "title": "GmailProbe"
-      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -5762,6 +5873,160 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "InboundEmailOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "organizationId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organizationid"
+          },
+          "providerMessageId": {
+            "type": "string",
+            "title": "Providermessageid"
+          },
+          "inboxId": {
+            "type": "string",
+            "title": "Inboxid"
+          },
+          "threadId": {
+            "type": "string",
+            "title": "Threadid"
+          },
+          "inReplyTo": {
+            "type": "string",
+            "title": "Inreplyto",
+            "default": ""
+          },
+          "fromEmail": {
+            "type": "string",
+            "title": "Fromemail"
+          },
+          "fromName": {
+            "type": "string",
+            "title": "Fromname",
+            "default": ""
+          },
+          "to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "To",
+            "default": []
+          },
+          "cc": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cc",
+            "default": []
+          },
+          "subject": {
+            "type": "string",
+            "title": "Subject",
+            "default": ""
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "default": ""
+          },
+          "attachments": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Attachments",
+            "default": []
+          },
+          "receivedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receivedat"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "rfqId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rfqid"
+          },
+          "projectId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projectid"
+          },
+          "processedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processedat"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "providerMessageId",
+          "inboxId",
+          "threadId",
+          "fromEmail",
+          "kind"
+        ],
+        "title": "InboundEmailOut",
+        "description": "A received email as GET /api/inbound lists it (bodies included; the\nattachment bytes stay in storage, only their descriptors are here)."
       },
       "Invite": {
         "properties": {
@@ -7555,8 +7820,8 @@
             "type": "boolean",
             "title": "Ok"
           },
-          "gmail": {
-            "$ref": "#/components/schemas/GmailProbe"
+          "email": {
+            "$ref": "#/components/schemas/EmailProbe"
           },
           "llm": {
             "$ref": "#/components/schemas/LlmProbe"
@@ -7565,7 +7830,7 @@
         "type": "object",
         "required": [
           "ok",
-          "gmail",
+          "email",
           "llm"
         ],
         "title": "ProvidersHealth"
@@ -7976,25 +8241,14 @@
           "statusTone": {
             "$ref": "#/components/schemas/Tone"
           },
-          "gmail": {
+          "live": {
             "type": "boolean",
-            "title": "Gmail"
+            "title": "Live"
           },
           "configured": {
             "type": "boolean",
             "title": "Configured",
             "default": false
-          },
-          "readError": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Readerror"
           },
           "thread": {
             "items": {
@@ -8009,7 +8263,7 @@
           "rfqId",
           "status",
           "statusTone",
-          "gmail",
+          "live",
           "thread"
         ],
         "title": "RfqConversation",
@@ -8169,6 +8423,17 @@
             "type": "string",
             "title": "Email"
           },
+          "messageId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messageid"
+          },
           "sentMessageId": {
             "anyOf": [
               {
@@ -8190,6 +8455,28 @@
               }
             ],
             "title": "Threadid"
+          },
+          "sentAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentat"
+          },
+          "repliedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repliedat"
           },
           "sendStatus": {
             "anyOf": [
@@ -8226,6 +8513,20 @@
               }
             ],
             "title": "Outboundmessageids"
+          },
+          "followups": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followups"
           },
           "mock": {
             "anyOf": [

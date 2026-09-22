@@ -1,25 +1,32 @@
 """Ingest supplier quote replies for a project.
 
-Live path: read Gmail replies from the RFQ recipients, parse each into structured
-terms, and persist one quote per supplier (deduped by Gmail message id). Mock path
-(no Gmail/OpenAI creds): synthesize deterministic, comparable quotes for each
-recipient so the whole quote→compare flow is exercisable offline — mirroring how
-sourcing/extraction fall back to mocks.
+Live path: every supplier reply arrives through the AgentMail webhook as an
+`inbound_emails` row attributed to its RFQ (services/inbound/rfq_replies).
+`ingest_inbound` parses ONE such row into structured terms and persists a
+quote (deduped by the AgentMail message id); `ingest_quotes` runs it over the
+rows a project has not processed yet, so the dashboard's "Check for replies"
+still works. Mock path (no AgentMail key and no replies on record):
+synthesize deterministic, comparable quotes for each recipient so the whole
+quote→compare flow is exercisable offline, mirroring how sourcing/extraction
+fall back to mocks.
 """
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.models.inbound_email import InboundEmail
+from app.repositories import inbound_emails as inbound_repo
 from app.repositories import quotes as quotes_repo
 from app.repositories import rfqs as rfqs_repo
-from app.services.quotes import gmail_reader, parser
+from app.services import storage
+from app.services.email import text as email_text
+from app.services.quotes import parser, pdf_text
 from app.services.quotes.models import ParsedQuote
 from app.services.rfq import state as rfq_state
-from app.services.rfq.sender import is_configured as gmail_configured
+from app.services.rfq.sender import is_configured
 
 logger = logging.getLogger("procureai.quotes.ingest")
 
@@ -45,30 +52,13 @@ class IngestOutcome:
         return iter((self.ingested, self.total, self.mocked))
 
 
-def _outbound_message_ids(db: Session, org_id: str, project_id: str) -> Set[str]:
-    """Gmail ids of every message *we* sent for this project's RFQs — the RFQ
-    itself and any award/decline notice threaded on it. Needed because a
-    loop-back setup (supplier address == the workspace mailbox, as in a live
-    test) makes our own outbound match the `from:` query."""
-    ids: Set[str] = set()
-    for rfq in rfqs_repo.list_awaiting_rfqs(db, org_id, project_id):
-        for r in rfq.get("recipients", []):
-            mid = str(r.get("sentMessageId") or "")
-            if mid and not mid.startswith("error"):
-                ids.add(mid)
-            for extra in r.get("outboundMessageIds") or []:
-                if extra:
-                    ids.add(str(extra))
-    return ids
-
-
 def _recipient_index(db: Session, org_id: str, project_id: str) -> Dict[str, List[dict]]:
     """email → [ {rfq_id, package, package_label, supplier_id, supplier_name,
-    rfq_lines, thread_id, subject}, … ] — one entry per RFQ the supplier is on.
+    rfq_lines, thread_id, subject}, … ]: one entry per RFQ the supplier is on.
 
     A supplier is routinely asked to quote more than one package (water AND
     sewer). Keying on the first RFQ per email meant every reply from that
-    supplier — whichever package it priced — was stored against one package
+    supplier, whichever package it priced, was stored against one package
     and the other RFQ never left 'Awaiting'.
     """
     index: Dict[str, List[dict]] = {}
@@ -84,29 +74,18 @@ def _recipient_index(db: Session, org_id: str, project_id: str) -> Dict[str, Lis
             metas = index.setdefault(email, [])
             if any(m["rfq_id"] == rfq["id"] for m in metas):
                 continue
-            metas.append(
-                {
-                    "rfq_id": rfq["id"],
-                    "package": rfq["package"],
-                    "package_label": rfq.get("pkg") or rfq["package"],
-                    "supplier_id": r.get("supplierId"),
-                    "supplier_name": r.get("name") or email,
-                    "rfq_lines": rfq.get("lineItems") or [],
-                    "thread_id": r.get("threadId") or "",
-                    "subject": rfq.get("subject") or "",
-                }
-            )
+            metas.append(recipient_meta(rfq, r))
     return index
 
 
 def _match_rfq(metas: List[dict], msg) -> Optional[dict]:
     """Which of a supplier's RFQs a reply belongs to.
 
-    In order: the Gmail thread the send created (a reply lands in it), then
+    In order: the thread the send created (a reply lands in it), then
     the RFQ subject quoted in the reply's subject ("Re: RFQ: Water …"), then
-    — only when the supplier is on a single RFQ AND we have no thread to
+    and only when the supplier is on a single RFQ AND we have no thread to
     compare against (a send made before thread ids were stored, or a mock
-    send) — that one. When both sides have a thread id and they differ, the
+    send), that one. When both sides have a thread id and they differ, the
     mail is about something else (another project's RFQ, a promo with a
     price in it) and is skipped rather than guessed.
     """
@@ -136,14 +115,20 @@ def _pair_count(index: Dict[str, List[dict]]) -> int:
 
 
 def ingest_quotes(db: Session, org_id: str, project_id: str) -> IngestOutcome:
-    """Read supplier replies and store them as quotes. Unpacks as (ingested, total, mocked)."""
+    """Turn the project's unprocessed supplier replies into quotes. Unpacks as
+    (ingested, total, mocked).
+
+    Live whenever AgentMail is configured, and also when replies are already
+    on record for the project (a webhook delivery forged locally with
+    scripts/send_test_inbound.py): real replies never mix with mock quotes.
+    """
     index = _recipient_index(db, org_id, project_id)
     total = _pair_count(index)
     if total == 0:
-        return IngestOutcome(0, 0, not (gmail_configured() and parser.is_configured()))
+        return IngestOutcome(0, 0, not (is_configured() and parser.is_configured()))
 
-    if gmail_configured():
-        return _ingest_live(db, org_id, project_id, index)
+    if is_configured() or inbound_repo.count_for_project(db, org_id, project_id):
+        return _ingest_rows(db, org_id, project_id, index)
     return IngestOutcome(_ingest_mock(db, org_id, project_id, index), total, True)
 
 
@@ -164,7 +149,7 @@ def fill_quantities_from_rfq(parsed: ParsedQuote, rfq_lines: Optional[List[dict]
     """Give a unit-priced line the quantity we asked for when the supplier
     didn't repeat it ("12\" DI pipe: $18.50/LF" answers our "2,400 LF" line).
 
-    Matched by word overlap with the RFQ line names — the better of ≥60 % of
+    Matched by word overlap with the RFQ line names: the better of ≥60 % of
     the shorter name's words, or one name containing the other. Returns how
     many quantities were filled; finalize_quote() then totals them.
     """
@@ -199,120 +184,159 @@ def fill_quantities_from_rfq(parsed: ParsedQuote, rfq_lines: Optional[List[dict]
     return filled
 
 
-def _ingest_live(
+def recipient_meta(rfq: dict, recipient: dict) -> dict:
+    """The per-RFQ context ingest_inbound needs, from an RFQ dict and one of
+    its recipient dicts (same shape as _recipient_index entries)."""
+    email = (recipient.get("email") or "").strip().lower()
+    return {
+        "email": email,
+        "rfq_id": rfq["id"],
+        "package": rfq["package"],
+        "package_label": rfq.get("pkg") or rfq.get("packageLabel") or rfq["package"],
+        "supplier_id": recipient.get("supplierId"),
+        "supplier_name": recipient.get("name") or email,
+        "rfq_lines": rfq.get("lineItems") or [],
+        "thread_id": recipient.get("threadId") or "",
+        "subject": rfq.get("subject") or "",
+    }
+
+
+def _attachment_text(msg: InboundEmail) -> List[str]:
+    """Text layers of the PDF attachments stored for a received email."""
+    import json
+
+    out: List[str] = []
+    try:
+        attachments = json.loads(msg.attachments or "[]")
+    except ValueError:
+        return out
+    for att in attachments:
+        name = (att.get("filename") or "").lower()
+        mime = (att.get("mimeType") or "").lower()
+        locator = att.get("locator")
+        if not locator or not (mime == "application/pdf" or name.endswith(".pdf")):
+            continue
+        try:
+            with storage.local_copy(locator) as path:
+                with open(path, "rb") as fh:
+                    data = fh.read()
+        except Exception:
+            continue
+        text = pdf_text.extract(data)
+        if text:
+            out.append(text)
+    return out
+
+
+def inbound_text(msg: InboundEmail) -> str:
+    """What the supplier wrote in THIS message, plus the text of any PDF
+    they attached.
+
+    A reply carries the quoted chain beneath it (our RFQ, or their earlier
+    quote); left in, the parser reads the old figures. AgentMail's
+    `extracted_text` (stored as `text`) already drops the quoted history;
+    strip_quoted() is a second pass for clients it misses, and an HTML-only
+    body is rendered to text.
+    """
+    plain = (msg.text or "").strip()
+    if not plain and msg.html:
+        plain = email_text.html_to_text(msg.html)
+    body = email_text.strip_quoted(plain) or plain
+    return "\n\n".join([body, *_attachment_text(msg)]).strip()
+
+
+def ingest_inbound(db: Session, org_id: str, project_id: str, rfq_meta: dict,
+                   msg: InboundEmail) -> Optional[dict]:
+    """Parse one supplier reply into a quote for the RFQ in `rfq_meta`.
+
+    Returns the created quote dict, or None when the message is not a quote
+    (a "received, will send Friday" note) or was already ingested. A real
+    reply with nothing priced is stored as `needs_review` so the buyer sees
+    it arrived. A revised quote from the same supplier supersedes the earlier
+    one and the RFQ flips to Quoted once a rankable quote exists.
+    """
+    seen = quotes_repo.message_ids_for_project(db, org_id, project_id)
+    if msg.provider_message_id in seen:
+        return None
+    parsed = parser.parse_quote(inbound_text(msg))
+    if not parsed.is_quote:
+        logger.info("Reply %s from %s is not a quote; skipped", msg.provider_message_id, msg.from_email)
+        return None
+    if fill_quantities_from_rfq(parsed, rfq_meta.get("rfq_lines")):
+        note = "Quantities taken from the RFQ where the supplier priced per unit."
+        parsed.notes = f"{parsed.notes}\n{note}".strip() if parsed.notes else note
+    finalize_quote(parsed)
+    if _has_amount(parsed):
+        status = "received"
+    else:
+        # A real reply from a known supplier, but nothing priced in it (a
+        # scan we couldn't read, a "see attached" with no attachment...).
+        # Store it so the buyer sees it arrived, flagged for review; never
+        # rank it.
+        status = "needs_review"
+        note = "No amount found in this reply: open the conversation and review it."
+        parsed.notes = f"{parsed.notes}\n{note}".strip() if parsed.notes else note
+    email = (msg.from_email or "").strip().lower()
+    created = _persist(
+        db, org_id, project_id, rfq_meta, parsed,
+        source="agentmail", message_id=msg.provider_message_id, email=email, status=status,
+    )
+    created["superseded"] = quotes_repo.supersede_previous(
+        db, org_id, project_id, rfq_meta["package"], email,
+        rfq_id=rfq_meta["rfq_id"], supplier_id=rfq_meta.get("supplier_id"), keep_id=created.get("id"),
+    )
+    if status == "received" and rfq_meta.get("rfq_id"):
+        rfqs_repo.mark_rfq_quoted(db, org_id, rfq_meta["rfq_id"])
+    return created
+
+
+def _meta_for_row(index: Dict[str, List[dict]], msg: InboundEmail) -> Optional[dict]:
+    """The RFQ context for a row: on an attributed row, the recipient of that
+    RFQ whose thread (then address) the reply matches; otherwise the sender's
+    RFQs matched by thread / subject (_match_rfq)."""
+    sender = (msg.from_email or "").strip().lower()
+    if msg.rfq_id:
+        on_rfq = [m for metas in index.values() for m in metas if m["rfq_id"] == msg.rfq_id]
+        thread_id = (msg.thread_id or "").strip()
+        for m in on_rfq:
+            if thread_id and m["thread_id"] == thread_id:
+                return m
+        for m in on_rfq:
+            if m["email"] == sender:
+                return m
+        if on_rfq:
+            return on_rfq[0]
+    return _match_rfq(index.get(sender) or [], msg)
+
+
+def _ingest_rows(
     db: Session, org_id: str, project_id: str, index: Dict[str, List[dict]]
 ) -> IngestOutcome:
-    # Idempotent re-runs: every Gmail message id we've stored a quote for is
-    # skipped, as is every message we sent ourselves.
-    seen = quotes_repo.message_ids_for_project(db, org_id, project_id)
-    ours = _outbound_message_ids(db, org_id, project_id)
-    our_addrs = _our_addresses(db, org_id)
-    try:
-        candidates = _collect_replies(index, our_addrs, skip_ids=seen | ours)
-    except gmail_reader.GmailReadUnavailable as exc:
-        logger.warning("Gmail read unavailable: %s", exc)
-        raise
-
     outcome = IngestOutcome(total=_pair_count(index), mocked=False)
-    quoted_rfqs: set = set()
     # Oldest first so a later revision from the same supplier supersedes the
     # earlier one, never the other way round.
-    for msg, meta in sorted(candidates, key=lambda pair: getattr(pair[0], "date_ms", 0) or 0):
-        if msg.message_id in seen or msg.message_id in ours:
-            outcome.skipped.append(msg.message_id)
-            continue
+    for msg in inbound_repo.list_unprocessed_for_project(db, org_id, project_id):
+        meta = _meta_for_row(index, msg)
         if meta is None:
-            meta = _match_rfq(index.get(msg.from_email) or [], msg)
-        if meta is None:
-            outcome.skipped.append(msg.message_id)
+            outcome.skipped.append(msg.provider_message_id)
+            inbound_repo.mark_failed(db, msg, "No sent RFQ on this project matches the reply")
             continue
-        parsed = parser.parse_quote(msg.combined_text)
-        if not parsed.is_quote:
-            logger.info("Reply %s from %s is not a quote; skipped", msg.message_id, msg.from_email)
-            outcome.skipped.append(msg.message_id)
+        try:
+            created = ingest_inbound(db, org_id, project_id, meta, msg)
+        except Exception as exc:
+            logger.exception("Ingest of reply %s failed", msg.provider_message_id)
+            inbound_repo.mark_failed(db, msg, str(exc) or exc.__class__.__name__)
             continue
-        if fill_quantities_from_rfq(parsed, meta.get("rfq_lines")):
-            note = "Quantities taken from the RFQ where the supplier priced per unit."
-            parsed.notes = f"{parsed.notes}\n{note}".strip() if parsed.notes else note
-        finalize_quote(parsed)
-        if _has_amount(parsed):
-            status = "received"
-        else:
-            # A real reply from a known supplier, but nothing priced in it (a
-            # scan we couldn't read, a "see attached" with no attachment…).
-            # Store it so the buyer sees it arrived, flagged for review; never
-            # rank it.
-            status = "needs_review"
-            note = "No amount found in this reply — open the conversation and review it."
-            parsed.notes = f"{parsed.notes}\n{note}".strip() if parsed.notes else note
-        created = _persist(
-            db, org_id, project_id, meta, parsed,
-            source="gmail", message_id=msg.message_id, email=msg.from_email, status=status,
-        )
-        outcome.superseded += quotes_repo.supersede_previous(
-            db, org_id, project_id, meta["package"], msg.from_email,
-            rfq_id=meta["rfq_id"], supplier_id=meta.get("supplier_id"), keep_id=created.get("id"),
-        )
-        seen.add(msg.message_id)
-        if status == "received":
+        inbound_repo.mark_processed(db, msg)
+        if created is None:
+            outcome.skipped.append(msg.provider_message_id)
+        elif created.get("status") == "received":
             outcome.ingested += 1
-            if meta["rfq_id"]:
-                quoted_rfqs.add(meta["rfq_id"])
+            outcome.superseded += created.get("superseded") or 0
         else:
             outcome.needs_review += 1
-
-    for rfq_id in quoted_rfqs:
-        rfqs_repo.mark_rfq_quoted(db, org_id, rfq_id)
+            outcome.superseded += created.get("superseded") or 0
     return outcome
-
-
-def _our_addresses(db: Session, org_id: str) -> set:
-    """The workspace mailbox plus this org's members' login and Cc addresses —
-    messages from any of them in an RFQ thread are ours, not a supplier's."""
-    from app.services.rfq.conversation import _known_sender_addrs
-
-    try:
-        return _known_sender_addrs(db, org_id)
-    except Exception:  # pragma: no cover - defensive; never block ingest on this
-        from app.services.rfq.sender import sender_address
-
-        return {sender_address().lower()}
-
-
-def _collect_replies(index: Dict[str, List[dict]], our_addrs: set,
-                     skip_ids: Optional[set] = None) -> List[tuple]:
-    """(message, meta-or-None) pairs worth parsing, deduped by Gmail id.
-
-    Two sources, in priority order:
-      1. The Gmail thread each send created — every message in it that isn't
-         ours is a reply to THAT RFQ, whatever address it came from (RFQ to
-         sales@, quote from the estimator's own mailbox). Meta is known.
-      2. A `from:` search for the recipient addresses — catches a supplier who
-         composed a fresh email instead of replying; attributed later by
-         subject (or the single-RFQ rule when no thread is on record).
-    """
-    pairs: List[tuple] = []
-    seen_ids: set = set()
-    threads_done: set = set()
-    for metas in index.values():
-        for meta in metas:
-            thread_id = meta.get("thread_id") or ""
-            if not thread_id or thread_id.startswith("mock") or thread_id in threads_done:
-                continue
-            threads_done.add(thread_id)
-            for msg in gmail_reader.fetch_thread_replies(thread_id, skip_ids=skip_ids):
-                if msg.message_id in seen_ids or (msg.from_email or "").lower() in our_addrs:
-                    continue
-                seen_ids.add(msg.message_id)
-                pairs.append((msg, meta))
-    for msg in gmail_reader.fetch_replies(
-        list(index.keys()), lookback_days=settings.quote_ingest_lookback_days, skip_ids=skip_ids
-    ):
-        if msg.message_id in seen_ids:
-            continue
-        seen_ids.add(msg.message_id)
-        pairs.append((msg, None))
-    return pairs
 
 
 def _ingest_mock(db: Session, org_id: str, project_id: str, index: Dict[str, List[dict]]) -> int:
@@ -335,7 +359,7 @@ def _ingest_mock(db: Session, org_id: str, project_id: str, index: Dict[str, Lis
 def _persist(db, org_id, project_id, meta, parsed, *, source, message_id, email=None,
              status: str = "received") -> dict:
     # Normalize parsed lines into the shape the comparison engine reads
-    # ({name, qty, unitPrice, extended, leadDays} — see line_comparison.py).
+    # ({name, qty, unitPrice, extended, leadDays}, see line_comparison.py).
     line_items = [
         {
             "name": li.name,
@@ -391,8 +415,8 @@ def finalize_quote(parsed: ParsedQuote) -> ParsedQuote:
     Suppliers routinely reply with unit prices and no material subtotal or grand
     total, yet the comparison engine needs both a per-line `extended` and header
     totals to rank a quote (line_comparison.py drops any line missing `extended`).
-    We derive those deterministically here — never in the LLM prompt, whose
-    arithmetic was observed to drift by ~$1 — so a unit-priced reply is comparable:
+    We derive those deterministically here, never in the LLM prompt, whose
+    arithmetic was observed to drift by ~$1, so a unit-priced reply is comparable:
 
       - per-line extended = unit_price × quantity  (recomputed in code whenever the
         quantity is numeric; a supplier-stated extended is kept only when we can't
@@ -480,5 +504,5 @@ def _mock_quote(supplier_name: str, package: str, rfq_lines: Optional[List[dict]
         lead_days=lead,
         validity="30 days",
         line_items=lines,
-        notes="Simulated quote (set Gmail + OpenAI keys for live ingest).",
+        notes="Simulated quote (set the AgentMail + OpenAI keys for live ingest).",
     )

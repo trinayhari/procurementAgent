@@ -31,8 +31,8 @@ class User(BaseModel):
 
 class UpdateMeRequest(BaseModel):
     """Editable account settings. `ccEmail` is the address copied on outgoing
-    mail you trigger; `null` clears it. It is never a From address — everything
-    is sent from the workspace mailbox (see services/rfq/sender.py)."""
+    mail you trigger; `null` clears it. It is never a From address: everything
+    is sent from the organization's agent inbox (see services/rfq/sender.py)."""
 
     ccEmail: Optional[EmailStr] = None
 
@@ -44,24 +44,23 @@ class TokenResponse(BaseModel):
 
 
 class EmailConfig(BaseModel):
-    """Effective outbound-email configuration, straight from the environment.
+    """Effective outbound-email configuration for this organization.
 
     Lets the UI state the truth instead of implying mail is going out: when
-    `configured` is false nothing is delivered, and when `senderAddressSet` is
-    false `fromAddress` is only a placeholder.
+    `configured` is false nothing is delivered, and `inboxAddress` is null
+    until the org's agent inbox has been created (first send).
     """
 
-    configured: bool  # all four PROCUREAI_GMAIL_* vars present → real sends
+    configured: bool  # PROCUREAI_AGENTMAIL_API_KEY present → real sends
     mocked: bool  # not configured → sends are logged, never delivered
-    senderAddressSet: bool  # PROCUREAI_GMAIL_SENDER_ADDRESS is set
-    fromAddress: str  # the workspace mailbox every email is sent from
+    inboxAddress: Optional[str] = None  # the org's agent inbox (acme@proq.tryproq.dev)
     fromHeader: str  # how your outgoing mail's From: will read
     ccEmail: Optional[EmailStr] = None  # your Cc address, if set
-    # Which PROCUREAI_GMAIL_* variables are still unset (empty when configured).
+    # Which PROCUREAI_AGENTMAIL_* variables are still unset (empty when configured).
     missing: List[str] = []
-    # Last real outcome of talking to Gmail: {lastError, lastErrorAt, lastOkAt}.
-    # `configured` says the variables are set; this says the mailbox answered.
-    gmail: Dict[str, Any] = {}
+    # Last real outcome of talking to AgentMail: {lastError, lastErrorAt, lastOkAt}.
+    # `configured` says the key is set; this says the API answered.
+    agentmail: Dict[str, Any] = {}
     # The LLM used for quote parsing / RFQ drafting: {configured, model,
     # baseUrl, lastError, lastErrorAt, lastErrorWhere, lastOkAt}. When
     # `lastError` is set replies are parsed by the regex fallback.
@@ -71,8 +70,8 @@ class EmailConfig(BaseModel):
 class TestEmailResult(BaseModel):
     """Outcome of POST /api/auth/test-email (config verification)."""
 
-    mocked: bool  # True → no Gmail configured; the "send" was only logged
+    mocked: bool  # True → no AgentMail key configured; the "send" was only logged
     messageId: str
-    fromAddr: str  # the From header used (workspace mailbox + your display name)
+    fromAddr: str  # the From identity used (the org's agent inbox + your display name)
     to: str
     cc: Optional[str] = None  # your Cc address, when it isn't already the To
