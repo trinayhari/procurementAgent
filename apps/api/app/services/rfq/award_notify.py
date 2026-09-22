@@ -43,7 +43,7 @@ def _signature(buyer) -> str:
 
 def _winner_body(supplier: str, package_label: str, lines: List[dict],
                  subtotal: float, freight: float, total: float,
-                 lead: Optional[int], buyer) -> str:
+                 lead: Optional[int], buyer, po: Optional[str] = None) -> str:
     items = []
     for i, li in enumerate(lines, 1):
         name = li.get("name") or "Item"
@@ -63,14 +63,17 @@ def _winner_body(supplier: str, package_label: str, lines: List[dict],
         items.append(piece)
 
     lead_line = f"\nLead time: {lead} days" if lead is not None else ""
+    po_ref = f" ({po})" if po else ""
+    po_line = f"PO number: {po}\n" if po else ""
     return (
         f"Hi {supplier},\n\n"
-        f"Thank you for your quote. We're issuing a purchase order for the "
+        f"Thank you for your quote. We're issuing a purchase order{po_ref} for the "
         f"following {package_label} line item{'s' if len(lines) != 1 else ''} from "
         f"your bid:\n\n"
         + "\n".join(items)
         + "\n\n"
-        f"Materials: {_money(subtotal)}\n"
+        + po_line
+        + f"Materials: {_money(subtotal)}\n"
         f"Freight:   {_money(freight)}\n"
         f"Total:     {_money(total)}"
         + lead_line
@@ -157,6 +160,7 @@ def notify_award(
     notify_declined: bool = True,
     only_emails: Optional[set] = None,
     superseded: Optional[dict] = None,
+    po_numbers: Optional[List[dict]] = None,
 ) -> dict:
     """Email awarded (and optionally not-selected) suppliers for a package.
 
@@ -170,7 +174,11 @@ def notify_award(
     `superseded` is the earlier purchase decision a re-award replaces: its
     winners who are no longer winning get a PO-withdrawn notice (naming the
     earlier order) instead of the generic "not selected" note.
+
+    `po_numbers` ([{supplierId, supplierName, po}], from the purchase decision)
+    puts each winner's PO number in their confirmation.
     """
+    po_by_sid = {p.get("supplierId"): p.get("po") for p in (po_numbers or []) if p.get("po")}
     quotes = quotes_repo.list_quotes(db, org_id, project_id, package)
     by_sid: Dict[str, dict] = {}
     for q in quotes:
@@ -234,8 +242,10 @@ def notify_award(
         leads = [li["leadDays"] for li in lines if li.get("leadDays") is not None]
         lead = max(leads) if leads else None
         supplier = quote.get("supplierName") or quote.get("supplierEmail") or "Supplier"
-        body = _winner_body(supplier, package_label, lines, subtotal, freight, total, lead, buyer)
-        _send(quote, f"Purchase order — {package_label}", body, "award")
+        po = po_by_sid.get(sid)
+        body = _winner_body(supplier, package_label, lines, subtotal, freight, total, lead, buyer, po=po)
+        subject = f"Purchase order {po}: {package_label}" if po else f"Purchase order: {package_label}"
+        _send(quote, subject, body, "award")
 
     # Losers — suppliers who quoted this package but weren't selected. One
     # note per supplier (list_quotes already hides superseded revisions and

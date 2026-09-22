@@ -22,6 +22,7 @@ from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
 from app.repositories import jobs as jobs_repo
 from app.repositories import projects as projects_repo
+from app.repositories import quotes as quotes_repo
 from app.repositories import reference as reference_repo
 from app.repositories import rfqs as rfqs_repo
 from app.repositories import sourcing as sourcing_repo
@@ -43,10 +44,12 @@ from app.schemas.sourcing import (
     TradeScopeSummary,
     TradeScopeUpdate,
 )
-from app.services import storage
+from app.services import notify, storage
+from app.services.notify import kinds as notice_kinds
 from app.services.quotes import ingest as quotes_ingest
 from app.services.rfq import conversation as rfq_conversation
 from app.services.rfq import generator as rfq_generator
+from app.services.rfq import readiness
 from app.services.rfq import sender as rfq_sender
 from app.services.rfq import state as rfq_state
 from app.services.sourcing import distance, packages
@@ -338,15 +341,14 @@ def run_ingest_job(job_id: str, org_id: str, project_id: str) -> None:
         ingested, total, mocked = outcome
         needs_review = getattr(outcome, "needs_review", 0)
         superseded = getattr(outcome, "superseded", 0)
-        if ingested or needs_review:
-            bits = []
-            if ingested:
-                bits.append(f"{ingested} quote{'s' if ingested != 1 else ''} received")
-            if needs_review:
-                bits.append(f"{needs_review} repl{'ies' if needs_review != 1 else 'y'} need{'' if needs_review != 1 else 's'} review")
+        if ingested:
+            # quotes.received notices (one per package) write the feed rows
+            # and check award readiness; only the review-only case is logged here.
+            _notify_quotes_received(db, org_id, project_id)
+        elif needs_review:
             events_repo.log(
                 db, org_id, project_id,
-                title=", ".join(bits),
+                title=f"{needs_review} repl{'ies' if needs_review != 1 else 'y'} need{'' if needs_review != 1 else 's'} review",
                 icon="quote", tone="violet",
                 meta="Parsed from supplier replies"
                 + (f" · {superseded} earlier revision{'s' if superseded != 1 else ''} superseded" if superseded else ""),
@@ -361,6 +363,38 @@ def run_ingest_job(job_id: str, org_id: str, project_id: str) -> None:
         _fail_job(db, org_id, job_id, exc)
     finally:
         db.close()
+
+
+def _notify_quotes_received(db: Session, org_id: str, project_id: str) -> None:
+    """One quotes.received notice per package that has quotes, then check
+    whether the package is ready to award (readiness mints the approval link
+    and emits award.ready itself, once per quote set)."""
+    project = projects_repo.get_project(db, org_id, project_id) or {}
+    project_name = project.get("name") or "Project"
+    by_package: dict = {}
+    for q in quotes_repo.list_quotes(db, org_id, project_id):
+        by_package.setdefault(q["package"], []).append(q)
+    sent: dict = {}
+    for rfq in rfqs_repo.list_awaiting_rfqs(db, org_id, project_id):
+        for r in rfq.get("recipients", []):
+            if rfq_state.recipient_sent(r) and r.get("email"):
+                sent.setdefault(rfq["package"], set()).add(r["email"].strip().lower())
+    for package, quotes in by_package.items():
+        label = quotes[0].get("packageLabel") or _package_label(db, org_id, project_id, package)
+        n_quoted = len({(q.get("supplierEmail") or q.get("supplierId") or q["id"]) for q in quotes})
+        n_sent = max(len(sent.get(package, ())), n_quoted)
+        notify.emit(db, notify.Notice(
+            org_id=org_id, project_id=project_id, kind=notice_kinds.QUOTES_RECEIVED,
+            title=f"{project_name}: {n_quoted} of {n_sent} suppliers replied for {label}",
+            lines=[f"{n_quoted} quote{'s' if n_quoted != 1 else ''} leveled to the line"],
+            meta={"package": package, "quoted": n_quoted, "sent": n_sent},
+        ))
+        try:
+            readiness.announce(db, org_id, project_id, package)
+        except Exception:  # noqa: BLE001 - the ingest itself already succeeded
+            logging.getLogger("procureai.rfq.readiness").exception(
+                "award readiness check failed for %s/%s", project_id, package
+            )
 
 
 _INGEST_STATUS_MAP = {"running": "ingesting", "done": "done", "error": "error"}
@@ -1037,13 +1071,25 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
             "skippedAttachments": skipped_attachments,
         },
     )
-    events_repo.log(
-        db, org_id, project_id,
-        title=(
-            f"RFQ sent to {delivered} supplier{'s' if delivered != 1 else ''}"
-            + (f" — {len(failed)} failed" if failed else "")
-        ),
-        icon="rfq", tone="danger" if failed else "success",
-        meta=rfq.get("pkg") or rfq.get("subject", ""),
-    )
+    if not delivered:
+        events_repo.log(
+            db, org_id, project_id,
+            title=f"RFQ send failed for {len(failed)} supplier{'s' if len(failed) != 1 else ''}",
+            icon="rfq", tone="danger",
+            meta=rfq.get("pkg") or rfq.get("subject", ""),
+        )
+    else:
+        # The rfq.sent notice also writes the activity-feed row.
+        project = projects_repo.get_project(db, org_id, project_id) or {}
+        lines = [f"{delivered} supplier{'s' if delivered != 1 else ''} asked to quote"]
+        if rfq.get("needBy"):
+            lines.append(f"Need by {rfq['needBy']}")
+        if failed:
+            lines.append(f"{len(failed)} could not be reached")
+        notify.emit(db, notify.Notice(
+            org_id=org_id, project_id=project_id, kind=notice_kinds.RFQ_SENT,
+            title=f"{project.get('name') or 'Project'}: RFQ sent for {rfq.get('pkg') or rfq['package']}",
+            lines=lines,
+            meta={"rfqId": rfq_id, "package": rfq["package"], "delivered": delivered},
+        ))
     return sent_rfq

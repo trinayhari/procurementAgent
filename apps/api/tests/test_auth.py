@@ -54,6 +54,10 @@ def test_every_route_requires_auth(client):
         # on the secret invite token, not a bearer session.
         ("/api/invite/{token}", "GET"),
         ("/api/invite/{token}/accept", "POST"),
+        # Award approval links: the approver may have no account; the
+        # single-use token is the credential (404/410 without a real one).
+        ("/api/approvals/{token}", "GET"),
+        ("/api/approvals/{token}", "POST"),
     }
     checked = 0
     for route in app.routes:

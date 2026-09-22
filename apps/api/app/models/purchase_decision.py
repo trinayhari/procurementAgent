@@ -42,6 +42,9 @@ class PurchaseDecision(Base):
     # {"notified": [...], "declined": [...], "failed": [...], "mock": bool, "at": iso}
     # — so a failed PO/decline email is visible afterwards and can be re-sent.
     notifications: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    # JSON list of {"supplierId", "supplierName", "po"}: the PO number issued to
+    # each winning supplier (PO-<org seq>-<n>, from the org-level counter).
+    po_numbers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     # "active" — the live award for the package; "superseded" — replaced by a
     # later re-award (`superseded_by` points at it). Only one active decision
     # per package at a time.
@@ -70,6 +73,7 @@ class PurchaseDecision(Base):
             "decidedByEmail": self.decided_by_email,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "notifications": json.loads(self.notifications or "{}") or None,
+            "poNumbers": json.loads(self.po_numbers or "[]"),
             "status": self.status or "active",
             "supersededBy": self.superseded_by,
         }

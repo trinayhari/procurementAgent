@@ -5,6 +5,7 @@ import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
 import AcceptInvite from './AcceptInvite'
+import Approve from './Approve'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, analyzeDocument,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone, hasDetail,
@@ -171,6 +172,13 @@ export default function App() {
   const [inviteToken, setInviteToken] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null
     const m = window.location.hash.match(/^#\/invite\/(.+)$/)
+    return m ? decodeURIComponent(m[1]) : null
+  })
+  // Same for an award-approval link (#/approve/<token>): captured once at
+  // mount, shown to signed-in and anonymous visitors alike.
+  const [approveToken, setApproveToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    const m = window.location.hash.match(/^#\/approve\/(.+)$/)
     return m ? decodeURIComponent(m[1]) : null
   })
 
@@ -573,6 +581,16 @@ export default function App() {
   // Until the stored token is validated, render nothing (avoids a login flash).
   if (!authReady) {
     return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  }
+  // A public approval link (#/approve/<token>) is a one-click page: the
+  // token is the credential, so it renders whether or not anyone is signed in.
+  if (approveToken) {
+    return (
+      <Approve
+        token={approveToken}
+        onDismiss={() => { setApproveToken(null); window.location.hash = '#/dashboard' }}
+      />
+    )
   }
   // A public team-invite link (#/invite/<token>) takes precedence over the login
   // gate: the invitee has no account yet. Accepting reloads into the app.
@@ -3531,8 +3549,8 @@ function TabCompare({ m }: MProps) {
       setPrior((ps) => [{
         id: `local-${Date.now()}`, projectId: m.projectId, package: lc.package, packageLabel: lc.pkg, strategy,
         selections: sel, supplierIds: [], suppliers: res.suppliers || [], total: res.total, material: res.material,
-        freight: res.freight, leadDays: res.leadDays ?? null, poCount: res.poCount, decidedBy: null,
-        decidedByEmail: m.userEmail || null, createdAt: new Date().toISOString(),
+        freight: res.freight, leadDays: res.leadDays ?? null, poCount: res.poCount, poNumbers: res.poNumbers || [],
+        decidedBy: null, decidedByEmail: m.userEmail || null, createdAt: new Date().toISOString(),
       }, ...ps])
       listPurchaseDecisions(m.projectId)
         .then((ds) => { const mine = ds.filter((d) => d.package === lc.package || d.packageLabel === lc.pkg); if (mine.length) setPrior(mine) })

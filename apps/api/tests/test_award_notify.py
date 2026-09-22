@@ -166,4 +166,20 @@ def test_no_thread_when_recipient_missing(monkeypatch):
     )
     alpha = next(m for m in sender.sent if m["to"] == "alpha@x.com")
     assert alpha["thread_id"] is None
-    assert alpha["subject"] == "Purchase order — Water Utilities"
+    assert alpha["subject"] == "Purchase order: Water Utilities"
+
+
+def test_po_number_rides_in_the_winner_email(monkeypatch):
+    _patch(monkeypatch, [ALPHA, BETA, GAMMA])
+    sender = RecordingSender()
+    award_notify.notify_award(
+        None, org_id="org", project_id="p", package="water", package_label="Water Utilities",
+        summary=SUMMARY, buyer=BUYER, sender=sender, notify_declined=False,
+        po_numbers=[{"supplierId": "a", "supplierName": "Alpha Supply", "po": "PO-12-0042"},
+                    {"supplierId": "b", "supplierName": "Beta Supply", "po": "PO-12-0043"}],
+    )
+    by_to = {m["to"]: m for m in sender.sent}
+    assert "PO number: PO-12-0042" in by_to["alpha@x.com"]["body"]
+    assert "purchase order (PO-12-0042)" in by_to["alpha@x.com"]["body"]
+    assert "PO number: PO-12-0043" in by_to["beta@x.com"]["body"]
+    assert "PO-12-0042" not in by_to["beta@x.com"]["body"]

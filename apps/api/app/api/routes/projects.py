@@ -4,7 +4,6 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core import locks
 from app.core.security import get_current_user
 from app.db import DEMO_ORG_ID, get_db
 from app.models.user import User
@@ -19,6 +18,7 @@ from app.repositories import quotes as quotes_repo
 from app.repositories import reference as reference_repo
 from app.repositories import suppliers as suppliers_repo
 from app.repositories import timeline as timeline_repo
+from app.services import awards as awards_service
 from app.services import metrics as metrics_service
 from app.services import schedule as schedule_service
 from app.services.quotes import comparison as comparison_service
@@ -404,165 +404,15 @@ def award_package(
 ):
     """Submit a (possibly split) award for a package and issue the purchase orders.
 
-    Exactly-once: the whole award — the already-awarded check, the decision
-    row, the quote flips and the supplier notifications — runs under a lock
-    keyed by (org, project, package). Overlapping requests (a triple-clicked
-    confirm) used to all pass the check-then-insert and each issue POs and
-    email every supplier; now the losers answer 409 immediately.
+    The award itself lives in services/awards.py (shared with the approval
+    link): exactly-once under a per-package lock, PO numbers, supplier
+    notifications, audit and activity records.
     """
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
-    key, pkg_label_for_record = _resolve_package(db, org_id, project_id, pkg)
-    with locks.exclusive(
-        f"award:{org_id}:{project_id}:{key or pkg}",
-        f"{pkg_label_for_record} is being awarded right now — wait for it to finish",
-    ):
-        return _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payload, current_user)
-
-
-def _award_locked(db, org_id, project_id, pkg, key, pkg_label_for_record, payload, current_user):
-    previous = purchase_decisions_repo.latest_for_package(db, org_id, project_id, key or pkg)
-    if previous is not None and not payload.supersede:
-        who = ", ".join(previous.get("suppliers") or []) or "a supplier"
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"{pkg_label_for_record} was already awarded to {who}. "
-                "Re-awarding issues new purchase orders and emails every supplier "
-                "again — confirm the re-award to proceed."
-            ),
-        )
-    summary = line_comparison_service.compute_award(
-        db, org_id, project_id, key or pkg, payload.selections
+    return awards_service.award_package(
+        db, org_id, project_id, pkg, payload, awards_service.Actor.from_user(current_user)
     )
-    if summary is None:
-        raise HTTPException(status_code=404, detail="No quotes to award for package")
-    if not summary.get("poCount"):
-        raise HTTPException(
-            status_code=409,
-            detail="Nothing to award — the quotes for this package have no priced line items",
-        )
-    # Stage the decision + audit record on the session, then let award_package's
-    # commit persist everything atomically with the quote status flips.
-    decision = purchase_decisions_repo.add_decision(
-        db,
-        org_id,
-        project_id=project_id,
-        package=key or pkg,
-        package_label=pkg_label_for_record,
-        summary=summary,
-        selections=payload.selections,
-        strategy=payload.strategy,
-        decided_by=current_user,
-    )
-    audit_repo.log(
-        db, org_id, current_user, "package.awarded", "purchase_decision", decision.id,
-        project_id=project_id,
-        detail={
-            "package": key or pkg,
-            "suppliers": summary["suppliers"],
-            "total": summary["total"],
-            "strategy": payload.strategy,
-            "supersedes": previous["id"] if previous is not None else None,
-        },
-        commit=False,
-    )
-    if previous is not None:
-        # Only one live PO set per package: the earlier decision is superseded.
-        purchase_decisions_repo.mark_superseded(db, org_id, previous["id"], decision.id)
-    quotes_repo.award_package(db, org_id, project_id, key or pkg, summary["supplierIds"])
-
-    # Notify suppliers of the outcome, threaded into each RFQ conversation. Runs
-    # after the award is committed so a flaky email never rolls back the award.
-    notify = award_notify.notify_award(
-        db,
-        org_id=org_id,
-        project_id=project_id,
-        package=key or pkg,
-        package_label=pkg_label_for_record,
-        summary=summary,
-        buyer=current_user,
-        sender=rfq_sender.get_sender(),
-        superseded=previous,
-    )
-    n_awarded, n_declined = len(notify["notified"]), len(notify["declined"])
-    n_withdrawn = len(notify.get("withdrawn") or [])
-    purchase_decisions_repo.set_notifications(
-        db, org_id, decision.id, _notification_record(notify)
-    )
-    if n_awarded or n_declined or notify["failed"]:
-        audit_repo.log(
-            db, org_id, current_user, "package.award_notified", "purchase_decision",
-            decision.id,
-            project_id=project_id,
-            detail={
-                "awarded": [w["email"] for w in notify["notified"]],
-                "declined": [d["email"] for d in notify["declined"]],
-                "withdrawn": [d["email"] for d in notify.get("withdrawn") or []],
-                "failed": notify["failed"],
-                "mock": notify["mock"],
-            },
-        )
-
-    n = summary["poCount"]
-    sup_list = ", ".join(summary["suppliers"])
-    po_word = "PO" if n == 1 else "POs"
-    pkg_label = pkg_label_for_record
-    notice = ""
-    if n_awarded:
-        notice = f" {n_awarded} supplier{'s' if n_awarded != 1 else ''} notified"
-        notice += f", {n_declined} not selected." if n_declined else "."
-    if n_withdrawn:
-        notice += f" {n_withdrawn} previous winner{'s' if n_withdrawn != 1 else ''} told their PO is withdrawn."
-    if notify["failed"]:
-        who = "; ".join(
-            f"{f.get('supplier') or f.get('email') or 'supplier'} ({f.get('error')})"
-            for f in notify["failed"]
-        )
-        n_failed = len(notify["failed"])
-        notice += (
-            f" {n_failed} notification{'s' if n_failed != 1 else ''} could not be sent: {who}."
-        )
-    message = (
-        f"Awarded {pkg_label} for "
-        f"${summary['total']:,.0f} — {n} {po_word} to {sup_list}." + notice
-    )
-    events_repo.log(
-        db,
-        org_id,
-        project_id,
-        title=f"{pkg_label} awarded to {sup_list}",
-        icon="check",
-        tone="success",
-        meta=f"${summary['total']:,.0f} · {n} {po_word}"
-             + (f" · {n_awarded} notified" if n_awarded else ""),
-    )
-    return {
-        "status": "awarded",
-        "message": message,
-        "total": summary["total"],
-        "material": summary["material"],
-        "freight": summary["freight"],
-        "leadDays": summary["leadDays"],
-        "suppliers": summary["suppliers"],
-        "poCount": n,
-        "notified": n_awarded,
-        "declined": n_declined,
-        "withdrawn": n_withdrawn,
-        "notifyFailed": notify["failed"],
-        "notifyMocked": notify["mock"],
-    }
-
-
-def _notification_record(notify: dict) -> dict:
-    return {
-        "notified": notify["notified"],
-        "declined": notify["declined"],
-        "withdrawn": notify.get("withdrawn") or [],
-        "failed": notify["failed"],
-        "mock": notify["mock"],
-        "at": datetime.now(timezone.utc).isoformat(),
-    }
 
 
 @router.post("/{project_id}/packages/{pkg}/award/notify", response_model=AwardNotifyResult)
@@ -608,6 +458,7 @@ def resend_award_notifications(
         sender=rfq_sender.get_sender(),
         only_emails=None if payload.all else failed_emails,
         superseded=purchase_decisions_repo.superseded_by_decision(db, org_id, decision["id"]),
+        po_numbers=decision.get("poNumbers") or [],
     )
     # Merge: suppliers notified now leave the failed list; new failures replace
     # their earlier entries.
@@ -674,21 +525,8 @@ def _is_demo_org(org_id: str) -> bool:
 
 
 def _resolve_package(db: Session, org_id: str, project_id: str, pkg: str):
-    """(key, label) for a package reference from the URL.
-
-    `pkg` may be a preset key ("water"), a preset label ("Water Utilities"),
-    or — for a custom BOM / subcontractor trade — the document id or its
-    name. The Quotes table groups by label, so the compare link used to 404
-    for every custom package ("No quotes to compare") because only preset
-    labels were mapped back to a key. Returns (None, pkg) when nothing matches.
-    """
-    key = pkg if packages.is_valid(pkg) else packages.category_for_label(pkg)
-    if key:
-        return key, packages.label_for(key)
-    doc = documents_repo.find_package_doc(db, org_id, project_id, pkg)
-    if doc is not None:
-        return doc.id, doc.name
-    return None, pkg
+    """(key, label) for a package reference from the URL; see services/awards.py."""
+    return awards_service.resolve_package(db, org_id, project_id, pkg)
 
 
 def _require_project(org_id: str, project_id: str, db: Session) -> dict:

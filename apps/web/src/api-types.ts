@@ -219,6 +219,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/approvals/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Approval
+         * @description The award card behind the link: package, winners, totals, and whether
+         *     the link is still pending, already used, or expired. 404 for an unknown token.
+         */
+        get: operations["preview_approval_api_approvals__token__get"];
+        put?: never;
+        /**
+         * Execute Approval
+         * @description Approve the award: runs the same locked award path as the dashboard,
+         *     issues the POs, marks the token used. 410 when used or expired.
+         */
+        post: operations["execute_approval_api_approvals__token__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dashboard": {
         parameters: {
             query?: never;
@@ -511,11 +537,9 @@ export interface paths {
          * Award Package
          * @description Submit a (possibly split) award for a package and issue the purchase orders.
          *
-         *     Exactly-once: the whole award — the already-awarded check, the decision
-         *     row, the quote flips and the supplier notifications — runs under a lock
-         *     keyed by (org, project, package). Overlapping requests (a triple-clicked
-         *     confirm) used to all pass the check-then-insert and each issue POs and
-         *     email every supplier; now the losers answer 409 immediately.
+         *     The award itself lives in services/awards.py (shared with the approval
+         *     link): exactly-once under a per-package lock, PO numbers, supplier
+         *     notifications, audit and activity records.
          */
         post: operations["award_package_api_projects__project_id__packages__pkg__award_post"];
         delete?: never;
@@ -1572,6 +1596,153 @@ export interface components {
             time: string;
         };
         /**
+         * ApprovalExecuteRequest
+         * @description Optional identity of the approver (the link itself is the credential).
+         *     Accepts both `decidedByEmail` and `decided_by_email`.
+         */
+        ApprovalExecuteRequest: {
+            /** Decided By Email */
+            decided_by_email?: string | null;
+        };
+        /**
+         * ApprovalPreview
+         * @description What the approve page shows before the click. `status` is "pending"
+         *     (approvable), "used" (already approved via this link) or "expired".
+         */
+        ApprovalPreview: {
+            /** Status */
+            status: string;
+            /** Projectid */
+            projectId: string;
+            /** Projectname */
+            projectName: string;
+            /** Package */
+            package: string;
+            /** Packagelabel */
+            packageLabel: string;
+            /**
+             * Suppliers
+             * @default []
+             */
+            suppliers: components["schemas"]["ApprovalSupplier"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Material
+             * @default 0
+             */
+            material: number;
+            /**
+             * Freight
+             * @default 0
+             */
+            freight: number;
+            /** Leaddays */
+            leadDays?: number | null;
+            /**
+             * Savings
+             * @default 0
+             */
+            savings: number;
+            /**
+             * Quotesreceived
+             * @default 0
+             */
+            quotesReceived: number;
+            /**
+             * Recipientstotal
+             * @default 0
+             */
+            recipientsTotal: number;
+            /** Expiresat */
+            expiresAt?: string | null;
+            /** Decidedat */
+            decidedAt?: string | null;
+            /** Decidedbyemail */
+            decidedByEmail?: string | null;
+            /**
+             * Alreadyawarded
+             * @default false
+             */
+            alreadyAwarded: boolean;
+        };
+        /** ApprovalResult */
+        ApprovalResult: {
+            /** Status */
+            status: string;
+            /** Message */
+            message: string;
+            /** Total */
+            total: number;
+            /** Material */
+            material: number;
+            /** Freight */
+            freight: number;
+            /** Leaddays */
+            leadDays?: number | null;
+            /** Suppliers */
+            suppliers: string[];
+            /** Pocount */
+            poCount: number;
+            /**
+             * Ponumbers
+             * @default []
+             */
+            poNumbers: components["schemas"]["PoNumber"][];
+            /**
+             * Notified
+             * @default 0
+             */
+            notified: number;
+            /**
+             * Declined
+             * @default 0
+             */
+            declined: number;
+            /**
+             * Withdrawn
+             * @default 0
+             */
+            withdrawn: number;
+            /**
+             * Notifyfailed
+             * @default []
+             */
+            notifyFailed: components["schemas"]["AwardNotifyFailure"][];
+            /**
+             * Notifymocked
+             * @default false
+             */
+            notifyMocked: boolean;
+            /** Projectid */
+            projectId: string;
+            /** Packagelabel */
+            packageLabel: string;
+            /** Decidedbyemail */
+            decidedByEmail?: string | null;
+        };
+        /**
+         * ApprovalSupplier
+         * @description One winner in the recommended award: their lines plus their freight.
+         */
+        ApprovalSupplier: {
+            /** Supplierid */
+            supplierId: string;
+            /** Suppliername */
+            supplierName: string;
+            /** Subtotal */
+            subtotal: number;
+            /** Freight */
+            freight: number;
+            /** Total */
+            total: number;
+            /** Leaddays */
+            leadDays?: number | null;
+        };
+        /**
          * AwardNotifications
          * @description Who was told what about an award, and who could not be reached.
          */
@@ -1738,6 +1909,11 @@ export interface components {
             suppliers: string[];
             /** Pocount */
             poCount: number;
+            /**
+             * Ponumbers
+             * @default []
+             */
+            poNumbers: components["schemas"]["PoNumber"][];
             /**
              * Notified
              * @default 0
@@ -2916,6 +3092,18 @@ export interface components {
             categories: components["schemas"]["PlanTypeCategoryOut"][];
         };
         /**
+         * PoNumber
+         * @description One purchase-order number, issued to one winning supplier.
+         */
+        PoNumber: {
+            /** Supplierid */
+            supplierId: string;
+            /** Suppliername */
+            supplierName: string;
+            /** Po */
+            po: string;
+        };
+        /**
          * Project
          * @description A project row. `stage`, `progress` and the counts are computed from the
          *     project's own documents/RFQs/quotes/awards (services/metrics.py).
@@ -3052,6 +3240,11 @@ export interface components {
              * @default 0
              */
             poCount: number;
+            /**
+             * Ponumbers
+             * @default []
+             */
+            poNumbers: components["schemas"]["PoNumber"][];
             /** Decidedby */
             decidedBy?: string | null;
             /** Decidedbyemail */
@@ -4201,6 +4394,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_approval_api_approvals__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execute_approval_api_approvals__token__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApprovalExecuteRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalResult"];
                 };
             };
             /** @description Validation Error */

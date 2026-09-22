@@ -26,6 +26,9 @@ class Organization(Base):
     seq: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    # Last purchase-order number issued in this org (PO-<seq>-<n>); bumped
+    # under the award lock, one per winning supplier.
+    po_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
 
     def to_dict(self) -> dict:
