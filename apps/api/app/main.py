@@ -36,6 +36,29 @@ from app.services.rfq import followups as _followups  # noqa: F401 - registers i
 
 logger = logging.getLogger(__name__)
 
+
+def _configure_logging() -> None:
+    """Make the app's own INFO lines visible under uvicorn.
+
+    Uvicorn configures only its own loggers; without a root handler the
+    `procureai.*` loggers fall back to Python's last-resort handler, which
+    prints WARNING and above only, so mock sends ([MOCK SEND]), inbound
+    attribution and notice deliveries were silent in a local run. The root
+    stays at WARNING so third-party clients (httpx, sqlalchemy) do not flood
+    the output. Idempotent: an existing root handler is left alone.
+    """
+    root = logging.getLogger()
+    if not root.handlers:
+        logging.basicConfig(
+            level=logging.WARNING,
+            format="%(levelname)s:     %(name)s: %(message)s",
+        )
+    logging.getLogger("procureai").setLevel(logging.INFO)
+    logging.getLogger("app").setLevel(logging.INFO)
+
+
+_configure_logging()
+
 _DEFAULT_JWT_SECRET = "dev-insecure-change-me"
 
 

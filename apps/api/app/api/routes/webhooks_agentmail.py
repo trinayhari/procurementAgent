@@ -13,6 +13,7 @@ event for every agent inbox here. The route:
 5. hands the row to services.inbound.handle in a background task, which
    never fails the response (a processing error is recorded on the row).
 """
+import base64
 import json
 import logging
 import os
@@ -45,10 +46,25 @@ def _safe_filename(name: str) -> str:
     return base or "attachment"
 
 
+def _inline_content(att: dict) -> Optional[bytes]:
+    """Attachment bytes carried inline as base64 `content` (a forged local
+    delivery from scripts/send_test_inbound.py); None when absent."""
+    raw = att.get("content")
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        return base64.b64decode(raw, validate=True)
+    except (ValueError, TypeError):
+        return None
+
+
 def _download(client, inbox_id: str, message_id: str, attachment_id: str) -> Optional[bytes]:
     """The attachment bytes: the SDK answers with a short-lived download URL."""
     import httpx
 
+    if client is None:
+        logger.warning("Attachment %s of %s skipped: no AgentMail key to download it", attachment_id, message_id)
+        return None
     info = client.inboxes.messages.get_attachment(inbox_id, message_id, attachment_id)
     if isinstance(info, (bytes, bytearray)):
         return bytes(info)
@@ -67,12 +83,15 @@ def _store_attachments(inbox_id: str, message: dict) -> List[dict]:
     attachments = message.get("attachments") or []
     if not attachments:
         return out
-    client = agentmail_client.get_client()
+    # No key (development): inline content still works, API downloads are skipped.
+    client = agentmail_client.get_client() if agentmail_client.is_configured() else None
     for att in attachments:
         att_id = att.get("attachment_id")
         filename = _safe_filename(att.get("filename") or att_id or "attachment")
         try:
-            data = _download(client, inbox_id, message.get("message_id", ""), att_id)
+            data = _inline_content(att)
+            if data is None:
+                data = _download(client, inbox_id, message.get("message_id", ""), att_id)
             if data is None:
                 continue
             fd, tmp_path = tempfile.mkstemp(prefix="procureai-inbound-", suffix=os.path.splitext(filename)[1])

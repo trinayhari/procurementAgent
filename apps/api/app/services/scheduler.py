@@ -43,6 +43,7 @@ def start() -> None:
         t = threading.Thread(target=_loop, args=(name, interval_s, fn), name=f"sched-{name}", daemon=True)
         t.start()
         _THREADS.append(t)
+        logger.info("scheduled job %s started (every %ss)", name, interval_s)
 
 
 def stop() -> None:

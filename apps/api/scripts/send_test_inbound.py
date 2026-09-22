@@ -11,11 +11,16 @@ deliveries when a webhook secret is known, and posted to the local API.
         --text "Fire hydrant $3,150 each, freight $900, 4 weeks"
 
 The organization must own `--inbox` (organizations.agentmail_inbox_id) or the
-server drops the message. `--thread` should be the `threadId` recorded on the
-RFQ recipient; `--in-reply-to` (the recipient's `messageId`) is the fallback
-attribution. See docs/email-setup.md, "Local testing without AgentMail".
+server drops the message. With no AgentMail key the server accepts the org's
+mock address, `<org slug>@mock.proq.local` (GET /api/auth/email-config shows
+it once assigned). `--thread` should be the `threadId` recorded on the RFQ
+recipient; `--in-reply-to` (the recipient's `messageId`) is the fallback
+attribution. `--attach file.pdf` carries the file inline (base64), which is
+how a customer intake email with a plan set is forged. See
+docs/email-setup.md, "Local testing without AgentMail".
 """
 import argparse
+import base64
 import json
 import os
 import sys
@@ -39,9 +44,22 @@ def main() -> int:
     ap.add_argument("--message-id", default=None, help="provider message id (random when omitted)")
     ap.add_argument("--secret", default=os.environ.get("PROCUREAI_AGENTMAIL_WEBHOOK_SECRET", ""),
                     help="whsec_... to sign with (empty: unsigned, dev servers accept that)")
+    ap.add_argument("--attach", action="append", default=[], metavar="FILE",
+                    help="attach a file inline (repeatable); the server stores it without an API download")
     args = ap.parse_args()
 
     mid = args.message_id or f"<{uuid.uuid4().hex}@supplier.example>"
+    attachments = []
+    for i, path in enumerate(args.attach, 1):
+        with open(path, "rb") as fh:
+            data = fh.read()
+        attachments.append({
+            "attachment_id": f"att_{i}",
+            "filename": os.path.basename(path),
+            "content_type": "application/pdf" if path.lower().endswith(".pdf") else "application/octet-stream",
+            "size": len(data),
+            "content": base64.b64encode(data).decode(),
+        })
     payload = {
         "type": "event",
         "event_type": "message.received",
@@ -59,7 +77,7 @@ def main() -> int:
             "extracted_text": args.text,
             "in_reply_to": args.in_reply_to,
             "references": [args.in_reply_to] if args.in_reply_to else [],
-            "attachments": [],
+            "attachments": attachments,
             "size": len(args.text),
         },
         "thread": {"inbox_id": args.inbox, "thread_id": args.thread, "message_count": 2},

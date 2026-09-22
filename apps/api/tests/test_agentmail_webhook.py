@@ -203,3 +203,71 @@ def test_unattributed_mail_stays_unknown_after_the_real_dispatcher(org_inbox, mo
     [row] = _rows()
     assert row.kind == "unknown" and row.processed_at is None and row.error is None
     assert client.get("/api/inbound?kind=unknown", headers=headers).json()[0]["id"] == row.id
+
+
+def test_a_mock_inbox_address_resolves_to_the_org_without_a_key(auth, handled):
+    """Development without AgentMail: "<slug>@mock.proq.local" reaches the org
+    whose name slugs to it, and the address is stored so it stays stable.
+    Production (or a configured key) only ever matches a stored inbox."""
+    from app.config import settings
+
+    client, headers = auth
+    org_id = client.get("/api/auth/me", headers=headers).json()["organizationId"]
+    with SessionLocal() as db:
+        org = db.get(Organization, org_id)
+        assert org.agentmail_inbox_id is None
+        mock_addr = agentmail_client.mock_inbox_id(org)
+    r = client.post("/api/webhooks/agentmail", json=_event(inbox=mock_addr))
+    assert r.status_code == 200 and r.text == "stored"
+    assert handled == ["<r1@supplier.example>"]
+    with SessionLocal() as db:
+        assert db.get(Organization, org_id).agentmail_inbox_id == mock_addr
+    assert client.get("/api/auth/email-config", headers=headers).json()["inboxAddress"] == mock_addr
+    # Unknown slugs are still dropped.
+    r = client.post("/api/webhooks/agentmail", json=_event(mid="<r2@x>", inbox="nobody@mock.proq.local"))
+    assert r.text == "unknown inbox"
+    # Production never guesses.
+    with SessionLocal() as db:
+        db.get(Organization, org_id).agentmail_inbox_id = None
+        db.commit()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(settings, "env", "production")
+        mp.setattr(settings, "agentmail_webhook_secret", "")
+        with SessionLocal() as db:
+            assert agentmail_client.org_for_inbox(db, mock_addr) is None
+
+
+def test_a_real_key_replaces_a_stored_mock_inbox(auth, monkeypatch):
+    from app.config import settings
+    from tests.agentmail_fakes import FakeAgentMail
+
+    client, headers = auth
+    org_id = client.get("/api/auth/me", headers=headers).json()["organizationId"]
+    fake = FakeAgentMail()
+    with SessionLocal() as db:
+        org = db.get(Organization, org_id)
+        assert agentmail_client.ensure_mock_inbox(db, org).endswith("@mock.proq.local")
+        monkeypatch.setattr(settings, "agentmail_api_key", "am_live")
+        monkeypatch.setattr(agentmail_client, "get_client", lambda: fake)
+        assert agentmail_client.ensure_mock_inbox(db, org) is None
+        real = agentmail_client.ensure_inbox(db, org)
+        assert real.endswith("@agentmail.to") and db.get(Organization, org_id).agentmail_inbox_id == real
+
+
+def test_inline_base64_attachments_are_stored_without_a_key(org_inbox, handled):
+    """scripts/send_test_inbound.py carries the file inline; no API download."""
+    import base64
+
+    client, headers, org_id = org_inbox
+    event = _event(attachments=[
+        {"attachment_id": "att_1", "filename": "C-101 site plan.pdf", "content_type": "application/pdf",
+         "size": 14, "content": base64.b64encode(b"%PDF-1.4 plans").decode()},
+        {"attachment_id": "att_2", "filename": "remote.pdf", "content_type": "application/pdf", "size": 1},
+    ])
+    assert client.post("/api/webhooks/agentmail", json=event).status_code == 200
+    [row] = _rows()
+    [att] = json.loads(row.attachments)
+    assert att["filename"] == "C-101 site plan.pdf" and att["size"] == 14
+    with open(att["locator"], "rb") as fh:
+        assert fh.read() == b"%PDF-1.4 plans"
+    assert handled == ["<r1@supplier.example>"]

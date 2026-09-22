@@ -22,10 +22,24 @@ from app.models.inbound_email import InboundEmail
 from app.models.rfq import Rfq
 from app.repositories import inbound_emails as inbound_repo
 from app.repositories import rfqs as rfqs_repo
+from app.services.email import agentmail_client
 from app.services.quotes import ingest as quotes_ingest
+from app.services.quotes import notices as quote_notices
 from app.services.rfq import state as rfq_state
 
 logger = logging.getLogger("procureai.inbound.rfq_replies")
+
+
+def _matchable(value: str) -> bool:
+    """An id worth comparing against a received message. Error markers never
+    match. Mock ids (a send with no AgentMail key) match only while the mock
+    sender is in use, so a forged local delivery can complete the loop; once
+    a real key is set they are ignored, as a real reply cannot carry one."""
+    if not value or value.startswith("error"):
+        return False
+    if value.startswith("mock"):
+        return not agentmail_client.is_configured()
+    return True
 
 
 def _recipient_ids(recipient: dict) -> set:
@@ -40,7 +54,7 @@ def _recipient_ids(recipient: dict) -> set:
     for f in recipient.get("followups") or []:
         if isinstance(f, dict) and f.get("messageId"):
             ids.add(str(f["messageId"]))
-    return {i for i in ids if i and not i.startswith(("error", "mock"))}
+    return {i for i in ids if _matchable(i)}
 
 
 def _find_recipient(db: Session, org_id: Optional[str], msg: InboundEmail) -> Tuple[Optional[Rfq], Optional[dict]]:
@@ -69,7 +83,7 @@ def _find_recipient(db: Session, org_id: Optional[str], msg: InboundEmail) -> Tu
             if not rfq_state.recipient_sent(r):
                 continue
             rid = str(r.get("threadId") or "")
-            if thread_id and rid and rid == thread_id and not rid.startswith("mock"):
+            if thread_id and rid == thread_id and _matchable(rid):
                 return rfq, r
             if in_reply_to and by_reply[0] is None and in_reply_to in _recipient_ids(r):
                 by_reply = (rfq, r)
@@ -127,3 +141,10 @@ def handle(db: Session, msg: InboundEmail) -> None:
             "Supplier reply %s from %s stored as quote %s (%s)",
             msg.id, msg.from_email, quote.get("id"), quote.get("status"),
         )
+        if quote.get("status") == "received":
+            # Same notice and readiness check the dashboard's "Check for
+            # replies" runs: the customer hears about the quote, and gets the
+            # award card once enough suppliers have answered.
+            quote_notices.notify_quotes_received(
+                db, org_id, rfq.project_id, packages=[rfq.package]
+            )

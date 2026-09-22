@@ -155,13 +155,27 @@ retries 429 and 5xx twice with a short pause.
 
 ## Local testing without AgentMail
 
-The webhook path (store, attribute, parse, conversation) runs without an API
-key. Send an RFQ locally (mock send), then forge a supplier reply:
+The whole loop runs without an API key. Sends go through `MockSender` (logged
+as `[MOCK SEND]`, nothing delivered) and the organization gets a stand-in
+inbox address, `<org slug>@mock.proq.local`, the first time it sends or the
+first time a delivery for that address arrives. `GET /api/auth/email-config`
+reports it as `inboxAddress` (with `mocked: true`). Forge deliveries with
+`scripts/send_test_inbound.py`:
 
 ```bash
 cd apps/api
+# A customer intake: a known user emails a plan set to the agent inbox.
 .venv/bin/python scripts/send_test_inbound.py \
-  --inbox acme@proq.tryproq.dev \
+  --url http://localhost:8000/api/webhooks/agentmail \
+  --inbox riverside-gc@mock.proq.local \
+  --from "Pat Miller <pm@riverside.example>" \
+  --subject "Riverside WTP site set" \
+  --text "Site set attached, need it by Oct 15" \
+  --attach "sample-docs/C-101 site plan.pdf"
+
+# A supplier reply to a mock-sent RFQ, in the thread the send recorded.
+.venv/bin/python scripts/send_test_inbound.py \
+  --inbox riverside-gc@mock.proq.local \
   --thread <threadId from the RFQ recipient> \
   --from "Sales <sales@pipe.example>" \
   --text "Fire hydrant \$3,150 each, freight \$900, 4 weeks"
@@ -169,13 +183,15 @@ cd apps/api
 
 The script signs the payload exactly as Svix does when
 `PROCUREAI_AGENTMAIL_WEBHOOK_SECRET` (or `--secret`) is set, and posts to
-`http://localhost:8000/api/webhooks/agentmail` by default. Set the org's
-`agentmail_inbox_id` first (any address; `--inbox` must match) since a
-message for an unknown inbox is dropped. Mock sends record `mock-...` thread
-ids, which are never matched; edit the recipient's `threadId` in the RFQ row
-or pass `--in-reply-to` with the recipient's `messageId` after setting a
-provider-looking id. `tests/test_inbound_rfq_replies.py` does all of this
-in code.
+`http://localhost:8000/api/webhooks/agentmail` by default. `--attach` carries
+the file inline (base64 `content`), which the webhook stores without an API
+download. Mock sends record `mock-...` thread and message ids; while no key
+is set those ids attribute a reply exactly like real ones, so `--thread` with
+the recipient's `threadId` (or `--in-reply-to` with its `messageId`) lands
+the reply on the RFQ, parses the quote, and runs the readiness check that
+emails the award card. Once a real key is set, mock ids are ignored and the
+mock inbox is replaced by a real one on first use. Production never resolves
+a mock address. `tests/test_inbound_rfq_replies.py` does all of this in code.
 
 Then **Check for replies** on the RFQ (or `POST /api/projects/{id}/quotes/ingest`)
 re-runs the parse over any stored replies the webhook handler did not get

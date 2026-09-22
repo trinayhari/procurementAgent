@@ -50,10 +50,10 @@ from app.schemas.sourcing import (
 from app.services import notify, storage
 from app.services.notify import kinds as notice_kinds
 from app.services.quotes import ingest as quotes_ingest
+from app.services.quotes import notices as quote_notices
 from app.services.rfq import conversation as rfq_conversation
 from app.services.rfq import followups as rfq_followups
 from app.services.rfq import generator as rfq_generator
-from app.services.rfq import readiness
 from app.services.rfq import sender as rfq_sender
 from app.services.rfq import state as rfq_state
 from app.services.sourcing import distance, packages
@@ -370,35 +370,9 @@ def run_ingest_job(job_id: str, org_id: str, project_id: str) -> None:
 
 
 def _notify_quotes_received(db: Session, org_id: str, project_id: str) -> None:
-    """One quotes.received notice per package that has quotes, then check
-    whether the package is ready to award (readiness mints the approval link
-    and emits award.ready itself, once per quote set)."""
-    project = projects_repo.get_project(db, org_id, project_id) or {}
-    project_name = project.get("name") or "Project"
-    by_package: dict = {}
-    for q in quotes_repo.list_quotes(db, org_id, project_id):
-        by_package.setdefault(q["package"], []).append(q)
-    sent: dict = {}
-    for rfq in rfqs_repo.list_awaiting_rfqs(db, org_id, project_id):
-        for r in rfq.get("recipients", []):
-            if rfq_state.recipient_sent(r) and r.get("email"):
-                sent.setdefault(rfq["package"], set()).add(r["email"].strip().lower())
-    for package, quotes in by_package.items():
-        label = quotes[0].get("packageLabel") or _package_label(db, org_id, project_id, package)
-        n_quoted = len({(q.get("supplierEmail") or q.get("supplierId") or q["id"]) for q in quotes})
-        n_sent = max(len(sent.get(package, ())), n_quoted)
-        notify.emit(db, notify.Notice(
-            org_id=org_id, project_id=project_id, kind=notice_kinds.QUOTES_RECEIVED,
-            title=f"{project_name}: {n_quoted} of {n_sent} suppliers replied for {label}",
-            lines=[f"{n_quoted} quote{'s' if n_quoted != 1 else ''} leveled to the line"],
-            meta={"package": package, "quoted": n_quoted, "sent": n_sent},
-        ))
-        try:
-            readiness.announce(db, org_id, project_id, package)
-        except Exception:  # noqa: BLE001 - the ingest itself already succeeded
-            logging.getLogger("procureai.rfq.readiness").exception(
-                "award readiness check failed for %s/%s", project_id, package
-            )
+    """quotes.received per package, then the award-readiness check (shared
+    with the webhook reply path, see services/quotes/notices.py)."""
+    quote_notices.notify_quotes_received(db, org_id, project_id)
 
 
 _INGEST_STATUS_MAP = {"running": "ingesting", "done": "done", "error": "error"}

@@ -441,9 +441,15 @@ def is_configured() -> bool:
 def get_sender(db: Session, org_id: str) -> EmailSender:
     """AgentMail from this organization's agent inbox if configured, else a
     logging mock. Creates the inbox on first use."""
-    if not is_configured():
-        return MockSender()
     from app.repositories import organizations as organizations_repo
+
+    if not is_configured():
+        # Development: the org still gets a (mock) inbox address so forged
+        # webhook deliveries can be routed to it; nothing is delivered.
+        org = organizations_repo.get_organization(db, org_id) if (db is not None and org_id) else None
+        if org is not None:
+            agentmail_client.ensure_mock_inbox(db, org)
+        return MockSender()
 
     org = organizations_repo.get_organization(db, org_id)
     if org is None:
@@ -517,7 +523,8 @@ def email_config(db: Optional[Session] = None, org_id: Optional[str] = None) -> 
 
     Surfaced by GET /api/auth/email-config so the UI can say "not configured"
     instead of implying mail is going out. `inboxAddress` is the org's agent
-    inbox, or null before it has been created.
+    inbox, or null before it has been created (in development without a key
+    it is the mock address the forged webhook can be posted to).
     """
     missing = missing_config()
     configured = not missing

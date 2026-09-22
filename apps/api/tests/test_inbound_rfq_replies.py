@@ -228,3 +228,63 @@ def test_dashboard_ingest_processes_rows_the_webhook_could_not(sent_rfq, monkeyp
     totals = sorted(q["total"] for q in client.get(f"/api/projects/{pid}/quotes", headers=headers).json())
     assert totals == ["$7,000", "$8,000"]
     assert _row("<manual@sup>").processed_at is not None
+
+
+# ------------------------------------------------- the loop without a key
+def test_mock_send_ids_attribute_a_reply_only_while_the_sender_is_mocked(project, monkeypatch):
+    """A local server with no AgentMail key sends with mock-... ids. A forged
+    delivery in that thread must still land on the RFQ (so the loop can be
+    exercised offline); once a real key is set the same ids are ignored."""
+    from app.config import settings
+    from app.repositories import events as events_repo
+    from app.services.email import agentmail_client
+
+    client, headers, pid = project
+    org_id = client.get("/api/auth/me", headers=headers).json()["organizationId"]
+    bom_id = make_confirmed_bom(client, headers, pid)
+    sids = run_supplier_search(client, headers, pid, bom_id)
+    rfq = generate_rfq(client, headers, pid, bom_id, sids[:2])
+    rfq = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers).json()
+    r1, r2 = rfq["recipients"]
+    assert r1["threadId"].startswith("mock-") and r1["messageId"].startswith("mock-")
+    # The mock send gave the org its mock inbox, which the webhook resolves.
+    cfg = client.get("/api/auth/email-config", headers=headers).json()
+    inbox = cfg["inboxAddress"]
+    assert cfg["mocked"] is True and inbox.endswith("@" + agentmail_client.MOCK_INBOX_DOMAIN)
+    monkeypatch.setattr(intake, "attribute", lambda db, row: False)
+
+    def deliver(mid, frm, text, thread):
+        event = {"type": "event", "event_type": "message.received", "event_id": mid,
+                 "message": {"inbox_id": inbox, "thread_id": thread, "message_id": mid, "from": frm,
+                             "to": [inbox], "subject": "Re: RFQ", "text": text, "extracted_text": text}}
+        assert client.post("/api/webhooks/agentmail", json=event).status_code == 200
+
+    deliver("<m1@sup>", r1["email"], "Fire hydrant $3,150 each, 8-inch gate valve $1,240 each, freight $900", r1["threadId"])
+    row = _row("<m1@sup>")
+    assert row.kind == "rfq_reply" and row.rfq_id == rfq["id"] and row.processed_at is not None
+    [q] = client.get(f"/api/projects/{pid}/quotes", headers=headers).json()
+    assert q["total"] == "$27,810"
+    # The webhook path reports the quote like the dashboard's ingest does.
+    with SessionLocal() as db:
+        titles = [e["title"] for e in events_repo.list_for_project(db, org_id, pid)]
+    assert "Test Project: 1 of 2 suppliers replied for Hydrants Package" in titles
+    assert not any(t.endswith("award ready") for t in titles)
+    # Second supplier answers: everyone replied, the award card goes out once.
+    deliver("<m2@sup>", r2["email"], "Fire hydrant $3,000 each, 8-inch gate valve $1,300 each, freight $700", r2["threadId"])
+    with SessionLocal() as db:
+        titles = [e["title"] for e in events_repo.list_for_project(db, org_id, pid)]
+    assert titles.count("Test Project: Hydrants Package award ready") == 1
+    # "Check for replies" afterwards is a no-op: nothing is double counted.
+    client.post(f"/api/projects/{pid}/quotes/ingest", headers=headers)
+    assert len(client.get(f"/api/projects/{pid}/quotes", headers=headers).json()) == 2
+    with SessionLocal() as db:
+        titles = [e["title"] for e in events_repo.list_for_project(db, org_id, pid)]
+    assert titles.count("Test Project: Hydrants Package award ready") == 1
+
+    # With a real key the mock ids from an old send are not a match.
+    monkeypatch.setattr(settings, "agentmail_api_key", "am_live")
+    with SessionLocal() as db:
+        r = db.get(InboundEmail, row.id)
+        r.rfq_id = None
+        assert rfq_replies.attribute(db, r) is False
+        db.rollback()
