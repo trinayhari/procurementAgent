@@ -1,43 +1,35 @@
-"""Outbound email identity: one workspace From, the buyer on Cc.
+"""Outbound email identity: the organization's agent inbox is the From, the
+buyer is on Cc.
 
-Everything Proq sends leaves the connected Gmail mailbox
-(PROCUREAI_GMAIL_SENDER_ADDRESS). A user's own address is carried as the From
-display name and as a Cc — never as the From address itself, and never as a
-Reply-To (supplier replies have to come back to the mailbox quote ingest reads).
+Everything Proq sends for an organization leaves that org's AgentMail inbox.
+A user's own address is carried as the From display name and as a Cc, never
+as the From address itself, and never as a Reply-To (supplier replies have to
+come back to the inbox the webhook reads).
 
-Provider credentials are force-blanked in conftest before app import, so nothing
-here can reach Gmail; the workspace address is monkeypatched per test.
+Provider credentials are force-blanked in conftest before app import, so
+nothing here can reach AgentMail; the inbox address is passed explicitly.
 """
-import base64
-from email import message_from_bytes
 from email.header import decode_header, make_header
 from email.utils import parseaddr
 from types import SimpleNamespace
 
 import pytest
 
-from app.config import settings
 from app.services.rfq import sender as rfq_sender
 from tests.conftest import generate_rfq, make_confirmed_bom, run_supplier_search
 
-WORKSPACE = "bids@workspace.example.com"
+WORKSPACE = "acme@proq.tryproq.dev"
 
 
 @pytest.fixture()
-def workspace_address(monkeypatch):
-    """A configured PROCUREAI_GMAIL_SENDER_ADDRESS (still no OAuth creds → mock)."""
-    monkeypatch.setattr(settings, "gmail_sender_address", WORKSPACE)
-    assert not rfq_sender.is_configured(), "OAuth creds must stay blank in tests"
+def workspace_address():
+    """An organization whose agent inbox exists (still no API key → mock)."""
+    assert not rfq_sender.is_configured(), "the API key must stay blank in tests"
     return WORKSPACE
 
 
 def _user(name="Jane Doe", company="Acme Construction", cc_email=None):
     return SimpleNamespace(name=name, company=company, cc_email=cc_email)
-
-
-def _decode(raw: str):
-    """The MIME message back out of the base64url blob _build_mime produces."""
-    return message_from_bytes(base64.urlsafe_b64decode(raw))
 
 
 def _label(header: str) -> str:
@@ -48,21 +40,25 @@ def _label(header: str) -> str:
 # --------------------------------------------------------------- From header
 def test_from_is_the_workspace_address_whatever_the_user_set(workspace_address):
     for cc in (None, "", "jane@herowncompany.com", WORKSPACE):
-        header = rfq_sender.from_header(_user(cc_email=cc))
+        header = rfq_sender.from_header(_user(cc_email=cc), address=WORKSPACE)
         assert parseaddr(header)[1] == WORKSPACE
 
 
 def test_from_carries_the_buyers_name_and_company(workspace_address):
-    header = rfq_sender.from_header(_user())
+    header = rfq_sender.from_header(_user(), address=WORKSPACE)
     assert parseaddr(header)[1] == WORKSPACE
-    # The em dash is non-ASCII, so formataddr RFC2047-encodes the label; it
-    # decodes back to the readable name in every mail client.
-    assert _label(header) == "Jane Doe — Acme Construction"
-    # …and the display twin is the same identity, already readable.
-    assert rfq_sender.from_display(_user()) == (
-        f"Jane Doe — Acme Construction <{WORKSPACE}>"
+    assert _label(header) == "Jane Doe: Acme Construction"
+    # ...and the display twin is the same identity, already readable.
+    assert rfq_sender.from_display(_user(), address=WORKSPACE) == (
+        f"Jane Doe: Acme Construction <{WORKSPACE}>"
     )
-    assert rfq_sender.from_display(_user(name="", company="")) == WORKSPACE
+    assert rfq_sender.from_display(_user(name="", company=""), address=WORKSPACE) == WORKSPACE
+
+
+def test_non_ascii_names_are_rfc2047_encoded_on_the_wire():
+    header = rfq_sender.from_header(_user(name="José Núñez", company="Acme"), address=WORKSPACE)
+    assert "=?utf-8?" in header and parseaddr(header)[1] == WORKSPACE
+    assert _label(header) == "José Núñez: Acme"
 
 
 @pytest.mark.parametrize(
@@ -77,23 +73,25 @@ def test_from_carries_the_buyers_name_and_company(workspace_address):
 def test_from_display_name_degrades_without_dangling_separators(
     workspace_address, user, expected_name
 ):
-    header = rfq_sender.from_header(user)
+    header = rfq_sender.from_header(user, address=WORKSPACE)
     assert parseaddr(header)[1] == WORKSPACE
     assert _label(header) == expected_name
     # No orphaned separator or empty label left behind.
-    assert "—" not in header and '""' not in header
+    assert ":" not in _label(header) and '""' not in header
 
 
 def test_from_display_name_with_a_comma_stays_one_address(workspace_address):
     """formataddr must quote the label, or the comma would split the header."""
-    header = rfq_sender.from_header(_user(name="Doe, Jane", company=""))
+    header = rfq_sender.from_header(_user(name="Doe, Jane", company=""), address=WORKSPACE)
     assert header.startswith('"Doe, Jane"')
     assert parseaddr(header)[1] == WORKSPACE
 
 
 def test_from_falls_back_to_the_bare_address_with_no_identity(workspace_address):
-    assert rfq_sender.from_header(None) == WORKSPACE
-    assert rfq_sender.from_header(_user(name="", company="")) == WORKSPACE
+    assert rfq_sender.from_header(None, address=WORKSPACE) == WORKSPACE
+    assert rfq_sender.from_header(_user(name="", company=""), address=WORKSPACE) == WORKSPACE
+    # Before the org's inbox exists the placeholder stands in (never delivered).
+    assert rfq_sender.from_header(None) == rfq_sender.UNCONFIGURED_SENDER_ADDRESS
 
 
 # ---------------------------------------------------------------- Cc handling
@@ -116,33 +114,6 @@ def test_resolve_cc_drops_duplicates_and_blanks(cc, to, from_addr, expected):
     assert rfq_sender.resolve_cc(cc, to, from_addr) == expected
 
 
-def test_built_mime_sets_cc_and_never_reply_to(workspace_address):
-    from_addr = rfq_sender.from_header(_user())
-    msg = _decode(
-        rfq_sender._build_mime(
-            "supplier@x.com", "RFQ", "body", from_addr, cc="jane@acme.com"
-        )
-    )
-    assert msg["To"] == "supplier@x.com"
-    assert parseaddr(msg["From"])[1] == WORKSPACE
-    assert msg["Cc"] == "jane@acme.com"
-    # Supplier replies must land in the workspace mailbox — see sender.py.
-    assert msg["Reply-To"] is None
-
-
-def test_built_mime_omits_cc_when_unset_or_duplicate(workspace_address):
-    plain = _decode(
-        rfq_sender._build_mime("supplier@x.com", "RFQ", "body", WORKSPACE)
-    )
-    assert plain["Cc"] is None
-    dupe = _decode(
-        rfq_sender._build_mime(
-            "supplier@x.com", "RFQ", "body", WORKSPACE, cc="supplier@x.com"
-        )
-    )
-    assert dupe["Cc"] is None
-
-
 def test_mock_sender_logs_the_cc(workspace_address, caplog):
     with caplog.at_level("INFO", logger="procureai.rfq.sender"):
         rfq_sender.MockSender().send(
@@ -152,19 +123,39 @@ def test_mock_sender_logs_the_cc(workspace_address, caplog):
 
 
 # ------------------------------------------------------------- config surface
-def test_email_config_flags_the_placeholder_address(monkeypatch):
-    monkeypatch.setattr(settings, "gmail_sender_address", "")
-    cfg = rfq_sender.email_config()
+def test_email_config_has_no_inbox_before_the_first_send(auth):
+    client, headers = auth
+    from app.db import SessionLocal
+
+    me = client.get("/api/auth/me", headers=headers).json()
+    db = SessionLocal()
+    try:
+        cfg = rfq_sender.email_config(db, me["organizationId"])
+    finally:
+        db.close()
     assert cfg["configured"] is False and cfg["mocked"] is True
-    assert cfg["senderAddressSet"] is False
-    assert cfg["fromAddress"] == rfq_sender.UNCONFIGURED_SENDER_ADDRESS
+    assert cfg["inboxAddress"] is None
 
 
-def test_email_config_reports_a_configured_address(workspace_address):
-    cfg = rfq_sender.email_config()
-    assert cfg["senderAddressSet"] is True
-    assert cfg["fromAddress"] == WORKSPACE
-    assert cfg["mocked"] is True  # address alone isn't enough — OAuth creds too
+def test_email_config_reports_the_orgs_inbox_once_it_exists(auth):
+    client, headers = auth
+    from app.db import SessionLocal
+    from app.models.organization import Organization
+
+    me = client.get("/api/auth/me", headers=headers).json()
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, me["organizationId"])
+        org.agentmail_inbox_id = WORKSPACE
+        db.commit()
+        cfg = rfq_sender.email_config(db, me["organizationId"])
+        assert rfq_sender.sender_address(db, me["organizationId"]) == WORKSPACE
+    finally:
+        db.close()
+    assert cfg["inboxAddress"] == WORKSPACE
+    assert cfg["mocked"] is True  # the address alone isn't enough: the key too
+    cfg = client.get("/api/auth/email-config", headers=headers).json()
+    assert cfg["inboxAddress"] == WORKSPACE and cfg["fromHeader"] == f"PM <{WORKSPACE}>"
 
 
 # --------------------------------------------------------- end-to-end RFQ send
@@ -174,8 +165,10 @@ class _Recorder:
     def __init__(self):
         self.sent = []
 
+    address = WORKSPACE
+
     def send(self, to, subject, body, *, from_addr, cc=None, thread_id=None,
-             in_reply_to=None):
+             in_reply_to=None, attachments=None, reply_to=None):
         self.sent.append({"to": to, "from_addr": from_addr, "cc": cc})
         return rfq_sender.SentMessage(message_id=f"rec-{len(self.sent)}", thread_id="t")
 
@@ -184,7 +177,7 @@ def _send_rfq(client, headers, pid, recorder, monkeypatch):
     bom_id = make_confirmed_bom(client, headers, pid)
     sids = run_supplier_search(client, headers, pid, bom_id)
     rfq = generate_rfq(client, headers, pid, bom_id, sids[:2])
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: recorder)
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200, r.text
 

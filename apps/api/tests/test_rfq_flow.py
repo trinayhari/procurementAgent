@@ -146,7 +146,7 @@ def test_partial_failure_and_retry_only_failed(project, monkeypatch):
             return mock.send(to, subject, body, from_addr=from_addr, cc=cc,
                              thread_id=thread_id, in_reply_to=in_reply_to)
 
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: Flaky())
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: Flaky())
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200
     body = r.json()
@@ -167,7 +167,7 @@ def test_partial_failure_and_retry_only_failed(project, monkeypatch):
             return mock.send(to, subject, body, from_addr=from_addr, cc=cc,
                              thread_id=thread_id, in_reply_to=in_reply_to)
 
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: Counting())
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: Counting())
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200
     assert sent_to == [fail_email]

@@ -1,27 +1,31 @@
 """Build the email conversation for an RFQ (read-only).
 
-Primary path uses the Gmail API: pull every message in each recipient's Gmail
-thread — our outbound RFQ plus any supplier replies that threaded with it. When
-Gmail isn't configured we fall back to a thread synthesised from what we already
-store — the sent RFQ plus any ingested quotes — so the view still works offline.
+The thread is assembled from what we store: the RFQ we sent (one bubble per
+send) followed by every supplier reply the agent inbox received for this RFQ
+(`inbound_emails` rows attributed by thread id), oldest first. No API call on
+the read path: the AgentMail webhook already delivered every message, so the
+view is fast and works offline. Before AgentMail is configured (mock sends)
+the same shape is built from the stored RFQ plus any ingested quotes.
 
-Note: we deliberately read only the original thread. Automatic replies /
-out-of-office acknowledgements arrive as a separate thread and are intentionally
-not surfaced or acted on.
+Note: only replies in the thread our outbound created are attributed here.
+Automatic replies / out-of-office acknowledgements arrive as a separate
+thread and are intentionally not surfaced or acted on.
 """
+import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.inbound_email import InboundEmail
 from app.models.user import User
+from app.repositories import inbound_emails as inbound_repo
 from app.repositories import quotes as quotes_repo
-from app.services.quotes import gmail_reader
+from app.services.email import text as email_text
 from app.services.rfq import state as rfq_state
-from app.services.rfq.sender import is_configured as gmail_configured
-from app.services.rfq.sender import sender_address
+from app.services.rfq.sender import is_configured, sender_address
 
 logger = logging.getLogger("procureai.rfq.conversation")
 
@@ -35,109 +39,56 @@ def _initials(name: str) -> str:
     return (parts[0][0] + parts[1][0]).upper()
 
 
-def _fmt_time(date_ms: int) -> str:
-    if not date_ms:
+def _fmt_time(when) -> str:
+    """'Jun 13, 2:30 PM' from a datetime or epoch milliseconds ('' when unset)."""
+    if not when:
         return ""
     try:
-        dt = datetime.fromtimestamp(date_ms / 1000)
-    except (ValueError, OverflowError, OSError):
+        dt = when if isinstance(when, datetime) else datetime.fromtimestamp(when / 1000)
+    except (ValueError, OverflowError, OSError, TypeError):
         return ""
-    # e.g. "Jun 13, 2:30 PM" — strip a leading zero from the hour without %-I (portable).
+    # Strip a leading zero from the hour without %-I (portable).
     stamp = dt.strftime("%b %d, %I:%M %p")
     return stamp.replace(", 0", ", ")
 
 
 def _money(v) -> str:
-    return f"${v:,.0f}" if isinstance(v, (int, float)) else "—"
+    return f"${v:,.0f}" if isinstance(v, (int, float)) else "-"
 
 
 def build_conversation(db: Session, org_id: str, rfq: dict) -> dict:
-    """Return {status, statusTone, gmail, configured, readError, thread} for an
-    RFQ dict (rfqs_repo shape).
+    """Return {status, statusTone, live, configured, thread} for an RFQ dict
+    (rfqs_repo shape).
 
-    `gmail` is True only when the thread below came from a live Gmail read.
-    When it is False the thread is the locally stored copy (the sent RFQ plus
-    any ingested quotes) and `readError` says why the live read didn't happen,
-    if it was attempted and failed — so the UI never presents stale local data
-    as if it were the live conversation.
+    `live` is True when the thread includes replies received by the agent
+    inbox; otherwise it is the stored RFQ plus any ingested quotes rendered as
+    replies (mock sends), and the UI says so.
     """
-    configured = gmail_configured()
-    read_error: Optional[str] = None
-    if configured:
-        emails, read_error = _gather_gmail(rfq)
-        if emails:
-            return {
-                "status": rfq["status"],
-                "statusTone": rfq["statusTone"],
-                "gmail": True,
-                "configured": True,
-                "readError": None,
-                "thread": _emails_to_thread(emails, _known_sender_addrs(db, org_id)),
-            }
-
+    replies = inbound_repo.list_for_rfq(db, org_id, rfq["id"])
+    if replies:
+        thread = _outbound_bubbles(rfq) + _replies_to_thread(replies, _known_sender_addrs(db, org_id))
+    else:
+        thread = _fallback_thread(db, org_id, rfq)
     return {
         "status": rfq["status"],
         "statusTone": rfq["statusTone"],
-        "gmail": False,
-        "configured": configured,
-        "readError": read_error,
-        "thread": _fallback_thread(db, org_id, rfq),
+        "live": bool(replies),
+        "configured": is_configured(),
+        "thread": thread,
     }
 
 
-def _gather_gmail(rfq: dict):
-    """Every message in this RFQ's Gmail thread(s), deduped + oldest-first.
-
-    Reads only the thread our outbound landed in, so threaded supplier replies
-    show up while separate-thread automatic replies stay out of scope.
-
-    Returns (emails, error): `error` is a readable reason when Gmail could not
-    be read (the caller then falls back to the stored copy and says so);
-    `emails` is [] when nothing was found.
-    """
-    emails: List[gmail_reader.ThreadEmail] = []
-    seen = set()
-    thread_ids: List[str] = []
-    for r in rfq.get("recipients", []):
-        thread_id = r.get("threadId")
-        if not thread_id:
-            try:
-                thread_id = gmail_reader.resolve_thread_id(r.get("sentMessageId") or "")
-            except gmail_reader.GmailReadUnavailable as exc:
-                return [], str(exc)
-        if thread_id and thread_id not in thread_ids and not str(thread_id).startswith("mock"):
-            thread_ids.append(thread_id)
-    if not thread_ids:
-        # Nothing was ever sent through Gmail for this RFQ (mock sends, or a
-        # draft) — not an error, just nothing live to show.
-        return [], None
-    try:
-        for thread_id in thread_ids:
-            for e in gmail_reader.fetch_thread(thread_id):
-                if e.message_id not in seen:
-                    seen.add(e.message_id)
-                    emails.append(e)
-    except gmail_reader.GmailReadUnavailable as exc:
-        logger.warning("Gmail conversation fetch failed: %s", exc)
-        return [], str(exc)
-    emails.sort(key=lambda e: e.date_ms)
-    return emails, None
-
-
 def _known_sender_addrs(db: Session, org_id: str) -> set:
-    """Every address this org's RFQs may have gone out from, for telling our own
+    """Every address this org's mail may come from, for telling our own
     messages apart from supplier replies in a thread.
 
-    New sends always come from the workspace mailbox (sender_address()). The
-    per-user Cc addresses are also included: they used to be the `From:` header
-    before that address became a Cc, so old threads carry them — and a user's Cc
-    address appears as the sender if they reply into the thread themselves."""
-    addrs = {sender_address().lower()}
+    The agent inbox sends everything. Members' login and Cc addresses are
+    included too: a teammate who answers the supplier from their own mailbox
+    (Cc'd on the RFQ) is still "us"."""
+    addrs = {sender_address(db, org_id).lower()}
     for email, cc in db.execute(
         select(User.email, User.cc_email).where(User.organization_id == org_id)
     ):
-        # Members' login addresses too: a teammate who answers the supplier
-        # from their own mailbox (Cc'd on the RFQ) is still "us".
         if email:
             addrs.add(email.strip().lower())
         if cc:
@@ -145,27 +96,43 @@ def _known_sender_addrs(db: Session, org_id: str) -> set:
     return addrs
 
 
-def _emails_to_thread(emails: List[gmail_reader.ThreadEmail], our_addrs: set) -> List[dict]:
+def _reply_body(row: InboundEmail) -> str:
+    plain = (row.text or "").strip()
+    if not plain and row.html:
+        plain = email_text.html_to_text(row.html)
+    return email_text.strip_quoted(plain) or plain
+
+
+def _attachment_names(row: InboundEmail) -> List[str]:
+    try:
+        return [a.get("filename") for a in json.loads(row.attachments or "[]") if a.get("filename")]
+    except ValueError:
+        return []
+
+
+def _replies_to_thread(rows: List[InboundEmail], our_addrs: set) -> List[dict]:
     thread: List[dict] = []
-    for i, e in enumerate(emails):
-        is_out = (e.from_email or "").lower() in our_addrs
-        who = "You · Proq" if is_out else (e.from_name or e.from_email)
+    for row in rows:
+        is_out = (row.from_email or "").lower() in our_addrs
+        who = "You · Proq" if is_out else (row.from_name or row.from_email)
+        files = _attachment_names(row)
         thread.append({
             "dir": "out" if is_out else "in",
             "who": who,
             "initials": "YOU" if is_out else _initials(who),
-            "time": _fmt_time(e.date_ms),
-            # Only the opening message carries the subject line to avoid "Re:" noise.
-            "subject": e.subject if i == 0 else None,
-            "body": e.text or "",
-            "attach": e.attachments[0] if e.attachments else None,
+            "time": _fmt_time(row.received_at),
+            # The opening message carries the subject line; replies don't, to
+            # avoid "Re:" noise.
+            "subject": None,
+            "body": _reply_body(row),
+            "attach": files[0] if files else None,
             "logoBg": None if is_out else "#334155",
         })
     return thread
 
 
 def _outbound_label(rfq: dict) -> str:
-    """What happened to our message, from the per-recipient send record —
+    """What happened to our message, from the per-recipient send record,
     never "Sent" for an RFQ nobody received."""
     if rfq.get("status") == "Draft":
         return "Draft"
@@ -174,10 +141,33 @@ def _outbound_label(rfq: dict) -> str:
     if recipients and not delivered:
         return "Not delivered"
     if delivered and all(r.get("mock") for r in delivered):
-        return "Logged only (mock \u2014 not delivered)"
+        return "Logged only (mock, not delivered)"
     if len(delivered) < len(recipients):
         return f"Sent to {len(delivered)} of {len(recipients)}"
     return "Sent"
+
+
+def _outbound_bubbles(rfq: dict) -> List[dict]:
+    """The RFQ as we sent it: one bubble, timed by the send."""
+    sent_at = None
+    for r in rfq.get("recipients") or []:
+        if r.get("sentAt"):
+            try:
+                sent_at = datetime.fromisoformat(str(r["sentAt"]).replace("Z", "+00:00"))
+            except ValueError:
+                sent_at = None
+            if sent_at is not None:
+                break
+    return [{
+        "dir": "out",
+        "who": "You · Proq",
+        "initials": "YOU",
+        "time": _fmt_time(sent_at) or _outbound_label(rfq),
+        "subject": rfq.get("subject"),
+        "body": rfq.get("body", ""),
+        "attach": None,
+        "logoBg": None,
+    }]
 
 
 def _fallback_thread(db: Session, org_id: str, rfq: dict) -> List[dict]:
@@ -197,7 +187,7 @@ def _fallback_thread(db: Session, org_id: str, rfq: dict) -> List[dict]:
             continue
         name = q.get("supplierName") or q.get("supplierEmail") or "Supplier"
         body = (q.get("notes") or "").strip() or (
-            f"Quote received — material {_money(q.get('materialCost'))}, "
+            f"Quote received: material {_money(q.get('materialCost'))}, "
             f"freight {_money(q.get('freight'))}, total {_money(q.get('total'))}"
             + (f", {q['leadDays']}-day lead" if q.get("leadDays") is not None else "")
         )

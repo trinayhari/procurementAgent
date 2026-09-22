@@ -32,6 +32,7 @@ def create_rfq_draft(
     line_items: List[dict],
     recipients: List[dict],
     kind: str = "materials",
+    need_by: Optional[str] = None,
 ) -> dict:
     row = Rfq(
         organization_id=org_id,
@@ -45,6 +46,7 @@ def create_rfq_draft(
         line_items=json.dumps(line_items),
         recipients=json.dumps(recipients),
         kind=kind,
+        need_by=need_by or None,
     )
     db.add(row)
     db.commit()
@@ -74,6 +76,8 @@ def update_rfq(
     body: str,
     recipients: List[dict],
     attachments: Optional[List[dict]] = None,
+    need_by: Optional[str] = None,
+    set_need_by: bool = False,
 ) -> Optional[dict]:
     row = _get_row(db, org_id, rfq_id)
     if row is None:
@@ -83,6 +87,9 @@ def update_rfq(
     row.recipients = json.dumps(recipients)
     if attachments is not None:
         row.attachments = json.dumps(attachments)
+    # Explicit flag: a client that omits needBy must not clear the date.
+    if set_need_by:
+        row.need_by = need_by or None
     db.commit()
     db.refresh(row)
     return row.to_dict()
@@ -116,10 +123,9 @@ def save_recipients(db: Session, org_id: str, rfq_id: str, recipients: List[dict
 def record_outbound_message(
     db: Session, org_id: str, rfq_id: str, email: str, message_id: str
 ) -> None:
-    """Remember a Gmail message id *we* sent to this recipient after the RFQ
-    itself (award / decline notice). Quote ingest skips these ids so our own
-    mail is never parsed as a supplier reply (matters when the supplier
-    address is the workspace mailbox itself, e.g. a loop-back test)."""
+    """Remember the id of a message *we* sent this recipient after the RFQ
+    itself (award / decline notice). A supplier reply whose In-Reply-To names
+    one of these still attributes to the RFQ."""
     if not message_id or not email:
         return
     row = _get_row(db, org_id, rfq_id)

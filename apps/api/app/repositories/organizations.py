@@ -4,7 +4,7 @@ There is no cross-organization read here by design: an org is only ever looked
 up by its own id, and rows are only created by the register flow.
 """
 import re
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -78,3 +78,19 @@ def ensure_organization(db: Session, org_id: str, name: str) -> Organization:
     if existing is not None:
         return existing
     return create_organization(db, name, org_id=org_id)
+
+
+def issue_po_numbers(db: Session, org_id: str, count: int) -> List[str]:
+    """Reserve the next `count` PO numbers for an org: "PO-<org seq>-<n>", n
+    zero-padded to four digits from the org's counter.
+
+    Staged on the session WITHOUT committing so the counter bump lands in the
+    same transaction as the purchase decision that uses the numbers. Callers
+    hold the award lock for the package, which serialises the read-increment.
+    """
+    org = db.get(Organization, org_id)
+    if org is None or count <= 0:
+        return []
+    start = int(org.po_counter or 0)
+    org.po_counter = start + count
+    return [f"PO-{org.seq}-{n:04d}" for n in range(start + 1, start + count + 1)]

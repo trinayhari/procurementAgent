@@ -2,7 +2,7 @@
 
 When the user checks a milestone off, every lender on the project gets a short
 update: what was completed, how far along the schedule is, and what's next.
-Runs as a FastAPI background task (its own DB session) so a slow Gmail call
+Runs as a FastAPI background task (its own DB session) so a slow email call
 never delays the check-off response; failures are logged, never raised.
 """
 import logging
@@ -59,7 +59,7 @@ def send_milestone_update(
     same tenant the request was authorized against. `actor_user_id` is who
     checked the milestone off: their name/company become the From display name
     and their Cc address gets a copy. The From mailbox itself is always the
-    workspace account (see services/rfq/sender.py).
+    org's agent inbox (see services/rfq/sender.py).
 
     Background-task entrypoint: opens its own session, swallows all errors."""
     try:
@@ -76,9 +76,9 @@ def send_milestone_update(
             milestones = built["milestones"] if built else []
             subject, body = _compose(project, milestone_name, milestones)
 
-            sender = rfq_sender.get_sender()
+            sender = rfq_sender.get_sender(db, org_id)
             actor = users_repo.get_user(db, actor_user_id) if actor_user_id else None
-            from_addr = rfq_sender.from_header(actor)
+            from_addr = rfq_sender.from_header(actor, address=getattr(sender, "address", None))
             cc = getattr(actor, "cc_email", None)
             delivered = 0
             for lender in lenders:
@@ -98,7 +98,7 @@ def send_milestone_update(
                     icon="rfq",
                     tone="success",
                     meta=f"{milestone_name} complete"
-                    + (" (mock send — Gmail not configured)" if sender.mocked else ""),
+                    + (" (mock send, AgentMail not configured)" if sender.mocked else ""),
                 )
     except Exception:  # never let a notification failure surface anywhere
         logger.exception("Lender update crashed: project=%s", project_id)

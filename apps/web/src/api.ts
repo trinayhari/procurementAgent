@@ -218,23 +218,23 @@ export async function updateMe(input: { ccEmail: string | null }): Promise<AuthU
 }
 
 // Verify the email configuration: sends a test message to your own account
-// email via the same path an RFQ uses. mocked=true means no Gmail configured.
+// email via the same path an RFQ uses. mocked=true means no AgentMail key configured.
 export type TestEmailResult = Schemas['TestEmailResult']
 export function sendTestEmail(): Promise<TestEmailResult> {
   return post<TestEmailResult>('/api/auth/test-email')
 }
 
-// The workspace's effective outbound-email setup, derived from the backend's
-// PROCUREAI_GMAIL_* environment variables. `configured: false` means nothing is
-// actually delivered, and `senderAddressSet: false` means `fromAddress` is only
-// a placeholder — surface both rather than implying mail is going out.
+// The organization's effective outbound-email setup, derived from the backend's
+// PROCUREAI_AGENTMAIL_* environment variables. `configured: false` means nothing
+// is actually delivered, and `inboxAddress` is null until the org's agent inbox
+// has been created; surface both rather than implying mail is going out.
 export type EmailConfig = Schemas['EmailConfig']
 export function getEmailConfig(): Promise<EmailConfig> {
   return get<EmailConfig>('/api/auth/email-config')
 }
 
-// Live provider check — actually calls Gmail (token refresh + mailbox
-// profile) and the LLM (one-token completion). Rate-limited (3/min); only
+// Live provider check: actually calls AgentMail (creates or reads the org's
+// agent inbox) and the LLM (one-token completion). Rate-limited (3/min); only
 // call on an explicit click, never on page load.
 export type ProvidersHealth = Schemas['ProvidersHealth']
 export function getProvidersHealth(): Promise<ProvidersHealth> {
@@ -295,6 +295,102 @@ export async function acceptInvite(
   const data = await authRequest(`/api/invite/${encodeURIComponent(token)}/accept`, input)
   setToken(data.accessToken)
   return data.user
+}
+
+// ------------------------------------------------------- award approvals
+export type ApprovalPreview = Schemas['ApprovalPreview']
+export type ApprovalResult = Schemas['ApprovalResult']
+export type PoNumber = Schemas['PoNumber']
+
+// Thrown by the approval calls so the page can tell a spent/expired link
+// (410) from an unknown one (404) or a refused award (409).
+export class ApprovalError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+// Public: the award card behind an approval link (no auth; the token is the
+// credential). 404 for an unknown token.
+export async function previewApproval(token: string): Promise<ApprovalPreview> {
+  const res = await fetch(`${BASE}/api/approvals/${encodeURIComponent(token)}`)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApprovalError(res.status, describeApiError(data, `Approval preview failed (${res.status})`))
+  return data as ApprovalPreview
+}
+
+// Public: approve the award. Runs the same award path as the dashboard and
+// issues the POs; 410 once the link is used or expired.
+export async function executeApproval(
+  token: string,
+  input: { decidedByEmail?: string } = {},
+): Promise<ApprovalResult> {
+  const res = await fetch(`${BASE}/api/approvals/${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decided_by_email: input.decidedByEmail ?? null }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApprovalError(res.status, describeApiError(data, `Approval failed (${res.status})`))
+  return data as ApprovalResult
+}
+
+// ----------------------------------------------------------------- Slack API
+// The agent as a coworker in the customer's Slack: install the app (OAuth),
+// link channels to projects, and it posts progress + award cards there. The
+// webhook side (events, button clicks) is server-to-server; nothing here.
+export type SlackStatus = Schemas['SlackStatus']
+export type SlackChannelLink = Schemas['SlackChannelLink']
+
+// Whether the server has the Slack app configured and whether this org
+// installed it, plus the linked channels.
+export function getSlackStatus(): Promise<SlackStatus> {
+  return get<SlackStatus>('/api/slack/status')
+}
+
+// The Slack consent URL to send the browser to (state is bound to this org
+// and user, valid ten minutes). 409 when the server is not configured.
+export async function getSlackInstallUrl(): Promise<string> {
+  const data = await get<Schemas['SlackInstallUrl']>('/api/slack/install-url')
+  return data.url
+}
+
+export function getSlackChannels(): Promise<SlackChannelLink[]> {
+  return get<SlackChannelLink[]>('/api/slack/channels')
+}
+
+// Link (or relink) a channel to one of the org's projects.
+export function linkSlackChannel(
+  channelId: string,
+  input: { projectId: string; channelName?: string },
+): Promise<SlackChannelLink> {
+  return fetch(`${BASE}/api/slack/channels/${encodeURIComponent(channelId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(input),
+  }).then(async (r) => {
+    if (!r.ok) throw await responseError(r, `link channel -> ${r.status}`)
+    return r.json() as Promise<SlackChannelLink>
+  })
+}
+
+export async function unlinkSlackChannel(channelId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/slack/channels/${encodeURIComponent(channelId)}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  })
+  if (!res.ok) throw await responseError(res, `unlink channel -> ${res.status}`)
+}
+
+// Disconnect the workspace: drops the bot token and every channel link.
+export async function uninstallSlack(): Promise<void> {
+  const res = await fetch(`${BASE}/api/slack/installation`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  })
+  if (!res.ok) throw await responseError(res, `uninstall slack -> ${res.status}`)
 }
 
 // ------------------------------------------------------- document extraction
@@ -571,12 +667,15 @@ export function saveRfq(
     recipients: RfqRecipient[]
     // Document ids to attach to the outgoing email; omit to leave unchanged.
     attachmentIds?: string[]
+    // Need-by date (ISO YYYY-MM-DD); null clears it, omit to leave unchanged.
+    needBy?: string | null
   },
 ): Promise<PersistedRfq> {
-  const { attachmentIds, ...rest } = patch
+  const { attachmentIds, needBy, ...rest } = patch
   const body = {
     ...rest,
     ...(attachmentIds !== undefined ? { attachment_ids: attachmentIds } : {}),
+    ...(needBy !== undefined ? { needBy } : {}),
   }
   return fetch(`${BASE}/api/projects/${projectId}/rfqs/${rfqId}`, {
     method: 'PUT',
@@ -590,7 +689,7 @@ export function saveRfq(
   })
 }
 
-// The full email conversation for an RFQ, read live from Gmail when configured.
+// The full email conversation for an RFQ: our RFQ plus the stored supplier replies.
 // Read-only: surfaces the original thread (our outbound + any threaded supplier
 // replies) without changing the RFQ's status.
 export type RfqConversation = Schemas['RfqConversation']
@@ -615,8 +714,8 @@ export function getProjectDocuments(projectId: string): Promise<Document[]> {
   return get<Document[]>(`/api/projects/${projectId}/documents`)
 }
 
-// User-approved send: delivers the RFQ to every recipient via Gmail (or the
-// logging mock when Gmail is unconfigured). Attaches the documents chosen on
+// User-approved send: delivers the RFQ to every recipient from the org's agent
+// inbox (or the logging mock when AgentMail is unconfigured). Attaches the documents chosen on
 // the RFQ and flips it to 'Awaiting' (awaiting supplier quotes).
 export function sendRfq(projectId: string, rfqId: string): Promise<PersistedRfq> {
   return post<PersistedRfq>(`/api/projects/${projectId}/rfqs/${rfqId}/send`)
@@ -625,7 +724,7 @@ export function sendRfq(projectId: string, rfqId: string): Promise<PersistedRfq>
 // ------------------------------------------------------------- quote ingest
 export type QuoteIngestResult = Schemas['QuoteIngestResult']
 
-// Kick off reading supplier quote replies (Gmail) for a project. Background
+// Kick off parsing stored supplier replies for a project. Background
 // task; poll getIngestStatus until it leaves 'ingesting', then reload the model.
 export function ingestQuotes(projectId: string): Promise<QuoteIngestResult> {
   return post<QuoteIngestResult>(`/api/projects/${projectId}/quotes/ingest`)

@@ -89,12 +89,13 @@ export interface paths {
         };
         /**
          * Email Config
-         * @description The effective outbound-email setup: which mailbox mail leaves from,
-         *     whether Gmail is actually connected, and your Cc address.
+         * @description The effective outbound-email setup: the organization's agent inbox
+         *     (null until it has been created), whether AgentMail is configured and
+         *     answering, and your Cc address.
          *
-         *     Every field derives from the PROCUREAI_GMAIL_* environment variables (see
-         *     docs/email-setup.md) — nothing here is per-user except `ccEmail` and the
-         *     display name baked into `fromHeader`.
+         *     Everything but `ccEmail` and the display name baked into `fromHeader`
+         *     derives from the PROCUREAI_AGENTMAIL_* environment variables and the
+         *     org's inbox (see docs/email-setup.md).
          */
         get: operations["email_config_api_auth_email_config_get"];
         put?: never;
@@ -118,9 +119,9 @@ export interface paths {
          * Send Test Email
          * @description Verify the email configuration by sending a test message to yourself.
          *
-         *     Uses exactly the same path as an RFQ send: the configured provider (Gmail
-         *     or the logging mock) and the workspace From address carrying your display
-         *     name. See docs/email-setup.md.
+         *     Uses exactly the same path as an RFQ send: the configured provider
+         *     (AgentMail, from the organization's agent inbox, or the logging mock) and
+         *     the From identity carrying your display name. See docs/email-setup.md.
          */
         post: operations["send_test_email_api_auth_test_email_post"];
         delete?: never;
@@ -219,6 +220,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/webhooks/agentmail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Receive */
+        post: operations["receive_api_webhooks_agentmail_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhooks/slack/oauth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Oauth Callback
+         * @description Where Slack sends the user after the consent screen. `state` proves
+         *     which org and user started the install; the code is exchanged for the
+         *     bot token and the browser lands back on Proq's settings page.
+         */
+        get: operations["oauth_callback_api_webhooks_slack_oauth_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhooks/slack/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Events */
+        post: operations["events_api_webhooks_slack_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhooks/slack/interactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Interactions */
+        post: operations["interactions_api_webhooks_slack_interactions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhooks/slack/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Commands */
+        post: operations["commands_api_webhooks_slack_commands_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/approvals/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Approval
+         * @description The award card behind the link: package, winners, totals, and whether
+         *     the link is still pending, already used, or expired. 404 for an unknown token.
+         */
+        get: operations["preview_approval_api_approvals__token__get"];
+        put?: never;
+        /**
+         * Execute Approval
+         * @description Approve the award: runs the same locked award path as the dashboard,
+         *     issues the POs, marks the token used. 410 when used or expired.
+         */
+        post: operations["execute_approval_api_approvals__token__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dashboard": {
         parameters: {
             query?: never;
@@ -272,7 +389,13 @@ export interface paths {
         delete: operations["delete_project_api_projects__project_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Project
+         * @description Change a project's details. Only the fields sent are touched; sending
+         *     `needBy: null` clears the need-by date. RFQs already drafted keep their
+         *     own copy of the date.
+         */
+        patch: operations["update_project_api_projects__project_id__patch"];
         trace?: never;
     };
     "/api/projects/{project_id}/documents": {
@@ -511,11 +634,9 @@ export interface paths {
          * Award Package
          * @description Submit a (possibly split) award for a package and issue the purchase orders.
          *
-         *     Exactly-once: the whole award — the already-awarded check, the decision
-         *     row, the quote flips and the supplier notifications — runs under a lock
-         *     keyed by (org, project, package). Overlapping requests (a triple-clicked
-         *     confirm) used to all pass the check-then-insert and each issue POs and
-         *     email every supplier; now the losers answer 409 immediately.
+         *     The award itself lives in services/awards.py (shared with the approval
+         *     link): exactly-once under a per-package lock, PO numbers, supplier
+         *     notifications, audit and activity records.
          */
         post: operations["award_package_api_projects__project_id__packages__pkg__award_post"];
         delete?: never;
@@ -802,10 +923,11 @@ export interface paths {
         };
         /**
          * Get Rfq Conversation
-         * @description Full email thread for an RFQ, read live from Gmail when configured.
+         * @description Full email thread for an RFQ: our outbound plus every supplier reply
+         *     the agent inbox received in that thread.
          *
-         *     Read-only: we surface the original Gmail thread (our outbound plus any
-         *     threaded supplier replies) without changing the RFQ's status.
+         *     Read-only: built from stored rows (no provider call) without changing the
+         *     RFQ's status.
          */
         get: operations["get_rfq_conversation_api_projects__project_id__rfqs__rfq_id__conversation_get"];
         put?: never;
@@ -838,6 +960,45 @@ export interface paths {
          *       reading the still-'Draft' status and emailing every supplier twice.
          */
         post: operations["send_generated_rfq_api_projects__project_id__rfqs__rfq_id__send_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rfqs/{rfq_id}/followups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Rfq Followups */
+        get: operations["get_rfq_followups_api_projects__project_id__rfqs__rfq_id__followups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rfqs/{rfq_id}/followups/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Rfq Followups
+         * @description Chase every outstanding recipient now: ignores the delay and the
+         *     send window, still honours replies, the per-recipient max, and a nudge
+         *     already in flight. 409 while the scheduler holds this RFQ.
+         */
+        post: operations["run_rfq_followups_api_projects__project_id__rfqs__rfq_id__followups_run_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1096,6 +1257,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/intake/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Intake Test */
+        post: operations["run_intake_test_api_intake_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/intake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Project Intake */
+        get: operations["list_project_intake_api_projects__project_id__intake_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inbound": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Inbound
+         * @description Received emails, newest first. `kind` filters on the attribution:
+         *     rfq_reply, intake or unknown (mail nobody claimed, for a human to look at).
+         */
+        get: operations["list_inbound_api_inbound_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inbound/{row_id}/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reprocess
+         * @description Run attribution and handling again for one received email (after a
+         *     failure, or once the RFQ it answers has been sent).
+         */
+        post: operations["reprocess_api_inbound__row_id__reprocess_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/rfqs/{rfq_id}": {
         parameters: {
             query?: never;
@@ -1127,28 +1364,6 @@ export interface paths {
          * @description Command: post a reply to an RFQ thread.
          */
         post: operations["send_message_api_rfqs__rfq_id__messages_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/rfqs/{rfq_id}/followup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Draft Followup
-         * @description Command: generate an AI follow-up nudge for a non-responsive supplier.
-         *
-         *     Stubbed — returns a templated message. Replace with an LLM call.
-         */
-        post: operations["draft_followup_api_rfqs__rfq_id__followup_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1351,6 +1566,105 @@ export interface paths {
          * @description Cancel a pending invitation. 404 for an unknown id or another org's.
          */
         delete: operations["revoke_invite_api_team_invites__invite_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Slack Status
+         * @description Server configuration + this org's installation and linked channels.
+         */
+        get: operations["slack_status_api_slack_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/install-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Install Url
+         * @description The Slack consent URL, with a state bound to this org + user (10 min).
+         */
+        get: operations["install_url_api_slack_install_url_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Channels */
+        get: operations["list_channels_api_slack_channels_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/channels/{channel_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Link Channel
+         * @description Link (or relink) a channel to one of the org's projects.
+         */
+        put: operations["link_channel_api_slack_channels__channel_id__put"];
+        post?: never;
+        /** Unlink Channel */
+        delete: operations["unlink_channel_api_slack_channels__channel_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/installation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Uninstall
+         * @description Disconnect the workspace: drop the token and every link, and revoke
+         *     the token at Slack (best effort: a failed revoke still disconnects).
+         */
+        delete: operations["uninstall_api_slack_installation_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1572,6 +1886,153 @@ export interface components {
             time: string;
         };
         /**
+         * ApprovalExecuteRequest
+         * @description Optional identity of the approver (the link itself is the credential).
+         *     Accepts both `decidedByEmail` and `decided_by_email`.
+         */
+        ApprovalExecuteRequest: {
+            /** Decided By Email */
+            decided_by_email?: string | null;
+        };
+        /**
+         * ApprovalPreview
+         * @description What the approve page shows before the click. `status` is "pending"
+         *     (approvable), "used" (already approved via this link) or "expired".
+         */
+        ApprovalPreview: {
+            /** Status */
+            status: string;
+            /** Projectid */
+            projectId: string;
+            /** Projectname */
+            projectName: string;
+            /** Package */
+            package: string;
+            /** Packagelabel */
+            packageLabel: string;
+            /**
+             * Suppliers
+             * @default []
+             */
+            suppliers: components["schemas"]["ApprovalSupplier"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Material
+             * @default 0
+             */
+            material: number;
+            /**
+             * Freight
+             * @default 0
+             */
+            freight: number;
+            /** Leaddays */
+            leadDays?: number | null;
+            /**
+             * Savings
+             * @default 0
+             */
+            savings: number;
+            /**
+             * Quotesreceived
+             * @default 0
+             */
+            quotesReceived: number;
+            /**
+             * Recipientstotal
+             * @default 0
+             */
+            recipientsTotal: number;
+            /** Expiresat */
+            expiresAt?: string | null;
+            /** Decidedat */
+            decidedAt?: string | null;
+            /** Decidedbyemail */
+            decidedByEmail?: string | null;
+            /**
+             * Alreadyawarded
+             * @default false
+             */
+            alreadyAwarded: boolean;
+        };
+        /** ApprovalResult */
+        ApprovalResult: {
+            /** Status */
+            status: string;
+            /** Message */
+            message: string;
+            /** Total */
+            total: number;
+            /** Material */
+            material: number;
+            /** Freight */
+            freight: number;
+            /** Leaddays */
+            leadDays?: number | null;
+            /** Suppliers */
+            suppliers: string[];
+            /** Pocount */
+            poCount: number;
+            /**
+             * Ponumbers
+             * @default []
+             */
+            poNumbers: components["schemas"]["PoNumber"][];
+            /**
+             * Notified
+             * @default 0
+             */
+            notified: number;
+            /**
+             * Declined
+             * @default 0
+             */
+            declined: number;
+            /**
+             * Withdrawn
+             * @default 0
+             */
+            withdrawn: number;
+            /**
+             * Notifyfailed
+             * @default []
+             */
+            notifyFailed: components["schemas"]["AwardNotifyFailure"][];
+            /**
+             * Notifymocked
+             * @default false
+             */
+            notifyMocked: boolean;
+            /** Projectid */
+            projectId: string;
+            /** Packagelabel */
+            packageLabel: string;
+            /** Decidedbyemail */
+            decidedByEmail?: string | null;
+        };
+        /**
+         * ApprovalSupplier
+         * @description One winner in the recommended award: their lines plus their freight.
+         */
+        ApprovalSupplier: {
+            /** Supplierid */
+            supplierId: string;
+            /** Suppliername */
+            supplierName: string;
+            /** Subtotal */
+            subtotal: number;
+            /** Freight */
+            freight: number;
+            /** Total */
+            total: number;
+            /** Leaddays */
+            leadDays?: number | null;
+        };
+        /**
          * AwardNotifications
          * @description Who was told what about an award, and who could not be reached.
          */
@@ -1738,6 +2199,11 @@ export interface components {
             suppliers: string[];
             /** Pocount */
             poCount: number;
+            /**
+             * Ponumbers
+             * @default []
+             */
+            poNumbers: components["schemas"]["PoNumber"][];
             /**
              * Notified
              * @default 0
@@ -2109,21 +2575,19 @@ export interface components {
         };
         /**
          * EmailConfig
-         * @description Effective outbound-email configuration, straight from the environment.
+         * @description Effective outbound-email configuration for this organization.
          *
          *     Lets the UI state the truth instead of implying mail is going out: when
-         *     `configured` is false nothing is delivered, and when `senderAddressSet` is
-         *     false `fromAddress` is only a placeholder.
+         *     `configured` is false nothing is delivered, and `inboxAddress` is null
+         *     until the org's agent inbox has been created (first send).
          */
         EmailConfig: {
             /** Configured */
             configured: boolean;
             /** Mocked */
             mocked: boolean;
-            /** Senderaddressset */
-            senderAddressSet: boolean;
-            /** Fromaddress */
-            fromAddress: string;
+            /** Inboxaddress */
+            inboxAddress?: string | null;
             /** Fromheader */
             fromHeader: string;
             /** Ccemail */
@@ -2134,20 +2598,43 @@ export interface components {
              */
             missing: string[];
             /**
-             * Gmail
+             * Agentmail
              * @default {}
              */
-            gmail: Record<string, never>;
+            agentmail: Record<string, never>;
             /**
              * Llm
              * @default {}
              */
             llm: Record<string, never>;
         };
-        /** FollowupDraft */
-        FollowupDraft: {
-            /** Body */
-            body: string;
+        /** EmailProbe */
+        EmailProbe: {
+            /** Ok */
+            ok: boolean;
+            /** Error */
+            error?: string | null;
+            /** Inboxaddress */
+            inboxAddress?: string | null;
+        };
+        /**
+         * FollowupRunResult
+         * @description Outcome of POST .../followups/run (the manual "chase now").
+         */
+        FollowupRunResult: {
+            /** Rfqsscanned */
+            rfqsScanned: number;
+            /** Nudgessent */
+            nudgesSent: number;
+            /** Skippedoutsidehours */
+            skippedOutsideHours: number;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /** Recipients */
+            recipients: components["schemas"]["RecipientFollowupStatus"][];
         };
         /** FoundSupplier */
         FoundSupplier: {
@@ -2207,33 +2694,139 @@ export interface components {
              */
             warn: boolean;
         };
-        /** GmailProbe */
-        GmailProbe: {
-            /** Ok */
-            ok: boolean;
-            /** Error */
-            error?: string | null;
-            /** Emailaddress */
-            emailAddress?: string | null;
-            /** Senderaddress */
-            senderAddress: string;
-            /** Senderaddressmatches */
-            senderAddressMatches?: boolean | null;
-            /**
-             * Sendscope
-             * @default false
-             */
-            sendScope: boolean;
-            /**
-             * Readscope
-             * @default false
-             */
-            readScope: boolean;
-        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InboundEmailOut
+         * @description A received email as GET /api/inbound lists it (bodies included; the
+         *     attachment bytes stay in storage, only their descriptors are here).
+         */
+        InboundEmailOut: {
+            /** Id */
+            id: string;
+            /** Organizationid */
+            organizationId?: string | null;
+            /** Providermessageid */
+            providerMessageId: string;
+            /** Inboxid */
+            inboxId: string;
+            /** Threadid */
+            threadId: string;
+            /**
+             * Inreplyto
+             * @default
+             */
+            inReplyTo: string;
+            /** Fromemail */
+            fromEmail: string;
+            /**
+             * Fromname
+             * @default
+             */
+            fromName: string;
+            /**
+             * To
+             * @default []
+             */
+            to: string[];
+            /**
+             * Cc
+             * @default []
+             */
+            cc: string[];
+            /**
+             * Subject
+             * @default
+             */
+            subject: string;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: Record<string, never>[];
+            /** Receivedat */
+            receivedAt?: string | null;
+            /** Kind */
+            kind: string;
+            /** Rfqid */
+            rfqId?: string | null;
+            /** Projectid */
+            projectId?: string | null;
+            /** Processedat */
+            processedAt?: string | null;
+            /** Error */
+            error?: string | null;
+            /**
+             * Attempts
+             * @default 0
+             */
+            attempts: number;
+        };
+        /** IntakeDocument */
+        IntakeDocument: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Plantype */
+            planType: string;
+        };
+        /** IntakeRow */
+        IntakeRow: {
+            /** Id */
+            id: string;
+            /** Subject */
+            subject: string;
+            /** Fromemail */
+            fromEmail: string;
+            /** Fromname */
+            fromName: string;
+            /** Receivedat */
+            receivedAt: string;
+            /** Processedat */
+            processedAt?: string | null;
+            /** Attachments */
+            attachments: number;
+            /** Summary */
+            summary: string;
+            /** Error */
+            error?: string | null;
+        };
+        /** IntakeTestRequest */
+        IntakeTestRequest: {
+            /**
+             * Subject
+             * @default
+             */
+            subject: string;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /** Attachments */
+            attachments?: string[];
+        };
+        /** IntakeTestResult */
+        IntakeTestResult: {
+            /** Projectid */
+            projectId: string;
+            /** Projectcreated */
+            projectCreated: boolean;
+            /** Documents */
+            documents: components["schemas"]["IntakeDocument"][];
+            /** Needby */
+            needBy?: string | null;
+            /** Summary */
+            summary: string;
         };
         /**
          * Invite
@@ -2868,6 +3461,8 @@ export interface components {
             attachments: components["schemas"]["RfqAttachment"][];
             /** Sentat */
             sentAt?: string | null;
+            /** Needby */
+            needBy?: string | null;
         };
         /**
          * PlanType
@@ -2916,6 +3511,18 @@ export interface components {
             categories: components["schemas"]["PlanTypeCategoryOut"][];
         };
         /**
+         * PoNumber
+         * @description One purchase-order number, issued to one winning supplier.
+         */
+        PoNumber: {
+            /** Supplierid */
+            supplierId: string;
+            /** Suppliername */
+            supplierName: string;
+            /** Po */
+            po: string;
+        };
+        /**
          * Project
          * @description A project row. `stage`, `progress` and the counts are computed from the
          *     project's own documents/RFQs/quotes/awards (services/metrics.py).
@@ -2929,6 +3536,8 @@ export interface components {
             loc: string;
             /** Value */
             value: string;
+            /** Needby */
+            needBy?: string | null;
             stage: components["schemas"]["Stage"];
             stageTone: components["schemas"]["Tone"];
             /** Progress */
@@ -2959,6 +3568,8 @@ export interface components {
              * @default
              */
             value: string;
+            /** Needby */
+            needBy?: string | null;
         };
         /**
          * ProjectDetail
@@ -2973,6 +3584,8 @@ export interface components {
             loc: string;
             /** Value */
             value: string;
+            /** Needby */
+            needBy?: string | null;
             stage: components["schemas"]["Stage"];
             stageTone: components["schemas"]["Tone"];
             /** Progress */
@@ -2992,11 +3605,24 @@ export interface components {
             /** Activity */
             activity: components["schemas"]["Activity"][];
         };
+        /**
+         * ProjectUpdate
+         * @description PATCH payload: only the fields present are changed. `needBy: null`
+         *     clears the date.
+         */
+        ProjectUpdate: {
+            /** Loc */
+            loc?: string | null;
+            /** Value */
+            value?: string | null;
+            /** Needby */
+            needBy?: string | null;
+        };
         /** ProvidersHealth */
         ProvidersHealth: {
             /** Ok */
             ok: boolean;
-            gmail: components["schemas"]["GmailProbe"];
+            email: components["schemas"]["EmailProbe"];
             llm: components["schemas"]["LlmProbe"];
         };
         /**
@@ -3052,6 +3678,11 @@ export interface components {
              * @default 0
              */
             poCount: number;
+            /**
+             * Ponumbers
+             * @default []
+             */
+            poNumbers: components["schemas"]["PoNumber"][];
             /** Decidedby */
             decidedBy?: string | null;
             /** Decidedbyemail */
@@ -3137,6 +3768,35 @@ export interface components {
             /** Error */
             error?: string | null;
         };
+        /**
+         * RecipientFollowupStatus
+         * @description Per-recipient chase state for GET .../rfqs/{rfq_id}/followups.
+         */
+        RecipientFollowupStatus: {
+            /** Email */
+            email: string;
+            /**
+             * Suppliername
+             * @default
+             */
+            supplierName: string;
+            /** Sentat */
+            sentAt?: string | null;
+            /** Repliedat */
+            repliedAt?: string | null;
+            /**
+             * Replied
+             * @default false
+             */
+            replied: boolean;
+            /**
+             * Followups
+             * @default []
+             */
+            followups: components["schemas"]["RfqFollowup"][];
+            /** Nextdueat */
+            nextDueAt?: string | null;
+        };
         /** RegisterRequest */
         RegisterRequest: {
             /**
@@ -3202,15 +3862,13 @@ export interface components {
             rfqId: string;
             status: components["schemas"]["RfqStatus"];
             statusTone: components["schemas"]["Tone"];
-            /** Gmail */
-            gmail: boolean;
+            /** Live */
+            live: boolean;
             /**
              * Configured
              * @default false
              */
             configured: boolean;
-            /** Readerror */
-            readError?: string | null;
             /** Thread */
             thread: components["schemas"]["ConversationMessage"][];
         };
@@ -3249,6 +3907,28 @@ export interface components {
             /** Count */
             count: string;
         };
+        /**
+         * RfqFollowup
+         * @description One nudge to a recipient. `messageId` is null while the send is in
+         *     flight (an intent); see services/rfq/followups.py.
+         */
+        RfqFollowup: {
+            /** N */
+            n: number;
+            /** Sentat */
+            sentAt: string;
+            /** Messageid */
+            messageId?: string | null;
+        };
+        /** RfqFollowupStatus */
+        RfqFollowupStatus: {
+            /** Rfqid */
+            rfqId: string;
+            /** Max */
+            max: number;
+            /** Recipients */
+            recipients: components["schemas"]["RecipientFollowupStatus"][];
+        };
         /** RfqGenerateRequest */
         RfqGenerateRequest: {
             /** Supplier Ids */
@@ -3274,16 +3954,24 @@ export interface components {
             name: string;
             /** Email */
             email: string;
+            /** Messageid */
+            messageId?: string | null;
             /** Sentmessageid */
             sentMessageId?: string | null;
             /** Threadid */
             threadId?: string | null;
+            /** Sentat */
+            sentAt?: string | null;
+            /** Repliedat */
+            repliedAt?: string | null;
             /** Sendstatus */
             sendStatus?: string | null;
             /** Senderror */
             sendError?: string | null;
             /** Outboundmessageids */
             outboundMessageIds?: string[] | null;
+            /** Followups */
+            followups?: components["schemas"]["RfqFollowup"][] | null;
             /** Mock */
             mock?: boolean | null;
         };
@@ -3300,6 +3988,8 @@ export interface components {
             body: string;
             /** Recipients */
             recipients: components["schemas"]["RfqRecipient"][];
+            /** Needby */
+            needBy?: string | null;
             /** Attachment Ids */
             attachment_ids?: string[] | null;
         };
@@ -3486,6 +4176,75 @@ export interface components {
             status: string;
             /** Message */
             message: string;
+        };
+        /**
+         * SlackChannelLink
+         * @description A Slack channel the agent listens in, and the project it feeds.
+         */
+        SlackChannelLink: {
+            /** Id */
+            id: string;
+            /** Teamid */
+            teamId: string;
+            /** Channelid */
+            channelId: string;
+            /**
+             * Channelname
+             * @default
+             */
+            channelName: string;
+            /** Projectid */
+            projectId?: string | null;
+            /** Projectname */
+            projectName?: string | null;
+            /** Createdat */
+            createdAt?: string | null;
+        };
+        /** SlackChannelLinkRequest */
+        SlackChannelLinkRequest: {
+            /** Projectid */
+            projectId: string;
+            /**
+             * Channelname
+             * @default
+             */
+            channelName: string;
+        };
+        /** SlackInstallUrl */
+        SlackInstallUrl: {
+            /** Url */
+            url: string;
+        };
+        /**
+         * SlackStatus
+         * @description Whether the Slack app is set up on the server and installed by this org.
+         *
+         *     `configured` is server-side (the three PROCUREAI_SLACK_* variables);
+         *     `installed` is per organization (an OAuth install exists).
+         */
+        SlackStatus: {
+            /** Configured */
+            configured: boolean;
+            /**
+             * Missing
+             * @default []
+             */
+            missing: string[];
+            /** Installed */
+            installed: boolean;
+            /** Teamid */
+            teamId?: string | null;
+            /** Teamname */
+            teamName?: string | null;
+            /** Botuserid */
+            botUserId?: string | null;
+            /** Installedat */
+            installedAt?: string | null;
+            /**
+             * Channels
+             * @default []
+             */
+            channels: components["schemas"]["SlackChannelLink"][];
         };
         /**
          * Stage
@@ -3825,8 +4584,8 @@ export interface components {
         /**
          * UpdateMeRequest
          * @description Editable account settings. `ccEmail` is the address copied on outgoing
-         *     mail you trigger; `null` clears it. It is never a From address — everything
-         *     is sent from the workspace mailbox (see services/rfq/sender.py).
+         *     mail you trigger; `null` clears it. It is never a From address: everything
+         *     is sent from the organization's agent inbox (see services/rfq/sender.py).
          */
         UpdateMeRequest: {
             /** Ccemail */
@@ -4214,6 +4973,185 @@ export interface operations {
             };
         };
     };
+    receive_api_webhooks_agentmail_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    oauth_callback_api_webhooks_slack_oauth_callback_get: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    events_api_webhooks_slack_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    interactions_api_webhooks_slack_interactions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    commands_api_webhooks_slack_commands_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    preview_approval_api_approvals__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execute_approval_api_approvals__token__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApprovalExecuteRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_dashboard_api_dashboard_get: {
         parameters: {
             query?: never;
@@ -4335,6 +5273,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_api_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -5420,6 +6393,70 @@ export interface operations {
             };
         };
     };
+    get_rfq_followups_api_projects__project_id__rfqs__rfq_id__followups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                rfq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RfqFollowupStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_rfq_followups_api_projects__project_id__rfqs__rfq_id__followups_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                rfq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowupRunResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_suppliers_api_suppliers_get: {
         parameters: {
             query?: never;
@@ -5904,6 +6941,133 @@ export interface operations {
             };
         };
     };
+    run_intake_test_api_intake_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntakeTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeTestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_project_intake_api_projects__project_id__intake_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_inbound_api_inbound_get: {
+        parameters: {
+            query?: {
+                kind?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundEmailOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reprocess_api_inbound__row_id__reprocess_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                row_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundEmailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_rfq_api_rfqs__rfq_id__get: {
         parameters: {
             query?: never;
@@ -5957,37 +7121,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThreadMessage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    draft_followup_api_rfqs__rfq_id__followup_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rfq_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FollowupDraft"];
                 };
             };
             /** @description Validation Error */
@@ -6304,6 +7437,148 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    slack_status_api_slack_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackStatus"];
+                };
+            };
+        };
+    };
+    install_url_api_slack_install_url_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackInstallUrl"];
+                };
+            };
+        };
+    };
+    list_channels_api_slack_channels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackChannelLink"][];
+                };
+            };
+        };
+    };
+    link_channel_api_slack_channels__channel_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackChannelLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackChannelLink"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlink_channel_api_slack_channels__channel_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    uninstall_api_slack_installation_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

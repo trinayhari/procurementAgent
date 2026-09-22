@@ -16,7 +16,7 @@ class RecordingSender:
         self.sent = []
 
     def send(self, to, subject, body, *, from_addr, cc=None, thread_id=None,
-             in_reply_to=None):
+             in_reply_to=None, attachments=None, reply_to=None):
         self.sent.append(dict(to=to, subject=subject, body=body, from_addr=from_addr,
                               cc=cc, thread_id=thread_id, in_reply_to=in_reply_to))
         return SentMessage(message_id=f"rec-{len(self.sent)}", thread_id=thread_id or "t")
@@ -86,8 +86,8 @@ def test_split_award_emails_each_winner_only_their_lines(monkeypatch):
     alpha = by_to["alpha@x.com"]
     assert alpha["subject"] == "Re: RFQ: Water Utilities — Test Project"
     assert alpha["thread_id"] == "thread-a"        # threaded into Alpha's RFQ
-    assert alpha["in_reply_to"] is None            # mock sender → no header fetch
-    # From is the workspace mailbox (Gmail unconfigured in tests → the labelled
+    assert alpha["in_reply_to"] == "msg-a"         # a reply to the RFQ we sent
+    # From is the org's inbox (AgentMail unconfigured in tests → the labelled
     # placeholder), never the buyer's own address.
     assert parseaddr(alpha["from_addr"])[1] == UNCONFIGURED_SENDER_ADDRESS
     assert alpha["cc"] is None                     # this buyer set no Cc address
@@ -111,7 +111,7 @@ def test_split_award_emails_each_winner_only_their_lines(monkeypatch):
 
 
 def test_buyer_is_cced_on_every_award_email(monkeypatch):
-    """The buyer's own address rides along as a Cc — it is never the From."""
+    """The buyer's own address rides along as a Cc; it is never the From."""
     _patch(monkeypatch, [ALPHA, BETA, GAMMA])
     sender = RecordingSender()
 
@@ -166,4 +166,20 @@ def test_no_thread_when_recipient_missing(monkeypatch):
     )
     alpha = next(m for m in sender.sent if m["to"] == "alpha@x.com")
     assert alpha["thread_id"] is None
-    assert alpha["subject"] == "Purchase order — Water Utilities"
+    assert alpha["subject"] == "Purchase order: Water Utilities"
+
+
+def test_po_number_rides_in_the_winner_email(monkeypatch):
+    _patch(monkeypatch, [ALPHA, BETA, GAMMA])
+    sender = RecordingSender()
+    award_notify.notify_award(
+        None, org_id="org", project_id="p", package="water", package_label="Water Utilities",
+        summary=SUMMARY, buyer=BUYER, sender=sender, notify_declined=False,
+        po_numbers=[{"supplierId": "a", "supplierName": "Alpha Supply", "po": "PO-12-0042"},
+                    {"supplierId": "b", "supplierName": "Beta Supply", "po": "PO-12-0043"}],
+    )
+    by_to = {m["to"]: m for m in sender.sent}
+    assert "PO number: PO-12-0042" in by_to["alpha@x.com"]["body"]
+    assert "purchase order (PO-12-0042)" in by_to["alpha@x.com"]["body"]
+    assert "PO number: PO-12-0043" in by_to["beta@x.com"]["body"]
+    assert "PO-12-0042" not in by_to["beta@x.com"]["body"]

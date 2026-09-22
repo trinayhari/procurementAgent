@@ -50,11 +50,12 @@ sample data. External providers (OpenAI, Google Maps, Gmail) are optional —
 without keys the app runs on clearly-flagged mocks, end to end. The test
 suite force-blanks all provider credentials so it can never send real email.
 
-To send real RFQ emails, connect one Gmail account — every message goes out from
-it, carrying the sending user's name as the display name and Cc'ing them if they
-ask. RFQs and bid requests can carry user-selected project documents as email
-attachments (capped at 15 MB per email). Step-by-step guide:
-[docs/email-setup.md](docs/email-setup.md).
+To send real RFQ emails, set an AgentMail API key: every organization gets its
+own agent inbox (for example `acme@proq.tryproq.dev`), every message goes out
+from it carrying the sending user's name as the display name and Cc'ing them if
+they ask, and supplier replies come back to it through a webhook. RFQs and bid
+requests can carry user-selected project documents as email attachments (capped
+at 4 MB per email). Step-by-step guide: [docs/email-setup.md](docs/email-setup.md).
 
 The frontend reads `VITE_API_URL` (default `http://localhost:8000`); copy
 `apps/web/.env.example` to `apps/web/.env` to override. On load,

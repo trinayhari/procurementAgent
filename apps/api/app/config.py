@@ -142,26 +142,49 @@ class Settings(BaseSettings):
     # discovery). Leave empty to run a clearly-flagged mock supplier search.
     google_maps_api_key: str = ""
 
-    # ------------------------------------------- Gmail (single-mailbox OAuth2)
-    # Every outbound email leaves ONE connected Gmail account (see
-    # services/rfq/sender.py) — users are Cc'd, never used as the From address.
-    # Env vars, all PROCUREAI_-prefixed; docs/email-setup.md has the full guide:
-    #   PROCUREAI_GMAIL_CLIENT_ID / _CLIENT_SECRET  OAuth desktop client
-    #   PROCUREAI_GMAIL_REFRESH_TOKEN               minted once out-of-band by
-    #                                               scripts/mint_gmail_token.py
-    #                                               (gmail.send + gmail.readonly)
-    #   PROCUREAI_GMAIL_SENDER_ADDRESS              that account's own address
-    # All three OAuth vars empty → mock sender (logs only, nothing delivered).
-    gmail_client_id: str = ""
-    gmail_client_secret: str = ""
-    gmail_refresh_token: str = ""
-    # The single "From" address for all outbound mail, e.g. bids@yourcompany.com.
-    # Must be the mailbox the refresh token belongs to — Gmail rewrites anything
-    # else. Empty → sender.UNCONFIGURED_SENDER_ADDRESS, flagged as unconfigured
-    # by GET /api/auth/email-config rather than shown as a working address.
-    gmail_sender_address: str = ""
-    # How far back the quote-ingest poller looks for supplier replies.
-    quote_ingest_lookback_days: int = 30
+    # ---------------------------------------------------- Email (AgentMail)
+    # The agent has its own inbox per customer organization, e.g.
+    # acme@<agentmail_domain> (see docs/agent-architecture.md). Customers
+    # email it, suppliers receive RFQs from it and reply to it, and every
+    # message that arrives is posted to POST /api/webhooks/agentmail. The
+    # inbox id is stored on the organization (created lazily on first use).
+    # Empty agentmail_api_key → MockSender (logs only, nothing delivered).
+    agentmail_api_key: str = ""
+    # Verified custom domain inboxes are created on (e.g. proq.tryproq.dev).
+    # Empty → AgentMail's default domain (fine for development).
+    agentmail_domain: str = ""
+    # Optional pod to create inboxes in (multi-tenant isolation). Empty → the
+    # organization's default pod.
+    agentmail_pod_id: str = ""
+    # Svix signing secret of the webhook endpoint. Empty in development skips
+    # signature verification; production refuses unsigned webhooks.
+    agentmail_webhook_secret: str = ""
+    # Display name prefix for org inboxes: "Proq for Acme Construction".
+    agentmail_display_name_prefix: str = "Proq for"
+
+    # ------------------------------------------------------------- Slack
+    # One Slack app; each org installs it (OAuth) and picks channels per
+    # project. Tokens live in slack_installations, not here.
+    slack_client_id: str = ""
+    slack_client_secret: str = ""
+    slack_signing_secret: str = ""
+
+    # --------------------------------------------------------- follow-ups
+    # Autonomous supplier chasing (design.md section 11). The scheduler in
+    # services/scheduler.py polls every followup_poll_interval_s and sends at
+    # most followup_max nudges per recipient, inside allowed hours.
+    followup_enabled: bool = True
+    followup_first_delay_hours: int = 48
+    followup_second_delay_hours: int = 96
+    followup_max: int = 2
+    followup_send_hour_start: int = 8   # local hour, inclusive
+    followup_send_hour_end: int = 17    # local hour, exclusive
+    followup_weekdays_only: bool = True
+    followup_poll_interval_s: int = 600
+
+    # ---------------------------------------------------------- approvals
+    # Signed single-use approval links (award approve-by-reply / Slack button).
+    approval_token_ttl_days: int = 14
 
     # ------------------------------------------------ supplier search tuning
     # Tier bounds (miles) for bucketing results; the UI radius slider re-buckets.

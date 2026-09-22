@@ -54,6 +54,20 @@ def test_every_route_requires_auth(client):
         # on the secret invite token, not a bearer session.
         ("/api/invite/{token}", "GET"),
         ("/api/invite/{token}/accept", "POST"),
+        # Award approval links: the approver may have no account; the
+        # single-use token is the credential (404/410 without a real one).
+        ("/api/approvals/{token}", "GET"),
+        ("/api/approvals/{token}", "POST"),
+        # Slack: the callback gates on a signed state token, the webhooks on
+        # Slack's request signature (skipped only in development with no
+        # secret configured; tests/test_slack.py covers the 401s).
+        ("/api/webhooks/slack/oauth/callback", "GET"),
+        ("/api/webhooks/slack/events", "POST"),
+        ("/api/webhooks/slack/interactions", "POST"),
+        ("/api/webhooks/slack/commands", "POST"),
+        # Provider webhooks authenticate with the provider's signature, not a
+        # session (the AgentMail one is exercised in test_agentmail_webhook).
+        ("/api/webhooks/agentmail", "POST"),
     }
     checked = 0
     for route in app.routes:
@@ -106,7 +120,8 @@ def test_send_test_email_mock(auth):
     assert data["mocked"] is True
     assert data["to"] == "pm@example.com"
     assert data["messageId"].startswith("mock-")
-    # From is the workspace mailbox carrying the user's display name...
+    # From is the org's inbox (the placeholder before it exists) carrying the
+    # user's display name...
     assert parseaddr(data["fromAddr"])[1] == rfq_sender.sender_address()
     assert parseaddr(data["fromAddr"])[0] == "PM"
     # ...and the test goes to the user, so their Cc would duplicate it — dropped.
@@ -122,16 +137,16 @@ def test_send_test_email_mock(auth):
     assert parseaddr(data["fromAddr"])[1] == rfq_sender.sender_address()
 
 
-def test_email_config_reports_unconfigured_gmail(auth):
-    """The UI needs the truth: nothing is delivered and the address is a
-    placeholder until PROCUREAI_GMAIL_* is set."""
+def test_email_config_reports_unconfigured_agentmail(auth):
+    """The UI needs the truth: nothing is delivered and there is no inbox
+    until PROCUREAI_AGENTMAIL_API_KEY is set and the first send creates it."""
     client, headers = auth
     r = client.get("/api/auth/email-config", headers=headers)
     assert r.status_code == 200, r.text
     cfg = r.json()
     assert cfg["configured"] is False and cfg["mocked"] is True
-    assert cfg["senderAddressSet"] is False
-    assert cfg["fromAddress"] == rfq_sender.UNCONFIGURED_SENDER_ADDRESS
+    assert cfg["inboxAddress"] is None
+    assert cfg["missing"] == ["PROCUREAI_AGENTMAIL_API_KEY"]
     assert cfg["ccEmail"] is None
 
     client.patch("/api/auth/me", headers=headers, json={"ccEmail": "bids@example.com"})

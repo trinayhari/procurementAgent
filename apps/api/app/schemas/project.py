@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -8,6 +8,7 @@ from app.schemas.common import Stage, Tone
 # "$4.2M", "4.2m", "$450,000", "450000", "1.5 B" — an optional currency sign, a
 # number with optional thousands separators/decimals, an optional K/M/B suffix.
 _VALUE_RE = re.compile(r"^\$?\s*\d{1,3}(,\d{3})*(\.\d+)?\s*[kKmMbB]?$|^\$?\s*\d+(\.\d+)?\s*[kKmMbB]?$")
+from app.core.dates import parse_iso_date
 from app.schemas.dashboard import Activity
 
 
@@ -19,6 +20,8 @@ class Project(BaseModel):
     name: str
     loc: str
     value: str
+    # Material need-by date (ISO YYYY-MM-DD), or null.
+    needBy: Optional[str] = None
     stage: Stage
     stageTone: Tone
     # Mean of the project's package progress (0 with no packages yet).
@@ -38,11 +41,17 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     loc: str = Field(default="", max_length=200)
     value: str = Field(default="", max_length=50)
+    needBy: Optional[str] = Field(default=None, max_length=20)
 
     @field_validator("name", "loc", "value", mode="before")
     @classmethod
     def _strip(cls, v):
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("needBy")
+    @classmethod
+    def _need_by_is_a_date(cls, v: Optional[str]) -> Optional[str]:
+        return parse_iso_date(v)
 
     @field_validator("value")
     @classmethod
@@ -53,6 +62,32 @@ class ProjectCreate(BaseModel):
         if v and not _VALUE_RE.match(v):
             raise ValueError("Est. value must be an amount, e.g. $4.2M or 450,000")
         return v
+
+
+class ProjectUpdate(BaseModel):
+    """PATCH payload: only the fields present are changed. `needBy: null`
+    clears the date."""
+
+    loc: Optional[str] = Field(default=None, max_length=200)
+    value: Optional[str] = Field(default=None, max_length=50)
+    needBy: Optional[str] = Field(default=None, max_length=20)
+
+    @field_validator("loc", "value", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("value")
+    @classmethod
+    def _value_is_an_amount(cls, v: Optional[str]) -> Optional[str]:
+        if v and not _VALUE_RE.match(v):
+            raise ValueError("Est. value must be an amount, e.g. $4.2M or 450,000")
+        return v
+
+    @field_validator("needBy")
+    @classmethod
+    def _need_by_is_a_date(cls, v: Optional[str]) -> Optional[str]:
+        return parse_iso_date(v)
 
 
 class OverviewCard(BaseModel):

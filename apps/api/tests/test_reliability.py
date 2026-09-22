@@ -254,7 +254,7 @@ def test_overlapping_sends_email_each_supplier_once(project, monkeypatch):
             sent.append(to)
             return rfq_sender.SentMessage(message_id=f"m-{len(sent)}", thread_id="t")
 
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: SlowSender())
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: SlowSender())
 
     results = []
 
@@ -464,7 +464,7 @@ def test_repeat_award_is_refused_without_supersede_and_notifies_once(project, mo
             sent.append(to)
             return rfq_sender.SentMessage(message_id=f"m-{len(sent)}", thread_id="t")
 
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: CountingSender())
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: CountingSender())
     url = f"/api/projects/{pid}/packages/{bom_id}/award"
     assert client.post(url, headers=headers, json={"selections": {}}).status_code == 200
     first_batch = len(sent)
@@ -532,46 +532,25 @@ def test_live_ingest_attributes_a_reply_by_thread_then_subject():
     assert ingest._match_rfq([water], Msg(subject="quote attached")) is water
 
 
-def test_fetch_replies_strips_the_quoted_chain_and_keeps_the_thread(monkeypatch):
+def test_inbound_text_strips_the_quoted_chain_and_reads_html_only_bodies():
     """Re-applied from the eval bench (28458bc): a reply carries the quoted
     RFQ / earlier quote beneath it, and the parser's largest-dollar fallback
     read the OLD figure ($52k) instead of the revision ($47.5k)."""
-    import base64
-
-    from app.services.quotes import gmail_reader
+    from app.models.inbound_email import InboundEmail
+    from app.services.quotes import ingest
 
     body = (
         "Revised quote: $47,500 total, 10 days.\n\n"
         "On Mon, Sep 1, 2026 Jordan Mills wrote:\n"
         "> Our previous quote was $52,000\n"
     )
-    full = {
-        "id": "m1", "threadId": "thr-9", "snippet": "Revised quote",
-        "payload": {
-            "mimeType": "text/plain",
-            "headers": [{"name": "From", "value": "Sales <sales@pipe.co>"}, {"name": "Subject", "value": "Re: RFQ: Water"}],
-            "body": {"data": base64.urlsafe_b64encode(body.encode()).decode()},
-        },
-    }
-
-    class Exec:
-        def __init__(self, v): self.v = v
-        def execute(self): return self.v
-
-    class Messages:
-        def list(self, **kw): return Exec({"messages": [{"id": "m1"}]})
-        def get(self, **kw): return Exec(full)
-
-    class Users:
-        def messages(self): return Messages()
-
-    class Service:
-        def users(self): return Users()
-
-    monkeypatch.setattr(gmail_reader, "_service", lambda: Service())
-    [msg] = gmail_reader.fetch_replies(["sales@pipe.co"])
-    assert msg.thread_id == "thr-9"
-    assert "$47,500" in msg.text and "$52,000" not in msg.text
+    row = InboundEmail(id="a", provider_message_id="m1", thread_id="thr-9", text=body, attachments="[]")
+    text = ingest.inbound_text(row)
+    assert "$47,500" in text and "$52,000" not in text
+    # HTML-only mail (no text part) is rendered, minus the <blockquote> chain.
+    html_row = InboundEmail(id="b", provider_message_id="m2", text="", attachments="[]",
+                            html="<div>Revised: <b>$47,500</b><br>10 days</div><blockquote>$52,000</blockquote>")
+    assert ingest.inbound_text(html_row) == "Revised: $47,500\n10 days"
 
 
 # ------------------------------------------------- demo data: dashboard etc.

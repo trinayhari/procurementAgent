@@ -52,6 +52,11 @@ SCOPED_TABLES = (
     "background_jobs",
     "lenders",
     "package_budgets",
+    "inbound_emails",
+    "approval_tokens",
+    "package_recommendations",
+    "slack_installations",
+    "slack_channel_links",
 )
 
 
@@ -163,11 +168,26 @@ def _ensure_dev_columns() -> None:
                 conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN status VARCHAR NOT NULL DEFAULT 'active'"))
             if "superseded_by" not in cols:
                 conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN superseded_by VARCHAR"))
+            if "po_numbers" not in cols:
+                conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN po_numbers TEXT NOT NULL DEFAULT '[]'"))
+    if "organizations" in tables:
+        cols = {c["name"] for c in inspector.get_columns("organizations")}
+        if "po_counter" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE organizations ADD COLUMN po_counter INTEGER NOT NULL DEFAULT 0"))
+    if "rfqs" in tables:
+        cols = {c["name"] for c in inspector.get_columns("rfqs")}
+        if "need_by" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE rfqs ADD COLUMN need_by VARCHAR"))
     if "projects" in tables:
+        cols = {c["name"] for c in inspector.get_columns("projects")}
+        if "need_by" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN need_by VARCHAR"))
         # Mirrors 0023_computed_project_rows: the seeded display columns are
         # gone (rows are computed). A dev DB created before that would still
         # carry them as NOT NULL, so inserts of new projects would fail.
-        cols = {c["name"] for c in inspector.get_columns("projects")}
         stale = [c for c in ("stage", "stage_tone", "progress", "suppliers", "rfqs", "quotes", "risk", "risk_tone", "bar_color") if c in cols]
         if stale:
             with engine.begin() as conn:

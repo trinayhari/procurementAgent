@@ -2,10 +2,9 @@
 
 Attachment ids are validated at save (org/project ownership, has_file, size
 budget) and hydrated into real bytes at send. A document deleted after save is
-skipped, not fatal. The attachment-free path stays plain MIMEText.
+skipped, not fatal. The attachment-free path sends a plain-text message.
 """
 import io
-from email import message_from_bytes
 import base64
 
 import pytest
@@ -82,7 +81,7 @@ def test_save_and_send_with_attachment(project, monkeypatch):
     assert [a["documentId"] for a in saved["attachments"]] == [doc_id]
 
     recorder = _Recorder()
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: recorder)
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200, r.text
 
@@ -98,7 +97,7 @@ def test_send_without_attachments_passes_none(project, monkeypatch):
     client, headers, pid = project
     rfq = _draft_rfq(client, headers, pid)
     recorder = _Recorder()
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: recorder)
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200, r.text
     assert all(m["attachments"] is None for m in recorder.sent)
@@ -192,7 +191,7 @@ def test_duplicate_attachment_ids_are_deduped(project, monkeypatch):
 
     # The email carries the file once, not twice.
     recorder = _Recorder()
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: recorder)
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200, r.text
     assert all(len(m["attachments"]) == 1 for m in recorder.sent)
@@ -229,7 +228,7 @@ def test_deleted_attachment_is_skipped_at_send(project, monkeypatch):
     assert client.delete(f"/api/documents/{doc_id}", headers=headers).status_code == 204
 
     recorder = _Recorder()
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: recorder)
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200, r.text  # send still goes out
     assert all(m["attachments"] is None for m in recorder.sent)
@@ -238,49 +237,31 @@ def test_deleted_attachment_is_skipped_at_send(project, monkeypatch):
     assert r.json()["attachments"] == []
 
 
-# ------------------------------------------------------------- MIME building
-def _decode_raw(raw: str):
-    return message_from_bytes(base64.urlsafe_b64decode(raw))
+# ------------------------------------------------------ attachment payloads
+def test_build_attachments_is_empty_without_attachments():
+    assert rfq_sender.build_attachments(None) == []
+    assert rfq_sender.build_attachments([]) == []
 
 
-def test_build_mime_without_attachments_is_plain_text():
-    raw = rfq_sender._build_mime("a@b.com", "Subj", "Body", "us@ours.com")
-    msg = _decode_raw(raw)
-    assert not msg.is_multipart()
-    assert msg.get_payload() == "Body"
-
-
-def test_build_mime_with_attachments_is_multipart():
+def test_build_attachments_encodes_content_and_types_pdfs():
     att = rfq_sender.EmailAttachment(filename="plan.pdf", content=_MINI_PDF)
-    raw = rfq_sender._build_mime(
-        "a@b.com", "Subj", "Body", "us@ours.com", attachments=[att]
-    )
-    msg = _decode_raw(raw)
-    assert msg.is_multipart()
-    body_part, att_part = msg.get_payload()
-    assert body_part.get_payload() == "Body"
-    assert att_part.get_filename() == "plan.pdf"
-    assert att_part.get_content_type() == "application/pdf"
-    assert att_part.get_payload(decode=True) == _MINI_PDF
-    # The no-Reply-To invariant holds for multipart messages too.
-    assert msg["Reply-To"] is None
+    [part] = rfq_sender.build_attachments([att])
+    assert part["filename"] == "plan.pdf"
+    assert part["content_type"] == "application/pdf"
+    assert base64.b64decode(part["content"]) == _MINI_PDF
 
 
-def test_build_mime_unknown_extension_falls_back_to_octet_stream():
+def test_build_attachments_unknown_extension_falls_back_to_octet_stream():
     att = rfq_sender.EmailAttachment(filename="takeoff.zz9", content=b"\x00\x01\x02")
-    raw = rfq_sender._build_mime(
-        "a@b.com", "Subj", "Body", "us@ours.com", attachments=[att]
-    )
-    msg = _decode_raw(raw)
-    _, att_part = msg.get_payload()
-    assert att_part.get_content_type() == "application/octet-stream"
-    assert att_part.get_filename() == "takeoff.zz9"
-    assert att_part.get_payload(decode=True) == b"\x00\x01\x02"
+    [part] = rfq_sender.build_attachments([att])
+    assert part["content_type"] == "application/octet-stream"
+    assert part["filename"] == "takeoff.zz9"
+    assert base64.b64decode(part["content"]) == b"\x00\x01\x02"
 
 
-def test_build_mime_preserves_non_application_mime_types():
-    """Every allowed upload type must keep its real MIME type — a .png is
-    image/png, not application/png (the MIMEApplication trap)."""
+def test_build_attachments_preserves_non_application_mime_types():
+    """Every allowed upload type must keep its real MIME type: a .png is
+    image/png, not application/png."""
     cases = [
         ("photo.png", b"\x89PNG\r\n", "image/png"),
         ("takeoff.csv", b"a,b\n1,2\n", "text/csv"),
@@ -288,12 +269,9 @@ def test_build_mime_preserves_non_application_mime_types():
     ]
     for filename, content, expected in cases:
         att = rfq_sender.EmailAttachment(filename=filename, content=content)
-        raw = rfq_sender._build_mime(
-            "a@b.com", "Subj", "Body", "us@ours.com", attachments=[att]
-        )
-        _, att_part = _decode_raw(raw).get_payload()
-        assert att_part.get_content_type() == expected, filename
-        assert att_part.get_payload(decode=True) == content
+        [part] = rfq_sender.build_attachments([att])
+        assert part["content_type"] == expected, filename
+        assert base64.b64decode(part["content"]) == content
 
 
 def test_sent_filename_borrows_extension_only_when_name_has_none(
@@ -319,7 +297,7 @@ def test_sent_filename_borrows_extension_only_when_name_has_none(
 
     assert _save(client, headers, pid, rfq, [doc_id]).status_code == 200
     recorder = _Recorder()
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: recorder)
     assert (
         client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers).status_code
         == 200
@@ -350,36 +328,30 @@ def test_storage_size_s3_head(monkeypatch):
     assert storage.size("s3://bucket/key.pdf") is None
 
 
-def test_build_mime_strips_control_chars_from_filename():
+def test_build_attachments_strips_control_chars_from_filename():
     """A crafted upload filename must not inject mail headers via
-    Content-Disposition (CRLF stripped before the header is built)."""
+    Content-Disposition (CRLF stripped before the payload is built)."""
     att = rfq_sender.EmailAttachment(
         filename="plans\r\nBcc: x@evil.com.pdf", content=b"x"
     )
-    raw = rfq_sender._build_mime(
-        "a@b.com", "Subj", "Body", "us@ours.com", attachments=[att]
-    )
-    msg = _decode_raw(raw)
-    assert msg["Bcc"] is None
-    _, att_part = msg.get_payload()
-    assert "\r" not in (att_part.get_filename() or "")
-    assert "\n" not in (att_part.get_filename() or "")
+    [part] = rfq_sender.build_attachments([att])
+    assert "\r" not in part["filename"] and "\n" not in part["filename"]
+    assert part["filename"] == "plansBcc: x@evil.com.pdf"
 
 
-def test_build_mime_strips_crlf_from_subject_and_recipients():
-    """Subject/To/Cc carry user-influenced text (trade names, edited subjects,
-    recipient emails) — CRLF must never become a header boundary."""
-    raw = rfq_sender._build_mime(
-        "a@b.com\r\nBcc: y@evil.com",
-        "Bid Request: Drywall\r\nBcc: x@evil.com",
-        "Body",
-        "us@ours.com",
+def test_subject_control_chars_are_stripped_before_sending(monkeypatch):
+    """Subject carries user-influenced text (trade names, edited subjects):
+    CRLF must never become a header boundary."""
+    from app.services.email import agentmail_client
+    from tests.agentmail_fakes import FakeAgentMail
+
+    fake = FakeAgentMail()
+    monkeypatch.setattr(agentmail_client, "get_client", lambda: fake)
+    rfq_sender.AgentMailSender("acme@agentmail.to").send(
+        "a@b.com", "Bid Request: Drywall\r\nBcc: x@evil.com", "Body", from_addr="acme@agentmail.to"
     )
-    msg = _decode_raw(raw)
-    # The CRLF collapses into the same header value — never a new header.
-    assert msg["Bcc"] is None
-    assert "Bcc" not in list(msg.keys())
-    assert "\r" not in (msg["Subject"] or "") and "\n" not in (msg["Subject"] or "")
+    assert fake.sent[0]["subject"] == "Bid Request: DrywallBcc: x@evil.com"
+    assert fake.sent[0]["to"] == ["a@b.com"] and "cc" not in fake.sent[0]
 
 
 # ------------------------------------------- attachment note (EBUG-20/28)
@@ -402,7 +374,7 @@ def test_old_drafts_with_the_hedge_send_clean_when_nothing_is_attached(project, 
     r = _save(client, headers, pid, {**rfq, "body": rfq["body"] + "\n\n" + _OLD_NOTE + " Thanks."}, [])
     assert r.status_code == 200, r.text
     recorder = _Recorder()
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: recorder)
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200, r.text
     for m in recorder.sent:
@@ -422,7 +394,7 @@ def test_attachment_note_is_added_at_send_and_persisted_when_a_document_is_attac
     r = _save(client, headers, pid, rfq, [doc_id])
     assert r.status_code == 200, r.text
     recorder = _Recorder()
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: recorder)
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: recorder)
     r = client.post(f"/api/projects/{pid}/rfqs/{rfq['id']}/send", headers=headers)
     assert r.status_code == 200, r.text
     sent_body = recorder.sent[0]["body"]
@@ -452,7 +424,7 @@ def test_body_with_attachment_note_placement_and_idempotence():
 
 def test_documents_report_their_file_size_for_the_attachment_picker(project, monkeypatch):
     """The RFQ modal shows per-file sizes and keeps the running total under the
-    15 MB cap client-side; a BOM with no file has no size."""
+    email cap client-side; a BOM with no file has no size."""
     client, headers, pid = project
     monkeypatch.setattr(documents_routes, "_run_pipeline", lambda *a, **k: None)
     doc_id = _upload_doc(client, headers, pid)

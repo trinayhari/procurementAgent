@@ -2,18 +2,20 @@
 
 Search runs as a background task (geocode → Places → website email scrape is slow)
 and the frontend polls GET .../suppliers/found, mirroring the document-extraction
-UX. With no Google/Gmail keys the whole flow runs against mocks.
+UX. With no Google/AgentMail keys the whole flow runs against mocks.
 """
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core import locks
+from app.core.dates import humanize
 from app.core.security import get_current_user
 from app.db import DEMO_ORG_ID, SessionLocal, get_db
 from app.models.user import User
@@ -22,14 +24,17 @@ from app.repositories import documents as documents_repo
 from app.repositories import events as events_repo
 from app.repositories import jobs as jobs_repo
 from app.repositories import projects as projects_repo
+from app.repositories import quotes as quotes_repo
 from app.repositories import reference as reference_repo
 from app.repositories import rfqs as rfqs_repo
 from app.repositories import sourcing as sourcing_repo
 from app.repositories import suppliers as suppliers_repo
 from app.schemas.quote import QuoteIngestResult
 from app.schemas.rfq import (
+    FollowupRunResult,
     PersistedRfq,
     RfqConversation,
+    RfqFollowupStatus,
     RfqGenerateRequest,
     RfqUpdate,
 )
@@ -43,9 +48,12 @@ from app.schemas.sourcing import (
     TradeScopeSummary,
     TradeScopeUpdate,
 )
-from app.services import storage
+from app.services import notify, storage
+from app.services.notify import kinds as notice_kinds
 from app.services.quotes import ingest as quotes_ingest
+from app.services.quotes import notices as quote_notices
 from app.services.rfq import conversation as rfq_conversation
+from app.services.rfq import followups as rfq_followups
 from app.services.rfq import generator as rfq_generator
 from app.services.rfq import sender as rfq_sender
 from app.services.rfq import state as rfq_state
@@ -317,8 +325,8 @@ def ingest_quotes(
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
     # Idempotent while an ingest is running: two concurrent passes would both
-    # see the same Gmail replies as new (the dedupe reads ingested message ids
-    # at the start) and store every quote twice.
+    # see the same replies as new (the dedupe reads ingested message ids at
+    # the start) and store every quote twice.
     current = jobs_repo.latest(db, org_id, INGEST_JOB, project_id)
     if current is not None and current.get("status") == "running":
         return {"status": "ingesting", "ingested": 0, "total": 0}
@@ -338,15 +346,14 @@ def run_ingest_job(job_id: str, org_id: str, project_id: str) -> None:
         ingested, total, mocked = outcome
         needs_review = getattr(outcome, "needs_review", 0)
         superseded = getattr(outcome, "superseded", 0)
-        if ingested or needs_review:
-            bits = []
-            if ingested:
-                bits.append(f"{ingested} quote{'s' if ingested != 1 else ''} received")
-            if needs_review:
-                bits.append(f"{needs_review} repl{'ies' if needs_review != 1 else 'y'} need{'' if needs_review != 1 else 's'} review")
+        if ingested:
+            # quotes.received notices (one per package) write the feed rows
+            # and check award readiness; only the review-only case is logged here.
+            _notify_quotes_received(db, org_id, project_id)
+        elif needs_review:
             events_repo.log(
                 db, org_id, project_id,
-                title=", ".join(bits),
+                title=f"{needs_review} repl{'ies' if needs_review != 1 else 'y'} need{'' if needs_review != 1 else 's'} review",
                 icon="quote", tone="violet",
                 meta="Parsed from supplier replies"
                 + (f" · {superseded} earlier revision{'s' if superseded != 1 else ''} superseded" if superseded else ""),
@@ -361,6 +368,12 @@ def run_ingest_job(job_id: str, org_id: str, project_id: str) -> None:
         _fail_job(db, org_id, job_id, exc)
     finally:
         db.close()
+
+
+def _notify_quotes_received(db: Session, org_id: str, project_id: str) -> None:
+    """quotes.received per package, then the award-readiness check (shared
+    with the webhook reply path, see services/quotes/notices.py)."""
+    quote_notices.notify_quotes_received(db, org_id, project_id)
 
 
 _INGEST_STATUS_MAP = {"running": "ingesting", "done": "done", "error": "error"}
@@ -674,7 +687,7 @@ def generate_rfq(
             # Keep the chip's stored scope in sync with what was actually sent.
             documents_repo.update_status(db, org_id, package, summary=scope)
         draft = rfq_generator.generate_sub_rfq_draft(
-            project, label, scope, suppliers, buyer=current_user
+            project, label, scope, suppliers, buyer=current_user, need_by=project.get("needBy")
         )
         kind = "subcontractor"
     else:
@@ -691,7 +704,7 @@ def generate_rfq(
             )
             raise HTTPException(status_code=409, detail=detail)
         draft = rfq_generator.generate_rfq_draft(
-            project, label, line_items, suppliers, buyer=current_user
+            project, label, line_items, suppliers, buyer=current_user, need_by=project.get("needBy")
         )
         kind = "materials"
     if not draft.recipients:
@@ -710,6 +723,7 @@ def generate_rfq(
         line_items=draft.line_items,
         recipients=draft.recipients,
         kind=kind,
+        need_by=project.get("needBy"),
     )
     audit_repo.log(
         db, org_id, current_user, "rfq.drafted", "rfq", rfq["id"], project_id=project_id,
@@ -761,10 +775,11 @@ def get_rfq_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Full email thread for an RFQ, read live from Gmail when configured.
+    """Full email thread for an RFQ: our outbound plus every supplier reply
+    the agent inbox received in that thread.
 
-    Read-only: we surface the original Gmail thread (our outbound plus any
-    threaded supplier replies) without changing the RFQ's status.
+    Read-only: built from stored rows (no provider call) without changing the
+    RFQ's status.
     """
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
@@ -795,9 +810,9 @@ def delete_generated_rfq(
     return Response(status_code=204)
 
 
-# Total attachment budget per email (see services/rfq/sender.py — the sender
-# enforces the same cap right before calling Gmail). Switching to a media
-# upload is the escape hatch if bigger attachments are ever needed.
+# Total attachment budget per email (see services/rfq/sender.py; the sender
+# enforces the same cap right before calling AgentMail). URL-backed
+# attachments are the escape hatch if bigger attachments are ever needed.
 _MAX_ATTACHMENT_TOTAL_BYTES = rfq_sender.MAX_ATTACHMENT_TOTAL_BYTES
 
 
@@ -872,11 +887,14 @@ def update_generated_rfq(
         body=payload.body,
         recipients=[r.model_dump() for r in payload.recipients],
         attachments=attachments,
+        need_by=payload.needBy,
+        set_need_by="needBy" in payload.model_fields_set,
     )
     audit_repo.log(
         db, org_id, current_user, "rfq.edited", "rfq", rfq_id, project_id=project_id,
         detail={
             "recipients": [r.email for r in payload.recipients],
+            **({"needBy": payload.needBy} if "needBy" in payload.model_fields_set else {}),
             **(
                 {"attachments": [a["name"] for a in attachments]}
                 if attachments is not None
@@ -926,7 +944,7 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
     recipients = rfq["recipients"]
     if not recipients:
         raise HTTPException(status_code=400, detail="RFQ has no recipients")
-    # Gmail would happily deliver a blank email; refuse before anything goes out.
+    # A blank email would be delivered as such; refuse before anything goes out.
     if not (rfq.get("subject") or "").strip():
         raise HTTPException(status_code=400, detail="RFQ subject is empty — add a subject before sending")
     if not (rfq.get("body") or "").strip():
@@ -976,7 +994,8 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
         )
         sent_attachments.append(att)
     # Save-time validation sized the files then; re-check the actual hydrated
-    # bytes so content that grew since save can't push the payload past Gmail.
+    # bytes so content that grew since save can't push the payload past the
+    # provider's request limit.
     if sum(len(a.content) for a in email_attachments) > _MAX_ATTACHMENT_TOTAL_BYTES:
         limit_mb = _MAX_ATTACHMENT_TOTAL_BYTES // (1024 * 1024)
         raise HTTPException(
@@ -986,12 +1005,16 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
     if skipped_attachments:
         rfqs_repo.set_attachments(db, org_id, rfq_id, sent_attachments)
 
-    sender = rfq_sender.get_sender()
-    # Always the workspace mailbox (with the sender's name/company as the display
-    # name) — see services/rfq/sender.py. The user's own address is Cc'd so they
-    # keep a copy, while supplier replies still return to the mailbox quote
-    # ingest reads.
-    from_addr = rfq_sender.from_header(current_user)
+    try:
+        sender = rfq_sender.get_sender(db, org_id)
+    except rfq_sender.EmailUnavailable as exc:
+        # The org's agent inbox could not be created: nothing can go out.
+        raise HTTPException(status_code=502, detail=str(exc))
+    # Always the org's agent inbox (with the sender's name/company as the display
+    # name), see services/rfq/sender.py. The user's own address is Cc'd so they
+    # keep a copy, while supplier replies still return to the inbox the webhook
+    # reads.
+    from_addr = rfq_sender.from_header(current_user, address=getattr(sender, "address", None))
     cc = current_user.cc_email
     # Only pass the attachments kwarg when there is something to attach, so the
     # attachment-free path (and any EmailSender built against the pre-attachment
@@ -1005,8 +1028,13 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
         try:
             sent = sender.send(r["email"], rfq["subject"], body,
                                from_addr=from_addr, cc=cc, **send_kwargs)
+            # `messageId` / `threadId` are the AgentMail ids a supplier reply
+            # is attributed by (and what a follow-up replies to);
+            # `sentMessageId` is the same id under the name older readers use.
+            r["messageId"] = sent.message_id
             r["sentMessageId"] = sent.message_id
             r["threadId"] = sent.thread_id
+            r["sentAt"] = datetime.now(timezone.utc).isoformat()
             r["sendStatus"] = "sent"
             r["sendError"] = None
             r["mock"] = bool(getattr(sender, "mocked", False))
@@ -1030,20 +1058,78 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
             "attempted": [r["email"] for r in to_send],
             "delivered": delivered,
             "failed": [{"email": r["email"], "error": r.get("sendError")} for r in failed],
-            "from": rfq_sender.from_display(current_user),
+            "from": rfq_sender.from_display(current_user, address=getattr(sender, "address", None)),
             "cc": cc,
             "mock": type(sender).__name__ == "MockSender",
             "attachments": [a.filename for a in email_attachments],
             "skippedAttachments": skipped_attachments,
         },
     )
-    events_repo.log(
-        db, org_id, project_id,
-        title=(
-            f"RFQ sent to {delivered} supplier{'s' if delivered != 1 else ''}"
-            + (f" — {len(failed)} failed" if failed else "")
-        ),
-        icon="rfq", tone="danger" if failed else "success",
-        meta=rfq.get("pkg") or rfq.get("subject", ""),
-    )
+    if not delivered:
+        events_repo.log(
+            db, org_id, project_id,
+            title=f"RFQ send failed for {len(failed)} supplier{'s' if len(failed) != 1 else ''}",
+            icon="rfq", tone="danger",
+            meta=rfq.get("pkg") or rfq.get("subject", ""),
+        )
+    else:
+        # The rfq.sent notice also writes the activity-feed row.
+        project = projects_repo.get_project(db, org_id, project_id) or {}
+        lines = [f"{delivered} supplier{'s' if delivered != 1 else ''} asked to quote"]
+        if rfq.get("needBy"):
+            lines.append(f"Need by {humanize(rfq['needBy'])}")
+        if failed:
+            lines.append(f"{len(failed)} could not be reached")
+        notify.emit(db, notify.Notice(
+            org_id=org_id, project_id=project_id, kind=notice_kinds.RFQ_SENT,
+            title=f"{project.get('name') or 'Project'}: RFQ sent for {rfq.get('pkg') or rfq['package']}",
+            lines=lines,
+            meta={"rfqId": rfq_id, "package": rfq["package"], "delivered": delivered},
+        ))
     return sent_rfq
+
+
+# ------------------------------------------------------------- follow-ups
+# The scheduler chases non-responders on its own (services/rfq/followups.py);
+# these two routes let the dashboard see that state and force a nudge now.
+def _require_rfq(db: Session, org_id: str, project_id: str, rfq_id: str) -> dict:
+    _require_project(org_id, project_id, db)
+    rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
+    if rfq is None or rfq["projectId"] != project_id:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    return rfq
+
+
+@router.get("/{project_id}/rfqs/{rfq_id}/followups", response_model=RfqFollowupStatus)
+def get_rfq_followups(
+    project_id: str,
+    rfq_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    rfq = _require_rfq(db, org_id, project_id, rfq_id)
+    return {
+        "rfqId": rfq_id,
+        "max": settings.followup_max,
+        "recipients": rfq_followups.status_for(db, org_id, rfq),
+    }
+
+
+@router.post("/{project_id}/rfqs/{rfq_id}/followups/run", response_model=FollowupRunResult)
+def run_rfq_followups(
+    project_id: str,
+    rfq_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Chase every outstanding recipient now: ignores the delay and the
+    send window, still honours replies, the per-recipient max, and a nudge
+    already in flight. 409 while the scheduler holds this RFQ."""
+    org_id = current_user.organization_id
+    rfq = _require_rfq(db, org_id, project_id, rfq_id)
+    if rfq["status"] == "Draft":
+        raise HTTPException(status_code=409, detail="RFQ has not been sent yet")
+    summary = rfq_followups.chase_rfq(db, org_id, rfq_id, force=True, actor=current_user)
+    rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
+    return {**summary.to_dict(), "recipients": rfq_followups.status_for(db, org_id, rfq)}

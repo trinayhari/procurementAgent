@@ -26,8 +26,8 @@ def _money(v: Optional[float]) -> str:
 class Quote(Base):
     """A supplier quote received in response to an RFQ.
 
-    Created by the ingest pipeline (Gmail reply → parser) or a deterministic mock
-    when Gmail/OpenAI are unconfigured. Numbers are stored numeric so comparison
+    Created by the ingest pipeline (supplier reply → parser) or a deterministic mock
+    when AgentMail/OpenAI are unconfigured. Numbers are stored numeric so comparison
     can rank them; display strings are derived in to_dict()/to_quote_row().
     """
 

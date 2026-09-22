@@ -5,6 +5,7 @@ import { buildModel } from './model'
 import type { Model, State } from './model'
 import Login from './Login'
 import AcceptInvite from './AcceptInvite'
+import Approve from './Approve'
 import {
   loadModelData, getPlanTypes, uploadDocument, getDocumentLineItems, analyzeDocument,
   saveDocumentLineItems, confirmDocument, deleteDocument, createManualBom, setTimelineEventDone, hasDetail,
@@ -171,6 +172,13 @@ export default function App() {
   const [inviteToken, setInviteToken] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null
     const m = window.location.hash.match(/^#\/invite\/(.+)$/)
+    return m ? decodeURIComponent(m[1]) : null
+  })
+  // Same for an award-approval link (#/approve/<token>): captured once at
+  // mount, shown to signed-in and anonymous visitors alike.
+  const [approveToken, setApproveToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    const m = window.location.hash.match(/^#\/approve\/(.+)$/)
     return m ? decodeURIComponent(m[1]) : null
   })
 
@@ -359,8 +367,12 @@ export default function App() {
   // the site; we only rewrite in place when the current URL already denotes
   // this page (initial load, or normalizing a hand-typed/partial hash) so
   // those cases don't add spurious entries.
+  // A public token page (#/approve/<token>, #/invite/<token>) owns the URL
+  // while it is showing: rewriting it to #/dashboard here would turn a reload
+  // of the approval page into the login screen and lose the link.
+  const tokenPage = !!approveToken || (!!inviteToken && !user)
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined' || tokenPage) return
     const h = hashFor(s)
     if (window.location.hash === h) return
     if (hashFor({ ...s, ...parseHash() }) === h) {
@@ -368,7 +380,7 @@ export default function App() {
     } else {
       window.history.pushState(null, '', h)
     }
-  }, [s.nav, s.projectId, s.tab, s.compare, s.comparePkg])
+  }, [s.nav, s.projectId, s.tab, s.compare, s.comparePkg, tokenPage])
 
   // Honour manual hash edits and browser back/forward by re-syncing state.
   // Transient chrome (mobile drawer, open supplier) is dropped so arriving at
@@ -573,6 +585,16 @@ export default function App() {
   // Until the stored token is validated, render nothing (avoids a login flash).
   if (!authReady) {
     return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  }
+  // A public approval link (#/approve/<token>) is a one-click page: the
+  // token is the credential, so it renders whether or not anyone is signed in.
+  if (approveToken) {
+    return (
+      <Approve
+        token={approveToken}
+        onDismiss={() => { setApproveToken(null); window.location.hash = '#/dashboard' }}
+      />
+    )
   }
   // A public team-invite link (#/invite/<token>) takes precedence over the login
   // gate: the invitee has no account yet. Accepting reloads into the app.
@@ -1109,8 +1131,8 @@ function Settings({ m }: MProps) {
       const r = await sendTestEmail()
       setTestResult(
         r.mocked
-          ? 'Mock mode — no Gmail connected, so nothing was delivered; the send was only logged. See docs/email-setup.md.'
-          : `Sent to ${r.to} from ${r.fromAddr}${r.cc ? `, copied to ${r.cc}` : ''} — check your inbox.`,
+          ? 'Mock mode: no AgentMail key set, so nothing was delivered; the send was only logged. See docs/email-setup.md.'
+          : `Sent to ${r.to} from ${r.fromAddr}${r.cc ? `, copied to ${r.cc}` : ''}. Check your inbox.`,
       )
     } catch (ex) {
       setTestErr(ex instanceof Error ? ex.message : 'Test send failed')
@@ -1119,8 +1141,8 @@ function Settings({ m }: MProps) {
       getEmailConfig().then(setEmailCfg).catch(() => {})
     }
   }
-  // Live provider check (GET /api/health/providers) — only on an explicit
-  // click: it refreshes the Gmail token and makes a model call for real.
+  // Live provider check (GET /api/health/providers): only on an explicit
+  // click, it creates or reads the org's agent inbox and makes a model call for real.
   const [probing, setProbing] = useState(false)
   const [probe, setProbe] = useState<ProvidersHealth | null>(null)
   const [probeErr, setProbeErr] = useState<string | null>(null)
@@ -1160,22 +1182,22 @@ function Settings({ m }: MProps) {
             <div style={{ flex: 1 }}>
               <div style={css('font-size:13.5px;font-weight:600')}>Sent from</div>
               <div style={css('font-size:12px;color:var(--text-3)')}>
-                Every RFQ, award notice and update leaves the workspace's connected Gmail account, showing your name and company. Supplier replies come back to it, which is how quotes are ingested.
+                Every RFQ, award notice and update leaves your organization's agent inbox, showing your name and company. Suppliers reply to it, which is how quotes are ingested.
               </div>
               {emailCfg && !emailCfg.configured && (
                 <div style={css('font-size:12px;color:var(--warn);font-weight:600;margin-top:4px')}>
-                  No Gmail account connected — nothing is delivered, sends are only logged.
+                  No AgentMail key set: nothing is delivered, sends are only logged.
                   {(emailCfg.missing || []).length > 0 && <> Missing: <span style={css("font-family:'JetBrains Mono',monospace;font-weight:500")}>{(emailCfg.missing || []).join(', ')}</span>.</>} See docs/email-setup.md.
                 </div>
               )}
-              {emailCfg && emailCfg.configured && emailCfg.gmail && emailCfg.gmail.lastError && (
+              {emailCfg && emailCfg.configured && emailCfg.agentmail && emailCfg.agentmail.lastError && (
                 <div style={css('font-size:12px;color:var(--danger);font-weight:600;margin-top:4px')}>
-                  Gmail is configured but the last call failed: {String(emailCfg.gmail.lastError)}
+                  AgentMail is configured but the last call failed: {String(emailCfg.agentmail.lastError)}
                 </div>
               )}
             </div>
-            <span style={css(`font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border);flex:none;${emailCfg && emailCfg.configured && emailCfg.senderAddressSet ? '' : 'color:var(--warn)'}`)}>
-              {!emailCfg ? '…' : emailCfg.configured && emailCfg.senderAddressSet ? emailCfg.fromAddress : 'Not configured'}
+            <span style={css(`font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;background:var(--panel-2);padding:5px 11px;border-radius:8px;border:1px solid var(--border);flex:none;${emailCfg && emailCfg.configured && emailCfg.inboxAddress ? '' : 'color:var(--warn)'}`)}>
+              {!emailCfg ? '…' : !emailCfg.configured ? 'Not configured' : emailCfg.inboxAddress || 'Not created yet'}
             </span>
           </div>
           <form onSubmit={saveSender} style={css('display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border-top:1px solid var(--border)')}>
@@ -1212,7 +1234,7 @@ function Settings({ m }: MProps) {
             <div style={{ flex: 1 }}>
               <div style={css('font-size:13.5px;font-weight:600')}>Connections</div>
               <div style={css('font-size:12px;color:var(--text-3)')}>
-                Gmail delivers RFQs and reads replies; the AI model turns replies into structured quotes.
+                AgentMail delivers RFQs and receives replies; the AI model turns replies into structured quotes.
                 {emailCfg && emailCfg.llm && (
                   emailCfg.llm.configured
                     ? (emailCfg.llm.lastError
@@ -1223,8 +1245,8 @@ function Settings({ m }: MProps) {
               </div>
               {probe && (
                 <div style={css('font-size:12px;margin-top:6px;display:flex;flex-direction:column;gap:3px')}>
-                  <div style={css(`font-weight:600;color:${probe.gmail.ok ? 'var(--success)' : 'var(--danger)'}`)}>
-                    Gmail: {probe.gmail.ok ? `connected as ${probe.gmail.emailAddress} (send + read OK)` : (probe.gmail.error || 'failed')}
+                  <div style={css(`font-weight:600;color:${probe.email.ok ? 'var(--success)' : 'var(--danger)'}`)}>
+                    AgentMail: {probe.email.ok ? `inbox ${probe.email.inboxAddress} ready` : (probe.email.error || 'failed')}
                   </div>
                   <div style={css(`font-weight:600;color:${probe.llm.ok ? 'var(--success)' : 'var(--danger)'}`)}>
                     AI model: {probe.llm.ok ? `${probe.llm.model} answered` : (probe.llm.error || 'failed')}
@@ -1233,7 +1255,7 @@ function Settings({ m }: MProps) {
               )}
               {probeErr && <div style={css('font-size:12px;color:var(--danger);margin-top:4px')}>{probeErr}</div>}
             </div>
-            <Box as="button" onClick={runProbe} disabled={probing} title="Makes a real Gmail token refresh and a one-token model call" style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;flex:none;${probing ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
+            <Box as="button" onClick={runProbe} disabled={probing} title="Makes a real AgentMail inbox check and a one-token model call" style={css(`height:32px;padding:0 13px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:600;flex:none;${probing ? 'opacity:.55' : ''}`)} hover="background:var(--panel-2)">
               {probing ? 'Checking…' : 'Check connections'}
             </Box>
           </div>
@@ -1399,6 +1421,7 @@ function ProjectWorkspace({ m }: MProps) {
           <div style={css('display:flex;align-items:center;gap:18px;margin-top:7px;font-size:13px;color:var(--text-2);flex-wrap:wrap')}>
             {m.activeProject.loc && <span style={css('display:flex;align-items:center;gap:5px')}><Svg size={14} d={PIN} />{m.activeProject.loc}</span>}
             {m.activeProject.value && <span>Value <strong style={css("color:var(--text);font-family:'JetBrains Mono',monospace")}>{m.activeProject.value}</strong></span>}
+            {m.activeProject.needBy && <span title="Material needed on site by">Need by <strong style={css('color:var(--text)')}>{fmtNeedBy(m.activeProject.needBy)}</strong></span>}
           </div>
         </div>
         <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
@@ -2765,15 +2788,15 @@ function ThreadBubble({ t }: { t: RfqConversation['thread'][number] }) {
 }
 
 // Shared RFQ modal. A draft is editable and can be sent (the user-approval step,
-// via Gmail or the logging mock). Once sent it becomes the conversation view:
-// the full email thread is read live from Gmail, and "Check for replies" pulls
+// via AgentMail or the logging mock). Once sent it becomes the conversation view:
+// the thread is our RFQ plus every stored supplier reply, and "Check for replies" pulls
 // any supplier response — flipping the RFQ to 'Replied' when one has arrived.
 // Attachable project documents for the RFQ modal — anything with a stored file.
 type AttachableDoc = { id?: string; name: string; hasFile?: boolean; fileMissing?: boolean; fileSize?: number | null }
 
 // Total attachment budget per email — mirrors services/rfq/sender.py
 // MAX_ATTACHMENT_TOTAL_BYTES; the backend 400 remains the backstop.
-const MAX_ATTACHMENT_TOTAL_BYTES = 15 * 1024 * 1024
+const MAX_ATTACHMENT_TOTAL_BYTES = 4 * 1024 * 1024
 function fmtBytes(n: number): string {
   if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(n >= 10 * 1024 * 1024 ? 0 : 1)} MB`
   if (n >= 1024) return `${Math.round(n / 1024)} KB`
@@ -2804,6 +2827,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
 }) {
   const [subject, setSubject] = useState(rfq.subject)
   const [body, setBody] = useState(rfq.body)
+  const [needBy, setNeedBy] = useState(rfq.needBy || '')
   const [recipients, setRecipients] = useState<RfqRecipient[]>(rfq.recipients || [])
   const [status, setStatus] = useState(rfq.status)
   const [busy, setBusy] = useState(false)
@@ -2814,7 +2838,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   // user has unsaved edits (closing then asks instead of silently dropping
   // them) and whether "Save draft" has anything to do.
   const [saved, setSaved] = useState(() => ({
-    subject: rfq.subject, body: rfq.body,
+    subject: rfq.subject, body: rfq.body, needBy: rfq.needBy || '',
     recipients: (rfq.recipients || []).map((r) => r.email).join(','),
     attachIds: (rfq.attachments || []).map((a) => a.documentId).slice().sort().join(','),
   }))
@@ -2863,7 +2887,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   const sendFailed = status === 'Send failed'
   const unsent = recipients.filter((r) => recipientState(r) !== 'sent')
   const dirty = draft && (
-    subject !== saved.subject || body !== saved.body ||
+    subject !== saved.subject || body !== saved.body || needBy !== saved.needBy ||
     recipients.map((r) => r.email).join(',') !== saved.recipients ||
     liveAttachIds.slice().sort().join(',') !== saved.attachIds
   )
@@ -2881,9 +2905,9 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   const statusEpoch = useRef(0)
   // Persist the draft's current fields (also the first half of `send`).
   const persist = async () => {
-    const out = await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
+    const out = await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds, needBy: needBy || null })
     setSaved({
-      subject, body,
+      subject, body, needBy,
       recipients: recipients.map((r) => r.email).join(','),
       attachIds: liveAttachIds.slice().sort().join(','),
     })
@@ -2993,10 +3017,19 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
         )}
         <div style={css('padding:18px;display:flex;flex-direction:column;gap:16px')}>
           {draft && (
-            <div>
-              <label style={fieldLabel}>Subject</label>
-              <input value={subject} onChange={(e) => setSubject(e.target.value)} style={fieldInput} />
+            <div style={css('display:flex;gap:12px;flex-wrap:wrap')}>
+              <div style={{ flex: 2, minWidth: 220 }}>
+                <label style={fieldLabel}>Subject</label>
+                <input value={subject} onChange={(e) => setSubject(e.target.value)} style={fieldInput} />
+              </div>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <label style={fieldLabel}>Need by</label>
+                <input type="date" value={needBy} onChange={(e) => setNeedBy(e.target.value)} aria-label="Need by" style={fieldInput} />
+              </div>
             </div>
+          )}
+          {!draft && rfq.needBy && (
+            <div style={css('font-size:12.5px;color:var(--text-2)')}>Material needed on site by <strong style={css('color:var(--text)')}>{fmtNeedBy(rfq.needBy)}</strong></div>
           )}
           <div>
             <label style={fieldLabel}>Recipients ({recipients.length})</label>
@@ -3009,7 +3042,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
                   <div style={css('display:flex;align-items:center;gap:9px')}>
                     <div style={css('flex:1;min-width:0')}><div style={css('font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.name}</div><div style={css('font-size:11.5px;color:var(--text-3)')}>{r.email}</div></div>
                     {st === 'sent' && (r.mock
-                      ? <span title="No Gmail account is connected: the send was only logged, nothing was delivered." style={css('font-size:11px;font-weight:600;color:var(--warn)')}>Logged (mock)</span>
+                      ? <span title="No AgentMail key is set: the send was only logged, nothing was delivered." style={css('font-size:11px;font-weight:600;color:var(--warn)')}>Logged (mock)</span>
                       : <span style={css('font-size:11px;font-weight:600;color:var(--success)')}>Sent</span>)}
                     {st === 'failed' && <span style={css('font-size:11px;font-weight:600;color:var(--danger)')}>Failed</span>}
                     {st === 'unsent' && !draft && <span style={css('font-size:11px;font-weight:600;color:var(--text-3)')}>Not sent</span>}
@@ -3089,12 +3122,10 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
                   style={css(`display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);${loadingConv ? 'opacity:.6' : ''}`)}
                   hover="background:var(--panel-2)"><Svg size={13} sw={2} d='M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5' />{loadingConv ? 'Checking…' : 'Check for replies'}</Box>
               </div>
-              {conv && !conv.gmail && (
-                conv.readError
-                  ? <div style={css('font-size:11.5px;color:var(--danger);font-weight:600;margin-bottom:10px')}>Couldn’t read the live Gmail thread — {conv.readError} Showing what Proq has on record; supplier replies may be missing.</div>
-                  : conv.configured
-                    ? <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>No live Gmail thread for this RFQ yet — showing what Proq has on record.</div>
-                    : <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>Showing a local preview — set Gmail credentials to read the live thread.</div>
+              {conv && !conv.live && (
+                conv.configured
+                  ? <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>No supplier reply has reached the agent inbox for this RFQ yet.</div>
+                  : <div style={css('font-size:11.5px;color:var(--text-3);margin-bottom:10px')}>Showing a local preview: set the AgentMail key so supplier replies arrive in this thread.</div>
               )}
               <div style={css('display:flex;flex-direction:column;gap:16px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);max-height:340px;overflow-y:auto')}>
                 {!conv && loadingConv && <div style={css('font-size:12.5px;color:var(--text-3);text-align:center;padding:18px')}>Loading conversation…</div>}
@@ -3109,10 +3140,10 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
         <div style={css('display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid var(--border);flex-wrap:wrap')}>
           <span style={css('flex:1;min-width:180px;font-size:11.5px;color:var(--text-3)')}>
             {draft
-              ? (recipients.length === 0 ? 'Nothing can be sent without a recipient.' : `Sends to every recipient${liveAttachIds.length ? ` with ${liveAttachIds.length} attachment${liveAttachIds.length === 1 ? '' : 's'}` : ''} via Gmail (or a logging mock if unconfigured). Emails can’t be recalled once sent.`)
+              ? (recipients.length === 0 ? 'Nothing can be sent without a recipient.' : `Sends to every recipient${liveAttachIds.length ? ` with ${liveAttachIds.length} attachment${liveAttachIds.length === 1 ? '' : 's'}` : ''} from your agent inbox (or a logging mock if unconfigured). Emails can’t be recalled once sent.`)
               : sendFailed
                 ? `${unsent.length} recipient${unsent.length === 1 ? '' : 's'} still unsent — retry only re-attempts those; suppliers already emailed are never sent twice.`
-                : 'The conversation is read live from Gmail — use Check for replies to refresh.'}
+                : 'Supplier replies arrive here automatically; use Check for replies to re-run parsing.'}
           </span>
           <Box as="button" onClick={requestClose} style={css('height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;font-weight:600')} hover="background:var(--panel-2)">{draft ? (dirty ? 'Cancel' : 'Close') : 'Close'}</Box>
           {draft && (
@@ -3294,7 +3325,7 @@ function TabQuotes({ m }: MProps) {
             const bits = [`${st.ingested} new quote${st.ingested === 1 ? '' : 's'}`]
             if (st.needsReview) bits.push(`${st.needsReview} repl${st.needsReview === 1 ? 'y' : 'ies'} with no amount — open the RFQ conversation to review`)
             if (st.superseded) bits.push(`${st.superseded} earlier revision${st.superseded === 1 ? '' : 's'} replaced`)
-            setNote(bits.join(' · ') + (st.mocked ? ' (simulated — no Gmail connected)' : ''))
+            setNote(bits.join(' · ') + (st.mocked ? ' (simulated: no AgentMail key set)' : ''))
           }
           break
         }
@@ -3423,7 +3454,7 @@ function TabCompare({ m }: MProps) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [submitErr, setSubmitErr] = useState<string | null>(null)
-  // Supplier notifications that failed on the last award (Gmail down, token
+  // Supplier notifications that failed on the last award (AgentMail down, key
   // expired…) — the award stands, the emails can be re-sent once fixed.
   const [notifyFailed, setNotifyFailed] = useState<{ supplier: string; email?: string | null; error: string }[]>([])
   const [resending, setResending] = useState(false)
@@ -3531,8 +3562,8 @@ function TabCompare({ m }: MProps) {
       setPrior((ps) => [{
         id: `local-${Date.now()}`, projectId: m.projectId, package: lc.package, packageLabel: lc.pkg, strategy,
         selections: sel, supplierIds: [], suppliers: res.suppliers || [], total: res.total, material: res.material,
-        freight: res.freight, leadDays: res.leadDays ?? null, poCount: res.poCount, decidedBy: null,
-        decidedByEmail: m.userEmail || null, createdAt: new Date().toISOString(),
+        freight: res.freight, leadDays: res.leadDays ?? null, poCount: res.poCount, poNumbers: res.poNumbers || [],
+        decidedBy: null, decidedByEmail: m.userEmail || null, createdAt: new Date().toISOString(),
       }, ...ps])
       listPurchaseDecisions(m.projectId)
         .then((ds) => { const mine = ds.filter((d) => d.package === lc.package || d.packageLabel === lc.pkg); if (mine.length) setPrior(mine) })
@@ -3981,6 +4012,14 @@ function MobileNav({ m }: MProps) {
 /* ----------------------------------------------------- New project modal */
 // "$4.2M", "450,000", "1.5 b", "12000.50" or blank — mirrors the API's rule.
 const MONEY_RE = /^\$?\s*\d{1,3}(,\d{3})*(\.\d+)?\s*[kKmMbB]?$|^\$?\s*\d+(\.\d+)?\s*[kKmMbB]?$/
+// '2026-10-14' -> 'Oct 14, 2026' (the input unchanged when it is not ISO).
+export function fmtNeedBy(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return iso
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 export function isMoneyLike(v: string): boolean {
   const t = v.trim()
   return !t || MONEY_RE.test(t)
@@ -3993,6 +4032,7 @@ function NewProjectModal({ m }: MProps) {
   const [name, setName] = useState('')
   const [loc, setLoc] = useState('')
   const [value, setValue] = useState('')
+  const [needBy, setNeedBy] = useState('')
   // Same rule as the API (ProjectCreate.value): an amount like $4.2M or
   // 450,000, or blank. Free text used to be stored and shown as "Value abc".
   const valueOk = isMoneyLike(value)
@@ -4001,7 +4041,7 @@ function NewProjectModal({ m }: MProps) {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (!valid) return
-    m.createProject({ name, loc, value })
+    m.createProject({ name, loc, value, needBy })
   }
 
   return (
@@ -4031,6 +4071,11 @@ function NewProjectModal({ m }: MProps) {
               <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="$0" aria-invalid={!valueOk} style={{ ...fieldInput, ...(valueOk ? {} : css('border-color:var(--danger)')) }} />
               {!valueOk && <div role="alert" style={css('font-size:11.5px;color:var(--danger);margin-top:5px')}>Enter an amount, e.g. $4.2M or 450,000</div>}
             </div>
+          </div>
+          <div>
+            <label style={fieldLabel}>Material needed on site by</label>
+            <input type="date" value={needBy} onChange={(e) => setNeedBy(e.target.value)} aria-label="Need by" style={fieldInput} />
+            <div style={css('font-size:11.5px;color:var(--text-3);margin-top:5px')}>Optional. Quoted to suppliers on every RFQ and used to time follow-ups.</div>
           </div>
         </div>
         <div style={css('display:flex;justify-content:flex-end;gap:9px;padding:0 20px 20px')}>

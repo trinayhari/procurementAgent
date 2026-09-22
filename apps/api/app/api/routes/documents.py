@@ -37,9 +37,11 @@ from app.schemas.document import (
     ManualBomCreate,
     PlanType,
 )
-from app.services import extraction, preview, storage
+from app.services import documents_intake, extraction, notify, preview, storage
 from app.services.extraction import isolated as extraction_isolated
 from app.services.extraction import pdf
+from app.services.notify import kinds as notice_kinds
+from app.services.notify import links as notice_links
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 # Signed-URL file serving lives on its own router: it's mounted WITHOUT the
@@ -49,7 +51,7 @@ file_router = APIRouter(prefix="/api/documents", tags=["documents"])
 logger = logging.getLogger(__name__)
 
 # File types the upload endpoint accepts (plan sets, schedules, material lists).
-_ALLOWED_EXTENSIONS = {".pdf", ".csv", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".webp"}
+_ALLOWED_EXTENSIONS = documents_intake.ALLOWED_EXTENSIONS
 
 # Signed file URLs stay valid this long — enough for a preview session.
 _FILE_TOKEN_MINUTES = 15
@@ -405,54 +407,19 @@ async def upload_document(
 
     stored = storage.persist_temp(temp, safe_name)
 
-    # Single-document slots (site / building / electrical plan) hold one document
-    # each — re-uploading that plan type replaces the prior one ("update a slot").
-    if spec.singleton:
-        documents_repo.delete_for_plan_type(db, org_id, project_id, plan_type)
-
-    # "Additional Document" slots have no BOM categories, so there's no BOM to
-    # extract — but every renderable document still goes through TIMELINE
-    # extraction (schedules/contracts usually arrive as additional documents).
-    extractable = bool(spec.categories)
-    analyzable = extractable or pages > 0
-
-    doc = documents_repo.add(
-        db,
-        org_id=org_id,
-        name=os.path.splitext(safe_name)[0],
-        doc_type=spec.label,
-        pages=pages,
-        plan_type=plan_type,
-        date=datetime.now().strftime("%b %d, %Y"),
-        project_id=project_id,
-        source_path=stored.locator,
-        has_file=True,
-        status="Processing" if analyzable else "Analyzed",
-        status_tone="blue" if analyzable else "success",
-        checksum_sha256=stored.sha256,
-    )
-    payload = doc.to_dict()
-    audit_repo.log(
-        db, org_id, current_user, "document.uploaded", "document", doc.id,
-        project_id=project_id,
-        detail={
-            "name": payload["name"], "planType": plan_type, "pages": pages,
-            "bytes": stored.size, "sha256": stored.sha256,
-            "storage": storage.backend_name(),
-        },
-    )
-    events_repo.log(
-        db,
-        org_id,
-        project_id,
-        title=f"{'Plans' if extractable else 'Document'} uploaded — {payload['name']}",
-        icon="file",
-        tone="blue",
-        meta=spec.label + (f" · {pages} page{'s' if pages != 1 else ''}" if pages else ""),
-    )
-    if analyzable:
-        background.add_task(_run_pipeline, org_id, doc.id, stored.locator, plan_type)
-    return payload
+    # Everything after validation (slot replacement, the row, audit, the
+    # extraction kick-off) is shared with the email/Slack intake path.
+    try:
+        doc = documents_intake.attach_stored_file(
+            db, org_id, project_id,
+            locator=stored.locator, filename=safe_name, plan_type=plan_type,
+            actor=current_user, pages=pages, sha256=stored.sha256, size=stored.size,
+            schedule=background.add_task,
+        )
+    except documents_intake.AttachError as exc:
+        storage.delete(stored.locator)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return doc.to_dict()
 
 
 @router.post("/{document_id}/analyze", response_model=Document)
@@ -630,11 +597,26 @@ def _run_extraction(org_id: str, document_id: str, path: str, plan_type: str) ->
                 "Extraction complete: doc=%s items=%s mocked=%s",
                 document_id, result.total_items, result.mocked,
             )
-            events_repo.log(
-                db, org_id, doc.project_id,
-                title=f"BOM extracted — {result.total_items} line items",
-                icon="sparkles", tone="ai", meta=doc.name,
-            )
+            # The bom.drafted notice also writes the activity-feed row.
+            _notify_bom_drafted(db, org_id, doc, result)
+
+
+def _notify_bom_drafted(db: Session, org_id: str, doc, result) -> None:
+    """Tell the customer (email / Slack / activity feed) their BOM is ready."""
+    project = projects_repo.get_project(db, org_id, doc.project_id) or {}
+    n_groups = len([g for g in result.groups if g.get("items")])
+    notify.emit(db, notify.Notice(
+        org_id=org_id, project_id=doc.project_id, kind=notice_kinds.BOM_DRAFTED,
+        title=f"{project.get('name') or 'Project'}: bill of materials drafted",
+        lines=[
+            doc.name,
+            f"{result.total_items} line item{'s' if result.total_items != 1 else ''} "
+            f"across {n_groups} categor{'ies' if n_groups != 1 else 'y'}",
+            "Review it in the dashboard or reply with changes",
+        ],
+        actions=[notify.Action("See the BOM", url=notice_links.project_url(doc.project_id))],
+        meta={"documentId": doc.id, "mocked": bool(result.mocked)},
+    ))
 
 
 _FILE_GONE_DETAIL = (

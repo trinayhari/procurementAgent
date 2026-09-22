@@ -33,6 +33,11 @@ def test_line_comparison_and_award_records_decision(project):
     )
     assert r.status_code == 200
     assert r.json()["total"] > 0
+    # One PO number per winning supplier, from the org's counter.
+    po_numbers = r.json()["poNumbers"]
+    assert len(po_numbers) == r.json()["poCount"]
+    assert [p["po"] for p in po_numbers] == [f"PO-1-{n:04d}" for n in range(1, len(po_numbers) + 1)]
+    assert {p["supplierName"] for p in po_numbers} == set(r.json()["suppliers"])
 
     # The decision is durably recorded with its decision maker.
     r = client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers)
@@ -44,6 +49,7 @@ def test_line_comparison_and_award_records_decision(project):
     assert d["total"] > 0
     assert d["poCount"] >= 1
     assert d["suppliers"]
+    assert d["poNumbers"] == po_numbers
 
     # A repeat award is refused unless explicitly superseded: every award
     # issues POs and emails suppliers, so a replayed request must not.
@@ -66,6 +72,8 @@ def test_line_comparison_and_award_records_decision(project):
     r = client.get(f"/api/projects/{pid}/purchase-decisions", headers=headers)
     assert len(r.json()) == 2
     assert r.json()[0]["suppliers"] == r.json()[1]["suppliers"]
+    # The re-award carries fresh PO numbers; the old ones are never reused.
+    assert not {p["po"] for p in r.json()[0]["poNumbers"]} & {p["po"] for p in r.json()[1]["poNumbers"]}
 
 
 def test_award_emails_suppliers_and_records_it(project):
@@ -84,7 +92,7 @@ def test_award_emails_suppliers_and_records_it(project):
     notified = [e for e in events if e["action"] == "package.award_notified"]
     assert notified, "expected a package.award_notified audit event"
     detail = notified[0]["detail"]
-    assert detail["mock"] is True  # tests never hit real Gmail
+    assert detail["mock"] is True  # tests never hit real AgentMail
     assert detail["awarded"]  # at least one awarded supplier was emailed
 
 

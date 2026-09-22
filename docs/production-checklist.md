@@ -4,7 +4,7 @@ The app runs with **zero API keys** (every provider falls back to a
 clearly-flagged mock), so bring it up in stages: required config first,
 then each provider as you obtain its key. Companion guides:
 [DEPLOYMENT.md](../DEPLOYMENT.md) (hosting) and
-[email-setup.md](email-setup.md) (Gmail, step by step).
+[email-setup.md](email-setup.md) (AgentMail, step by step).
 
 ## 0. One-time cleanup
 - [ ] Merge the production-hardening PR.
@@ -45,15 +45,16 @@ secret, and `PROCUREAI_ENV` automatically — you only fill the blanks.)
   on) → Credentials → API key, restricted to those two APIs.
 - [ ] `PROCUREAI_GOOGLE_MAPS_API_KEY`
 
-### c. Gmail — live RFQ send + quote-reply ingest
-- Follow [email-setup.md](email-setup.md) (OAuth client → mint refresh token
-  → **publish the consent screen**, or the token expires every 7 days). No
-  "Send mail as" alias needed — everything sends from the connected account.
-- [ ] `PROCUREAI_GMAIL_CLIENT_ID`
-- [ ] `PROCUREAI_GMAIL_CLIENT_SECRET`
-- [ ] `PROCUREAI_GMAIL_REFRESH_TOKEN`
-- [ ] `PROCUREAI_GMAIL_SENDER_ADDRESS` — the address of that same account; it
-      is the From on **all** outbound mail
+### c. AgentMail: live RFQ send + supplier replies
+- Follow [email-setup.md](email-setup.md) (API key, verify the custom domain
+  at GoDaddy, create the organization-level `message.received` webhook
+  pointing at `/api/webhooks/agentmail`). Each organization gets its own
+  agent inbox on first send; the plan's inbox count caps the number of
+  sending organizations.
+- [ ] `PROCUREAI_AGENTMAIL_API_KEY`
+- [ ] `PROCUREAI_AGENTMAIL_DOMAIN` (the verified domain, e.g. `proq.tryproq.dev`)
+- [ ] `PROCUREAI_AGENTMAIL_WEBHOOK_SECRET` (production refuses unsigned
+      deliveries without it, so inbound mail is dropped until it is set)
 
 ### d. S3-compatible storage — uploads that survive redeploys (recommended)
 Cloudflare R2 (free tier) or AWS S3: create a bucket + access key scoped to it.
