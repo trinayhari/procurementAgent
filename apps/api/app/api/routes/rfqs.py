@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.repositories import reference as reference_repo
-from app.schemas.rfq import FollowupDraft, MessageCreate, RfqDetail, ThreadMessage
+from app.schemas.rfq import MessageCreate, RfqDetail, ThreadMessage
 
 router = APIRouter(prefix="/api/rfqs", tags=["rfqs"])
 
@@ -35,21 +35,3 @@ def send_message(rfq_id: str, payload: MessageCreate, db: Session = Depends(get_
         "body": payload.body,
     }
 
-
-@router.post("/{rfq_id}/followup", response_model=FollowupDraft)
-def draft_followup(rfq_id: str, db: Session = Depends(get_db)):
-    """Command: generate an AI follow-up nudge for a non-responsive supplier.
-
-    Stubbed — returns a templated message. Replace with an LLM call.
-    """
-    rfq = reference_repo.get_demo_rfq(db, rfq_id)
-    if rfq is None:
-        raise HTTPException(status_code=404, detail="RFQ not found")
-    first_name = rfq.sup.split(" ")[0]
-    return {
-        "body": (
-            "Hi {name}, checking in on our {pkg} RFQ — any update on timing?".format(
-                name=first_name, pkg=rfq.pkg
-            )
-        )
-    }

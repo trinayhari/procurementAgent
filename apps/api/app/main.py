@@ -28,6 +28,7 @@ from app.db import DEMO_ORG_ID, SessionLocal, init_db
 from app.repositories import documents as documents_repo
 from app.repositories import jobs as jobs_repo
 from app.services import scheduler
+from app.services.rfq import followups as _followups  # noqa: F401 - registers its scheduler job
 
 logger = logging.getLogger(__name__)
 
