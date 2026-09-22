@@ -31,6 +31,9 @@ class Organization(Base):
     # The org's agent inbox in AgentMail (e.g. "acme@proq.tryproq.dev"),
     # created lazily the first time the agent needs to send or receive mail.
     agentmail_inbox_id: Mapped[Optional[str]] = mapped_column(String, unique=True, nullable=True)
+    # Last purchase-order number issued in this org (PO-<seq>-<n>); bumped
+    # under the award lock, one per winning supplier.
+    po_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
 
     def to_dict(self) -> dict:

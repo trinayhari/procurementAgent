@@ -438,6 +438,107 @@
         }
       }
     },
+    "/api/approvals/{token}": {
+      "get": {
+        "tags": [
+          "approvals"
+        ],
+        "summary": "Preview Approval",
+        "description": "The award card behind the link: package, winners, totals, and whether\nthe link is still pending, already used, or expired. 404 for an unknown token.",
+        "operationId": "preview_approval_api_approvals__token__get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "approvals"
+        ],
+        "summary": "Execute Approval",
+        "description": "Approve the award: runs the same locked award path as the dashboard,\nissues the POs, marks the token used. 410 when used or expired.",
+        "operationId": "execute_approval_api_approvals__token__post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ApprovalExecuteRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/dashboard": {
       "get": {
         "tags": [
@@ -1374,7 +1475,7 @@
           "projects"
         ],
         "summary": "Award Package",
-        "description": "Submit a (possibly split) award for a package and issue the purchase orders.\n\nExactly-once: the whole award \u2014 the already-awarded check, the decision\nrow, the quote flips and the supplier notifications \u2014 runs under a lock\nkeyed by (org, project, package). Overlapping requests (a triple-clicked\nconfirm) used to all pass the check-then-insert and each issue POs and\nemail every supplier; now the losers answer 409 immediately.",
+        "description": "Submit a (possibly split) award for a package and issue the purchase orders.\n\nThe award itself lives in services/awards.py (shared with the approval\nlink): exactly-once under a per-package lock, PO numbers, supplier\nnotifications, audit and activity records.",
         "operationId": "award_package_api_projects__project_id__packages__pkg__award_post",
         "security": [
           {
@@ -4263,6 +4364,304 @@
         ],
         "title": "Activity"
       },
+      "ApprovalExecuteRequest": {
+        "properties": {
+          "decided_by_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By Email"
+          }
+        },
+        "type": "object",
+        "title": "ApprovalExecuteRequest",
+        "description": "Optional identity of the approver (the link itself is the credential).\nAccepts both `decidedByEmail` and `decided_by_email`."
+      },
+      "ApprovalPreview": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "projectName": {
+            "type": "string",
+            "title": "Projectname"
+          },
+          "package": {
+            "type": "string",
+            "title": "Package"
+          },
+          "packageLabel": {
+            "type": "string",
+            "title": "Packagelabel"
+          },
+          "suppliers": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalSupplier"
+            },
+            "type": "array",
+            "title": "Suppliers",
+            "default": []
+          },
+          "total": {
+            "type": "number",
+            "title": "Total",
+            "default": 0.0
+          },
+          "material": {
+            "type": "number",
+            "title": "Material",
+            "default": 0.0
+          },
+          "freight": {
+            "type": "number",
+            "title": "Freight",
+            "default": 0.0
+          },
+          "leadDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaddays"
+          },
+          "savings": {
+            "type": "number",
+            "title": "Savings",
+            "default": 0.0
+          },
+          "quotesReceived": {
+            "type": "integer",
+            "title": "Quotesreceived",
+            "default": 0
+          },
+          "recipientsTotal": {
+            "type": "integer",
+            "title": "Recipientstotal",
+            "default": 0
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "decidedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedat"
+          },
+          "decidedByEmail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedbyemail"
+          },
+          "alreadyAwarded": {
+            "type": "boolean",
+            "title": "Alreadyawarded",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "projectId",
+          "projectName",
+          "package",
+          "packageLabel"
+        ],
+        "title": "ApprovalPreview",
+        "description": "What the approve page shows before the click. `status` is \"pending\"\n(approvable), \"used\" (already approved via this link) or \"expired\"."
+      },
+      "ApprovalResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "material": {
+            "type": "number",
+            "title": "Material"
+          },
+          "freight": {
+            "type": "number",
+            "title": "Freight"
+          },
+          "leadDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaddays"
+          },
+          "suppliers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suppliers"
+          },
+          "poCount": {
+            "type": "integer",
+            "title": "Pocount"
+          },
+          "poNumbers": {
+            "items": {
+              "$ref": "#/components/schemas/PoNumber"
+            },
+            "type": "array",
+            "title": "Ponumbers",
+            "default": []
+          },
+          "notified": {
+            "type": "integer",
+            "title": "Notified",
+            "default": 0
+          },
+          "declined": {
+            "type": "integer",
+            "title": "Declined",
+            "default": 0
+          },
+          "withdrawn": {
+            "type": "integer",
+            "title": "Withdrawn",
+            "default": 0
+          },
+          "notifyFailed": {
+            "items": {
+              "$ref": "#/components/schemas/AwardNotifyFailure"
+            },
+            "type": "array",
+            "title": "Notifyfailed",
+            "default": []
+          },
+          "notifyMocked": {
+            "type": "boolean",
+            "title": "Notifymocked",
+            "default": false
+          },
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "packageLabel": {
+            "type": "string",
+            "title": "Packagelabel"
+          },
+          "decidedByEmail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedbyemail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "total",
+          "material",
+          "freight",
+          "suppliers",
+          "poCount",
+          "projectId",
+          "packageLabel"
+        ],
+        "title": "ApprovalResult"
+      },
+      "ApprovalSupplier": {
+        "properties": {
+          "supplierId": {
+            "type": "string",
+            "title": "Supplierid"
+          },
+          "supplierName": {
+            "type": "string",
+            "title": "Suppliername"
+          },
+          "subtotal": {
+            "type": "number",
+            "title": "Subtotal"
+          },
+          "freight": {
+            "type": "number",
+            "title": "Freight"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "leadDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaddays"
+          }
+        },
+        "type": "object",
+        "required": [
+          "supplierId",
+          "supplierName",
+          "subtotal",
+          "freight",
+          "total"
+        ],
+        "title": "ApprovalSupplier",
+        "description": "One winner in the recommended award: their lines plus their freight."
+      },
       "AwardNotifications": {
         "properties": {
           "notified": {
@@ -4591,6 +4990,14 @@
           "poCount": {
             "type": "integer",
             "title": "Pocount"
+          },
+          "poNumbers": {
+            "items": {
+              "$ref": "#/components/schemas/PoNumber"
+            },
+            "type": "array",
+            "title": "Ponumbers",
+            "default": []
           },
           "notified": {
             "type": "integer",
@@ -7373,6 +7780,30 @@
         ],
         "title": "PlanTypeOut"
       },
+      "PoNumber": {
+        "properties": {
+          "supplierId": {
+            "type": "string",
+            "title": "Supplierid"
+          },
+          "supplierName": {
+            "type": "string",
+            "title": "Suppliername"
+          },
+          "po": {
+            "type": "string",
+            "title": "Po"
+          }
+        },
+        "type": "object",
+        "required": [
+          "supplierId",
+          "supplierName",
+          "po"
+        ],
+        "title": "PoNumber",
+        "description": "One purchase-order number, issued to one winning supplier."
+      },
       "Project": {
         "properties": {
           "id": {
@@ -7652,6 +8083,14 @@
             "type": "integer",
             "title": "Pocount",
             "default": 0
+          },
+          "poNumbers": {
+            "items": {
+              "$ref": "#/components/schemas/PoNumber"
+            },
+            "type": "array",
+            "title": "Ponumbers",
+            "default": []
           },
           "decidedBy": {
             "anyOf": [

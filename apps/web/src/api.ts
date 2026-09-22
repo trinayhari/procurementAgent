@@ -297,6 +297,46 @@ export async function acceptInvite(
   return data.user
 }
 
+// ------------------------------------------------------- award approvals
+export type ApprovalPreview = Schemas['ApprovalPreview']
+export type ApprovalResult = Schemas['ApprovalResult']
+export type PoNumber = Schemas['PoNumber']
+
+// Thrown by the approval calls so the page can tell a spent/expired link
+// (410) from an unknown one (404) or a refused award (409).
+export class ApprovalError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+// Public: the award card behind an approval link (no auth; the token is the
+// credential). 404 for an unknown token.
+export async function previewApproval(token: string): Promise<ApprovalPreview> {
+  const res = await fetch(`${BASE}/api/approvals/${encodeURIComponent(token)}`)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApprovalError(res.status, describeApiError(data, `Approval preview failed (${res.status})`))
+  return data as ApprovalPreview
+}
+
+// Public: approve the award. Runs the same award path as the dashboard and
+// issues the POs; 410 once the link is used or expired.
+export async function executeApproval(
+  token: string,
+  input: { decidedByEmail?: string } = {},
+): Promise<ApprovalResult> {
+  const res = await fetch(`${BASE}/api/approvals/${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decided_by_email: input.decidedByEmail ?? null }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApprovalError(res.status, describeApiError(data, `Approval failed (${res.status})`))
+  return data as ApprovalResult
+}
+
 // ------------------------------------------------------- document extraction
 // Plan types the backend extractor supports (drives the upload selector).
 export function getPlanTypes(): Promise<PlanType[]> {

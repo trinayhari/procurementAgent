@@ -53,6 +53,8 @@ SCOPED_TABLES = (
     "lenders",
     "package_budgets",
     "inbound_emails",
+    "approval_tokens",
+    "package_recommendations",
 )
 
 
@@ -164,6 +166,13 @@ def _ensure_dev_columns() -> None:
                 conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN status VARCHAR NOT NULL DEFAULT 'active'"))
             if "superseded_by" not in cols:
                 conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN superseded_by VARCHAR"))
+            if "po_numbers" not in cols:
+                conn.execute(text("ALTER TABLE purchase_decisions ADD COLUMN po_numbers TEXT NOT NULL DEFAULT '[]'"))
+    if "organizations" in tables:
+        cols = {c["name"] for c in inspector.get_columns("organizations")}
+        if "po_counter" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE organizations ADD COLUMN po_counter INTEGER NOT NULL DEFAULT 0"))
     if "projects" in tables:
         # Mirrors 0023_computed_project_rows: the seeded display columns are
         # gone (rows are computed). A dev DB created before that would still

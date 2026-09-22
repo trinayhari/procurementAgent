@@ -37,9 +37,11 @@ from app.schemas.document import (
     ManualBomCreate,
     PlanType,
 )
-from app.services import documents_intake, extraction, preview, storage
+from app.services import documents_intake, extraction, notify, preview, storage
 from app.services.extraction import isolated as extraction_isolated
 from app.services.extraction import pdf
+from app.services.notify import kinds as notice_kinds
+from app.services.notify import links as notice_links
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 # Signed-URL file serving lives on its own router: it's mounted WITHOUT the
@@ -595,11 +597,26 @@ def _run_extraction(org_id: str, document_id: str, path: str, plan_type: str) ->
                 "Extraction complete: doc=%s items=%s mocked=%s",
                 document_id, result.total_items, result.mocked,
             )
-            events_repo.log(
-                db, org_id, doc.project_id,
-                title=f"BOM extracted — {result.total_items} line items",
-                icon="sparkles", tone="ai", meta=doc.name,
-            )
+            # The bom.drafted notice also writes the activity-feed row.
+            _notify_bom_drafted(db, org_id, doc, result)
+
+
+def _notify_bom_drafted(db: Session, org_id: str, doc, result) -> None:
+    """Tell the customer (email / Slack / activity feed) their BOM is ready."""
+    project = projects_repo.get_project(db, org_id, doc.project_id) or {}
+    n_groups = len([g for g in result.groups if g.get("items")])
+    notify.emit(db, notify.Notice(
+        org_id=org_id, project_id=doc.project_id, kind=notice_kinds.BOM_DRAFTED,
+        title=f"{project.get('name') or 'Project'}: bill of materials drafted",
+        lines=[
+            doc.name,
+            f"{result.total_items} line item{'s' if result.total_items != 1 else ''} "
+            f"across {n_groups} categor{'ies' if n_groups != 1 else 'y'}",
+            "Review it in the dashboard or reply with changes",
+        ],
+        actions=[notify.Action("See the BOM", url=notice_links.project_url(doc.project_id))],
+        meta={"documentId": doc.id, "mocked": bool(result.mocked)},
+    ))
 
 
 _FILE_GONE_DETAIL = (

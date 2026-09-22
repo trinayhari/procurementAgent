@@ -160,6 +160,14 @@ class AwardNotifyFailure(BaseModel):
     error: str
 
 
+class PoNumber(BaseModel):
+    """One purchase-order number, issued to one winning supplier."""
+
+    supplierId: str
+    supplierName: str
+    po: str  # PO-<org seq>-<n>
+
+
 class AwardResult(BaseModel):
     status: str
     message: str
@@ -169,6 +177,7 @@ class AwardResult(BaseModel):
     leadDays: Optional[int] = None
     suppliers: List[str]
     poCount: int
+    poNumbers: List[PoNumber] = []
     # Supplier notification outcome. The award itself is committed either way;
     # a failed notice is reported here (and in `message`) rather than swallowed.
     notified: int = 0
@@ -217,6 +226,7 @@ class PurchaseDecision(BaseModel):
     freight: float = 0.0
     leadDays: Optional[int] = None
     poCount: int = 0
+    poNumbers: List[PoNumber] = []
     decidedBy: Optional[str] = None
     decidedByEmail: Optional[str] = None
     createdAt: Optional[str] = None

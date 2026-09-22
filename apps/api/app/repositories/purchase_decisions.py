@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.purchase_decision import PurchaseDecision
-from app.models.user import User
 
 
 def add_decision(
@@ -20,10 +19,14 @@ def add_decision(
     summary: dict,
     selections: dict,
     strategy: Optional[str],
-    decided_by: Optional[User],
+    decided_by,
+    po_numbers: Optional[List[dict]] = None,
 ) -> PurchaseDecision:
     """Stage a decision row on the session WITHOUT committing — the caller
-    commits it together with the quote status flips so the award is atomic."""
+    commits it together with the quote status flips so the award is atomic.
+
+    `decided_by` is anything with `.id` and `.email` (a User, or the award
+    service's Actor for an approval-link decision)."""
     row = PurchaseDecision(
         organization_id=org_id,
         id=uuid.uuid4().hex,
@@ -39,6 +42,7 @@ def add_decision(
         freight=float(summary.get("freight") or 0),
         lead_days=summary.get("leadDays"),
         po_count=int(summary.get("poCount") or 0),
+        po_numbers=json.dumps(po_numbers or []),
         decided_by=decided_by.id if decided_by else "system",
         decided_by_email=decided_by.email if decided_by else "system",
         # Microsecond precision so two awards in the same second (an immediate
