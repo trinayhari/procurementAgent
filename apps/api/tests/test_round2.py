@@ -35,7 +35,7 @@ def test_concurrent_awards_produce_exactly_one_decision_and_one_notification_bat
             sent.append(to)
             return rfq_sender.SentMessage(message_id=f"m-{len(sent)}", thread_id="t")
 
-    monkeypatch.setattr(rfq_sender, "get_sender", lambda: SlowSender())
+    monkeypatch.setattr(rfq_sender, "get_sender", lambda *a, **k: SlowSender())
     url = f"/api/projects/{pid}/packages/{bom_id}/award"
     results = []
 
@@ -103,7 +103,7 @@ def test_invite_link_stays_private_when_real_email_is_configured(auth, monkeypat
             sent.append(to)
             return rfq_sender.SentMessage(message_id="m", thread_id="t")
 
-    monkeypatch.setattr(team_routes.rfq_sender, "get_sender", lambda: RealishSender())
+    monkeypatch.setattr(team_routes.rfq_sender, "get_sender", lambda *a, **k: RealishSender())
     monkeypatch.setattr(team_routes.rfq_sender, "is_configured", lambda: True)
     r = client.post("/api/team/invites", headers=headers, json={"email": "real@example.com"})
     assert r.status_code == 201

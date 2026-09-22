@@ -2,12 +2,12 @@
 
 Search runs as a background task (geocode → Places → website email scrape is slow)
 and the frontend polls GET .../suppliers/found, mirroring the document-extraction
-UX. With no Google/Gmail keys the whole flow runs against mocks.
+UX. With no Google/AgentMail keys the whole flow runs against mocks.
 """
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
@@ -324,8 +324,8 @@ def ingest_quotes(
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
     # Idempotent while an ingest is running: two concurrent passes would both
-    # see the same Gmail replies as new (the dedupe reads ingested message ids
-    # at the start) and store every quote twice.
+    # see the same replies as new (the dedupe reads ingested message ids at
+    # the start) and store every quote twice.
     current = jobs_repo.latest(db, org_id, INGEST_JOB, project_id)
     if current is not None and current.get("status") == "running":
         return {"status": "ingesting", "ingested": 0, "total": 0}
@@ -799,10 +799,11 @@ def get_rfq_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Full email thread for an RFQ, read live from Gmail when configured.
+    """Full email thread for an RFQ: our outbound plus every supplier reply
+    the agent inbox received in that thread.
 
-    Read-only: we surface the original Gmail thread (our outbound plus any
-    threaded supplier replies) without changing the RFQ's status.
+    Read-only: built from stored rows (no provider call) without changing the
+    RFQ's status.
     """
     org_id = current_user.organization_id
     _require_project(org_id, project_id, db)
@@ -833,9 +834,9 @@ def delete_generated_rfq(
     return Response(status_code=204)
 
 
-# Total attachment budget per email (see services/rfq/sender.py — the sender
-# enforces the same cap right before calling Gmail). Switching to a media
-# upload is the escape hatch if bigger attachments are ever needed.
+# Total attachment budget per email (see services/rfq/sender.py; the sender
+# enforces the same cap right before calling AgentMail). URL-backed
+# attachments are the escape hatch if bigger attachments are ever needed.
 _MAX_ATTACHMENT_TOTAL_BYTES = rfq_sender.MAX_ATTACHMENT_TOTAL_BYTES
 
 
@@ -964,7 +965,7 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
     recipients = rfq["recipients"]
     if not recipients:
         raise HTTPException(status_code=400, detail="RFQ has no recipients")
-    # Gmail would happily deliver a blank email; refuse before anything goes out.
+    # A blank email would be delivered as such; refuse before anything goes out.
     if not (rfq.get("subject") or "").strip():
         raise HTTPException(status_code=400, detail="RFQ subject is empty — add a subject before sending")
     if not (rfq.get("body") or "").strip():
@@ -1014,7 +1015,8 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
         )
         sent_attachments.append(att)
     # Save-time validation sized the files then; re-check the actual hydrated
-    # bytes so content that grew since save can't push the payload past Gmail.
+    # bytes so content that grew since save can't push the payload past the
+    # provider's request limit.
     if sum(len(a.content) for a in email_attachments) > _MAX_ATTACHMENT_TOTAL_BYTES:
         limit_mb = _MAX_ATTACHMENT_TOTAL_BYTES // (1024 * 1024)
         raise HTTPException(
@@ -1024,12 +1026,16 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
     if skipped_attachments:
         rfqs_repo.set_attachments(db, org_id, rfq_id, sent_attachments)
 
-    sender = rfq_sender.get_sender()
-    # Always the workspace mailbox (with the sender's name/company as the display
-    # name) — see services/rfq/sender.py. The user's own address is Cc'd so they
-    # keep a copy, while supplier replies still return to the mailbox quote
-    # ingest reads.
-    from_addr = rfq_sender.from_header(current_user)
+    try:
+        sender = rfq_sender.get_sender(db, org_id)
+    except rfq_sender.EmailUnavailable as exc:
+        # The org's agent inbox could not be created: nothing can go out.
+        raise HTTPException(status_code=502, detail=str(exc))
+    # Always the org's agent inbox (with the sender's name/company as the display
+    # name), see services/rfq/sender.py. The user's own address is Cc'd so they
+    # keep a copy, while supplier replies still return to the inbox the webhook
+    # reads.
+    from_addr = rfq_sender.from_header(current_user, address=getattr(sender, "address", None))
     cc = current_user.cc_email
     # Only pass the attachments kwarg when there is something to attach, so the
     # attachment-free path (and any EmailSender built against the pre-attachment
@@ -1043,8 +1049,13 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
         try:
             sent = sender.send(r["email"], rfq["subject"], body,
                                from_addr=from_addr, cc=cc, **send_kwargs)
+            # `messageId` / `threadId` are the AgentMail ids a supplier reply
+            # is attributed by (and what a follow-up replies to);
+            # `sentMessageId` is the same id under the name older readers use.
+            r["messageId"] = sent.message_id
             r["sentMessageId"] = sent.message_id
             r["threadId"] = sent.thread_id
+            r["sentAt"] = datetime.now(timezone.utc).isoformat()
             r["sendStatus"] = "sent"
             r["sendError"] = None
             r["mock"] = bool(getattr(sender, "mocked", False))
@@ -1068,7 +1079,7 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
             "attempted": [r["email"] for r in to_send],
             "delivered": delivered,
             "failed": [{"email": r["email"], "error": r.get("sendError")} for r in failed],
-            "from": rfq_sender.from_display(current_user),
+            "from": rfq_sender.from_display(current_user, address=getattr(sender, "address", None)),
             "cc": cc,
             "mock": type(sender).__name__ == "MockSender",
             "attachments": [a.filename for a in email_attachments],

@@ -13,6 +13,7 @@ dependencies = [
     "alembic>=1.13,<1.14",
     "openai>=1.40.0,<2.0.0",
     "PyMuPDF==1.24.11",
+    "agentmail>=2.0,<3.0",
 ]
 
 [tool.pytest.ini_options]

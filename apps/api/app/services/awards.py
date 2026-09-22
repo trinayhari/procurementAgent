@@ -36,6 +36,26 @@ from app.services.rfq import sender as rfq_sender
 from app.services.sourcing import packages
 
 
+class _DeadSender:
+    """Stands in when the org's agent inbox cannot be resolved: every award
+    notice then fails with the reason, and the committed award is untouched."""
+
+    mocked = False
+
+    def __init__(self, reason: str):
+        self.reason = reason
+
+    def send(self, *args, **kwargs):
+        raise rfq_sender.EmailUnavailable(self.reason)
+
+
+def award_sender(db: Session, org_id: str):
+    try:
+        return rfq_sender.get_sender(db, org_id)
+    except Exception as exc:
+        return _DeadSender(str(exc) or exc.__class__.__name__)
+
+
 @dataclass(frozen=True)
 class Actor:
     """Who made the award. A signed-in User, or the person behind an
@@ -161,7 +181,7 @@ def _award_locked(db, org_id, project_id, package, pkg_label, payload, actor: Ac
         package_label=pkg_label,
         summary=summary,
         buyer=actor,
-        sender=rfq_sender.get_sender(),
+        sender=award_sender(db, org_id),
         superseded=previous,
         po_numbers=po_numbers,
     )

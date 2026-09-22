@@ -1,14 +1,14 @@
 """Notify suppliers of an award outcome, threaded into their RFQ conversation.
 
 Winners receive a purchase-order confirmation listing the exact lines awarded to
-them — in a split (mix-and-match) award each supplier sees only *their* lines,
+them; in a split (mix-and-match) award each supplier sees only *their* lines,
 with prices, freight, total and lead time. Suppliers who quoted but weren't
-selected get a short "not selected this time" note. Every message replies inside
-that supplier's original RFQ Gmail thread when we have its thread id, so the award
-lands in the same conversation the RFQ went out on.
+selected get a short "not selected this time" note. Every message is sent as a
+reply to the RFQ we sent that supplier (its recorded AgentMail message id), so
+the award lands in the same conversation the RFQ went out on.
 
-Uses the shared EmailSender, so with Gmail unconfigured it runs through MockSender
-and the whole award→notify flow is exercisable offline.
+Uses the shared EmailSender, so with AgentMail unconfigured it runs through
+MockSender and the whole award→notify flow is exercisable offline.
 """
 import logging
 from typing import Dict, List, Optional
@@ -17,14 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.repositories import quotes as quotes_repo
 from app.repositories import rfqs as rfqs_repo
-from app.services.quotes import gmail_reader
 from app.services.rfq.sender import EmailSender, from_header
 
 logger = logging.getLogger("procureai.rfq.award_notify")
 
 
 def _money(v) -> str:
-    return f"${v:,.2f}" if isinstance(v, (int, float)) else "—"
+    return f"${v:,.2f}" if isinstance(v, (int, float)) else "-"
 
 
 def _sid(quote: dict) -> str:
@@ -53,7 +52,7 @@ def _winner_body(supplier: str, package_label: str, lines: List[dict],
         lead_d = li.get("leadDays")
         piece = f"  {i}. {name}"
         if qty:
-            piece += f" — {qty}"
+            piece += f", {qty}"
         if unit is not None:
             piece += f" @ ${unit:,.2f}/unit"
         if ext is not None:
@@ -94,7 +93,7 @@ def _withdrawn_body(supplier: str, package_label: str, previous: dict, buyer) ->
         f"Please disregard the purchase order for {package_label}{ref}{amount}: after "
         f"revisiting the bids we have re-awarded this package and that order is "
         f"withdrawn. Do not ship or invoice against it.\n\n"
-        f"We're sorry for the change of plan and appreciate your quote — we'll keep "
+        f"We're sorry for the change of plan and appreciate your quote; we'll keep "
         f"you in mind for upcoming work.\n\n"
         f"Thanks,\n{_signature(buyer)}"
     )
@@ -113,8 +112,9 @@ def _decline_body(supplier: str, package_label: str, buyer) -> str:
 def _thread_ref(db: Session, org_id: str, quote: dict, sender: EmailSender):
     """(thread_id, in_reply_to, subject) for replying in this supplier's RFQ thread.
 
-    thread_id comes straight off the stored RFQ recipient; the RFC822 Message-ID
-    (for In-Reply-To) is fetched best-effort and only when Gmail is live.
+    Both ids come straight off the stored RFQ recipient: `threadId` and the
+    `messageId` of the RFQ we sent (`sentMessageId` on rows written before
+    that key existed). The sender turns `in_reply_to` into messages.reply.
     """
     rfq_id = quote.get("rfqId")
     if not rfq_id:
@@ -131,19 +131,16 @@ def _thread_ref(db: Session, org_id: str, quote: dict, sender: EmailSender):
     )
     if recipient is None and sid:
         # The quote came back from a different address than the one we
-        # emailed (RFQ to sales@, reply from the estimator) — still the same
+        # emailed (RFQ to sales@, reply from the estimator): still the same
         # supplier record, so reply in that thread.
         recipient = next((r for r in recipients if r.get("supplierId") == sid), None)
     if recipient is None:
         # We can't thread without the recipient's stored ids; use a plain subject.
         return None, None, None
     thread_id = recipient.get("threadId")
-    in_reply_to = None
-    if thread_id and not sender.mocked:
-        try:
-            in_reply_to = gmail_reader.rfc822_message_id(recipient.get("sentMessageId") or "")
-        except Exception:  # pragma: no cover - best effort
-            in_reply_to = None
+    in_reply_to = recipient.get("messageId") or recipient.get("sentMessageId") or None
+    if in_reply_to and str(in_reply_to).startswith(("mock", "error")):
+        in_reply_to = None
     return thread_id, in_reply_to, rfq.get("subject")
 
 
@@ -164,11 +161,11 @@ def notify_award(
 ) -> dict:
     """Email awarded (and optionally not-selected) suppliers for a package.
 
-    Returns {notified, declined, failed, mock} — lists of per-supplier outcomes.
+    Returns {notified, declined, failed, mock}: lists of per-supplier outcomes.
     Never raises: a per-supplier send failure is recorded and the rest proceed, so
     a flaky email never fails an award that is already committed.
 
-    `only_emails` restricts the run to those supplier addresses — used to
+    `only_emails` restricts the run to those supplier addresses, used to
     re-send just the notifications that failed the first time.
 
     `superseded` is the earlier purchase decision a re-award replaces: its
@@ -186,9 +183,9 @@ def notify_award(
 
     selections: Dict[str, str] = summary.get("selections") or {}
     winners = set(summary.get("supplierIds") or [])
-    # Always the workspace mailbox, with the buyer's name/company as the display
+    # Always the org's agent inbox, with the buyer's name/company as the display
     # name; the buyer's own address rides along as a Cc.
-    from_addr = from_header(buyer)
+    from_addr = from_header(buyer, address=getattr(sender, "address", None))
     cc = getattr(buyer, "cc_email", None)
 
     result = {"notified": [], "declined": [], "withdrawn": [], "failed": [],
@@ -216,9 +213,9 @@ def notify_award(
             result["failed"].append({"supplier": supplier, "email": email, "kind": kind,
                                      "error": str(exc) or exc.__class__.__name__})
             return
-        # Remember our own message id so quote ingest never reads this notice
-        # back as a supplier reply (it matches `from:` when the supplier address
-        # is the workspace mailbox, e.g. a loop-back test).
+        # Remember our own message id so a supplier reply to this notice still
+        # attributes to the RFQ (In-Reply-To fallback) and ingest never reads
+        # the notice back as a supplier reply.
         if quote.get("rfqId") and getattr(sent, "message_id", ""):
             try:
                 rfqs_repo.record_outbound_message(
@@ -229,7 +226,7 @@ def notify_award(
         entry = {"supplier": supplier, "email": email, "threaded": bool(thread_id)}
         result[{"award": "notified", "decline": "declined", "withdrawn": "withdrawn"}[kind]].append(entry)
 
-    # Winners — one email each, listing only the lines they won.
+    # Winners: one email each, listing only the lines they won.
     for sid in winners:
         quote = by_sid.get(sid)
         if quote is None:
@@ -247,7 +244,7 @@ def notify_award(
         subject = f"Purchase order {po}: {package_label}" if po else f"Purchase order: {package_label}"
         _send(quote, subject, body, "award")
 
-    # Losers — suppliers who quoted this package but weren't selected. One
+    # Losers: suppliers who quoted this package but weren't selected. One
     # note per supplier (list_quotes already hides superseded revisions and
     # amount-less replies, and by_sid collapses any remaining duplicates).
     if notify_declined:
@@ -256,11 +253,11 @@ def notify_award(
                 continue
             supplier = quote.get("supplierName") or quote.get("supplierEmail") or "Supplier"
             if sid in previous_winners:
-                # Their PO from the earlier award is being cancelled — say so.
+                # Their PO from the earlier award is being cancelled: say so.
                 body = _withdrawn_body(supplier, package_label, superseded or {}, buyer)
-                _send(quote, f"{package_label} — purchase order withdrawn", body, "withdrawn")
+                _send(quote, f"{package_label}: purchase order withdrawn", body, "withdrawn")
                 continue
             body = _decline_body(supplier, package_label, buyer)
-            _send(quote, f"{package_label} — sourcing update", body, "decline")
+            _send(quote, f"{package_label}: sourcing update", body, "decline")
 
     return result

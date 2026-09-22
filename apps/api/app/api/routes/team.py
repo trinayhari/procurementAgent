@@ -108,10 +108,13 @@ def _email_invite(db: Session, invite, current_user: User):
     silent "not sent"."""
     org = organizations_repo.get_organization(db, invite.organization_id)
     org_name = org.name if org is not None else "your team"
-    sender = rfq_sender.get_sender()
+    try:
+        sender = rfq_sender.get_sender(db, invite.organization_id)
+    except Exception as exc:
+        return False, (str(exc) or exc.__class__.__name__)
     if getattr(sender, "mocked", False):
         return False, None
-    # Same identity rules as an RFQ: the workspace mailbox, the inviter's name
+    # Same identity rules as an RFQ: the org's agent inbox, the inviter's name
     # and company as the display name.
     try:
         sender.send(
@@ -122,7 +125,7 @@ def _email_invite(db: Session, invite, current_user: User):
                 f"{org_name} on Proq.\n\nAccept your invitation:\n{_accept_url(invite.token)}\n\n"
                 "This link expires in 7 days.\n\n— Proq"
             ),
-            from_addr=rfq_sender.from_header(current_user),
+            from_addr=rfq_sender.from_header(current_user, address=getattr(sender, "address", None)),
         )
         return True, None
     except Exception as exc:

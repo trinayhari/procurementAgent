@@ -1,6 +1,6 @@
 """Golden fixtures for the quote-ingest path: supplier reply → ParsedQuote → finalized figures.
 
-Every case in tests/golden/quotes/*.json is a supplier reply as Gmail delivers it
+Every case in tests/golden/quotes/*.json is a supplier reply as it arrives
 (or a structured-output response as the model returns it) with the numbers the
 pipeline MUST derive. Nothing here calls a model: the provider creds are blanked
 by conftest, so `parse_quote` exercises the regex fallback, and `finalize_quote`
@@ -13,7 +13,8 @@ import os
 
 import pytest
 
-from app.services.quotes import gmail_reader, ingest, parser
+from app.services.email import text as email_text
+from app.services.quotes import ingest, parser
 from app.services.quotes.models import ParsedQuote
 
 GOLDEN_DIR = os.path.join(os.path.dirname(__file__), "golden", "quotes")
@@ -83,58 +84,27 @@ def test_finalize_never_overrides_a_supplier_stated_header():
 def test_a_reply_on_top_of_a_quoted_chain_is_read_from_the_new_text_only(case):
     """A revised quote quoting the earlier one: the parser must see the NEW figures.
 
-    `gmail_reader._strip_quoted` drops the quoted chain; this pins that the strip
+    `email_text.strip_quoted` drops the quoted chain; this pins that the strip
     is what makes the difference, so nobody wires the parser to unstripped text.
     """
-    stripped = gmail_reader._strip_quoted(case["text"])
+    stripped = email_text.strip_quoted(case["text"])
     _check(parser.parse_quote(stripped), case["expect_regex_stripped"])
     # And the trap, recorded: unstripped text reads the OLD total.
     _check(parser.parse_quote(case["text"]), case["expect_regex_unstripped"])
 
 
-def test_inbound_message_text_is_stripped_of_the_quoted_chain(monkeypatch):
-    """`fetch_replies` is the only producer of parser input; its text must be stripped."""
-    import base64
+def test_inbound_message_text_is_stripped_of_the_quoted_chain():
+    """`ingest.inbound_text` is the only producer of parser input; its text must be stripped."""
+    from app.models.inbound_email import InboundEmail
 
     reply = (
         "Grand total: $47,500.00 delivered\nLead time: 2 weeks\n\n"
         "On Tue, Sep 9, 2026 at 3:12 PM Sam <sam@example-supply.com> wrote:\n"
         "> Grand total: $52,000.00 delivered\n"
     )
-    payload = {
-        "mimeType": "text/plain",
-        "headers": [
-            {"name": "From", "value": "Sam <sam@example-supply.com>"},
-            {"name": "Subject", "value": "Re: RFQ"},
-        ],
-        "body": {"data": base64.urlsafe_b64encode(reply.encode()).decode()},
-    }
-
-    class _Exec:
-        def __init__(self, value):
-            self._value = value
-
-        def execute(self):
-            return self._value
-
-    class _Messages:
-        def list(self, **kw):
-            return _Exec({"messages": [{"id": "m1"}]})
-
-        def get(self, **kw):
-            return _Exec({"payload": payload, "snippet": ""})
-
-    class _Users:
-        def messages(self):
-            return _Messages()
-
-    class _Service:
-        def users(self):
-            return _Users()
-
-    monkeypatch.setattr(gmail_reader, "_service", lambda: _Service())
-    msgs = gmail_reader.fetch_replies(["sam@example-supply.com"])
-    assert len(msgs) == 1
-    assert "$52,000" not in msgs[0].combined_text
-    parsed = parser.parse_quote(msgs[0].combined_text)
+    row = InboundEmail(id="x", provider_message_id="m1", from_email="sam@example-supply.com",
+                       subject="Re: RFQ", text=reply, attachments="[]")
+    combined = ingest.inbound_text(row)
+    assert "$52,000" not in combined
+    parsed = parser.parse_quote(combined)
     assert parsed.total == 47500.0

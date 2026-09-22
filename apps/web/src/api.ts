@@ -218,23 +218,23 @@ export async function updateMe(input: { ccEmail: string | null }): Promise<AuthU
 }
 
 // Verify the email configuration: sends a test message to your own account
-// email via the same path an RFQ uses. mocked=true means no Gmail configured.
+// email via the same path an RFQ uses. mocked=true means no AgentMail key configured.
 export type TestEmailResult = Schemas['TestEmailResult']
 export function sendTestEmail(): Promise<TestEmailResult> {
   return post<TestEmailResult>('/api/auth/test-email')
 }
 
-// The workspace's effective outbound-email setup, derived from the backend's
-// PROCUREAI_GMAIL_* environment variables. `configured: false` means nothing is
-// actually delivered, and `senderAddressSet: false` means `fromAddress` is only
-// a placeholder — surface both rather than implying mail is going out.
+// The organization's effective outbound-email setup, derived from the backend's
+// PROCUREAI_AGENTMAIL_* environment variables. `configured: false` means nothing
+// is actually delivered, and `inboxAddress` is null until the org's agent inbox
+// has been created; surface both rather than implying mail is going out.
 export type EmailConfig = Schemas['EmailConfig']
 export function getEmailConfig(): Promise<EmailConfig> {
   return get<EmailConfig>('/api/auth/email-config')
 }
 
-// Live provider check — actually calls Gmail (token refresh + mailbox
-// profile) and the LLM (one-token completion). Rate-limited (3/min); only
+// Live provider check: actually calls AgentMail (creates or reads the org's
+// agent inbox) and the LLM (one-token completion). Rate-limited (3/min); only
 // call on an explicit click, never on page load.
 export type ProvidersHealth = Schemas['ProvidersHealth']
 export function getProvidersHealth(): Promise<ProvidersHealth> {
@@ -686,7 +686,7 @@ export function saveRfq(
   })
 }
 
-// The full email conversation for an RFQ, read live from Gmail when configured.
+// The full email conversation for an RFQ: our RFQ plus the stored supplier replies.
 // Read-only: surfaces the original thread (our outbound + any threaded supplier
 // replies) without changing the RFQ's status.
 export type RfqConversation = Schemas['RfqConversation']
@@ -711,8 +711,8 @@ export function getProjectDocuments(projectId: string): Promise<Document[]> {
   return get<Document[]>(`/api/projects/${projectId}/documents`)
 }
 
-// User-approved send: delivers the RFQ to every recipient via Gmail (or the
-// logging mock when Gmail is unconfigured). Attaches the documents chosen on
+// User-approved send: delivers the RFQ to every recipient from the org's agent
+// inbox (or the logging mock when AgentMail is unconfigured). Attaches the documents chosen on
 // the RFQ and flips it to 'Awaiting' (awaiting supplier quotes).
 export function sendRfq(projectId: string, rfqId: string): Promise<PersistedRfq> {
   return post<PersistedRfq>(`/api/projects/${projectId}/rfqs/${rfqId}/send`)
@@ -721,7 +721,7 @@ export function sendRfq(projectId: string, rfqId: string): Promise<PersistedRfq>
 // ------------------------------------------------------------- quote ingest
 export type QuoteIngestResult = Schemas['QuoteIngestResult']
 
-// Kick off reading supplier quote replies (Gmail) for a project. Background
+// Kick off parsing stored supplier replies for a project. Background
 // task; poll getIngestStatus until it leaves 'ingesting', then reload the model.
 export function ingestQuotes(projectId: string): Promise<QuoteIngestResult> {
   return post<QuoteIngestResult>(`/api/projects/${projectId}/quotes/ingest`)

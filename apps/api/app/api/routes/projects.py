@@ -24,7 +24,6 @@ from app.services import schedule as schedule_service
 from app.services.quotes import comparison as comparison_service
 from app.services.quotes import line_comparison as line_comparison_service
 from app.services.rfq import award_notify
-from app.services.rfq import sender as rfq_sender
 from app.services.sourcing import packages
 from app.schemas.document import Document, LineItemGroup
 from app.schemas.lender import Lender, LenderCreate
@@ -46,6 +45,8 @@ from app.schemas.supplier import Supplier
 from app.schemas.timeline import Timeline
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+
 
 
 # Projects are persisted (SQLite via SQLAlchemy) and scoped to the caller's
@@ -455,7 +456,7 @@ def resend_award_notifications(
         package_label=decision.get("packageLabel") or pkg_label,
         summary=summary,
         buyer=current_user,
-        sender=rfq_sender.get_sender(),
+        sender=awards_service.award_sender(db, org_id),
         only_emails=None if payload.all else failed_emails,
         superseded=purchase_decisions_repo.superseded_by_decision(db, org_id, decision["id"]),
         po_numbers=decision.get("poNumbers") or [],

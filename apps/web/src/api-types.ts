@@ -89,12 +89,13 @@ export interface paths {
         };
         /**
          * Email Config
-         * @description The effective outbound-email setup: which mailbox mail leaves from,
-         *     whether Gmail is actually connected, and your Cc address.
+         * @description The effective outbound-email setup: the organization's agent inbox
+         *     (null until it has been created), whether AgentMail is configured and
+         *     answering, and your Cc address.
          *
-         *     Every field derives from the PROCUREAI_GMAIL_* environment variables (see
-         *     docs/email-setup.md) — nothing here is per-user except `ccEmail` and the
-         *     display name baked into `fromHeader`.
+         *     Everything but `ccEmail` and the display name baked into `fromHeader`
+         *     derives from the PROCUREAI_AGENTMAIL_* environment variables and the
+         *     org's inbox (see docs/email-setup.md).
          */
         get: operations["email_config_api_auth_email_config_get"];
         put?: never;
@@ -118,9 +119,9 @@ export interface paths {
          * Send Test Email
          * @description Verify the email configuration by sending a test message to yourself.
          *
-         *     Uses exactly the same path as an RFQ send: the configured provider (Gmail
-         *     or the logging mock) and the workspace From address carrying your display
-         *     name. See docs/email-setup.md.
+         *     Uses exactly the same path as an RFQ send: the configured provider
+         *     (AgentMail, from the organization's agent inbox, or the logging mock) and
+         *     the From identity carrying your display name. See docs/email-setup.md.
          */
         post: operations["send_test_email_api_auth_test_email_post"];
         delete?: never;
@@ -213,6 +214,23 @@ export interface paths {
          *     invited); only name + password come from the request.
          */
         post: operations["accept_invite_api_invite__token__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/webhooks/agentmail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Receive */
+        post: operations["receive_api_webhooks_agentmail_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -899,10 +917,11 @@ export interface paths {
         };
         /**
          * Get Rfq Conversation
-         * @description Full email thread for an RFQ, read live from Gmail when configured.
+         * @description Full email thread for an RFQ: our outbound plus every supplier reply
+         *     the agent inbox received in that thread.
          *
-         *     Read-only: we surface the original Gmail thread (our outbound plus any
-         *     threaded supplier replies) without changing the RFQ's status.
+         *     Read-only: built from stored rows (no provider call) without changing the
+         *     RFQ's status.
          */
         get: operations["get_rfq_conversation_api_projects__project_id__rfqs__rfq_id__conversation_get"];
         put?: never;
@@ -1260,6 +1279,48 @@ export interface paths {
         get: operations["list_project_intake_api_projects__project_id__intake_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inbound": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Inbound
+         * @description Received emails, newest first. `kind` filters on the attribution:
+         *     rfq_reply, intake or unknown (mail nobody claimed, for a human to look at).
+         */
+        get: operations["list_inbound_api_inbound_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inbound/{row_id}/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reprocess
+         * @description Run attribution and handling again for one received email (after a
+         *     failure, or once the RFQ it answers has been sent).
+         */
+        post: operations["reprocess_api_inbound__row_id__reprocess_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2508,21 +2569,19 @@ export interface components {
         };
         /**
          * EmailConfig
-         * @description Effective outbound-email configuration, straight from the environment.
+         * @description Effective outbound-email configuration for this organization.
          *
          *     Lets the UI state the truth instead of implying mail is going out: when
-         *     `configured` is false nothing is delivered, and when `senderAddressSet` is
-         *     false `fromAddress` is only a placeholder.
+         *     `configured` is false nothing is delivered, and `inboxAddress` is null
+         *     until the org's agent inbox has been created (first send).
          */
         EmailConfig: {
             /** Configured */
             configured: boolean;
             /** Mocked */
             mocked: boolean;
-            /** Senderaddressset */
-            senderAddressSet: boolean;
-            /** Fromaddress */
-            fromAddress: string;
+            /** Inboxaddress */
+            inboxAddress?: string | null;
             /** Fromheader */
             fromHeader: string;
             /** Ccemail */
@@ -2533,15 +2592,24 @@ export interface components {
              */
             missing: string[];
             /**
-             * Gmail
+             * Agentmail
              * @default {}
              */
-            gmail: Record<string, never>;
+            agentmail: Record<string, never>;
             /**
              * Llm
              * @default {}
              */
             llm: Record<string, never>;
+        };
+        /** EmailProbe */
+        EmailProbe: {
+            /** Ok */
+            ok: boolean;
+            /** Error */
+            error?: string | null;
+            /** Inboxaddress */
+            inboxAddress?: string | null;
         };
         /**
          * FollowupRunResult
@@ -2620,33 +2688,81 @@ export interface components {
              */
             warn: boolean;
         };
-        /** GmailProbe */
-        GmailProbe: {
-            /** Ok */
-            ok: boolean;
-            /** Error */
-            error?: string | null;
-            /** Emailaddress */
-            emailAddress?: string | null;
-            /** Senderaddress */
-            senderAddress: string;
-            /** Senderaddressmatches */
-            senderAddressMatches?: boolean | null;
-            /**
-             * Sendscope
-             * @default false
-             */
-            sendScope: boolean;
-            /**
-             * Readscope
-             * @default false
-             */
-            readScope: boolean;
-        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InboundEmailOut
+         * @description A received email as GET /api/inbound lists it (bodies included; the
+         *     attachment bytes stay in storage, only their descriptors are here).
+         */
+        InboundEmailOut: {
+            /** Id */
+            id: string;
+            /** Organizationid */
+            organizationId?: string | null;
+            /** Providermessageid */
+            providerMessageId: string;
+            /** Inboxid */
+            inboxId: string;
+            /** Threadid */
+            threadId: string;
+            /**
+             * Inreplyto
+             * @default
+             */
+            inReplyTo: string;
+            /** Fromemail */
+            fromEmail: string;
+            /**
+             * Fromname
+             * @default
+             */
+            fromName: string;
+            /**
+             * To
+             * @default []
+             */
+            to: string[];
+            /**
+             * Cc
+             * @default []
+             */
+            cc: string[];
+            /**
+             * Subject
+             * @default
+             */
+            subject: string;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: Record<string, never>[];
+            /** Receivedat */
+            receivedAt?: string | null;
+            /** Kind */
+            kind: string;
+            /** Rfqid */
+            rfqId?: string | null;
+            /** Projectid */
+            projectId?: string | null;
+            /** Processedat */
+            processedAt?: string | null;
+            /** Error */
+            error?: string | null;
+            /**
+             * Attempts
+             * @default 0
+             */
+            attempts: number;
         };
         /** IntakeDocument */
         IntakeDocument: {
@@ -3479,7 +3595,7 @@ export interface components {
         ProvidersHealth: {
             /** Ok */
             ok: boolean;
-            gmail: components["schemas"]["GmailProbe"];
+            email: components["schemas"]["EmailProbe"];
             llm: components["schemas"]["LlmProbe"];
         };
         /**
@@ -3719,15 +3835,13 @@ export interface components {
             rfqId: string;
             status: components["schemas"]["RfqStatus"];
             statusTone: components["schemas"]["Tone"];
-            /** Gmail */
-            gmail: boolean;
+            /** Live */
+            live: boolean;
             /**
              * Configured
              * @default false
              */
             configured: boolean;
-            /** Readerror */
-            readError?: string | null;
             /** Thread */
             thread: components["schemas"]["ConversationMessage"][];
         };
@@ -3813,22 +3927,26 @@ export interface components {
             name: string;
             /** Email */
             email: string;
+            /** Messageid */
+            messageId?: string | null;
             /** Sentmessageid */
             sentMessageId?: string | null;
             /** Threadid */
             threadId?: string | null;
+            /** Sentat */
+            sentAt?: string | null;
+            /** Repliedat */
+            repliedAt?: string | null;
             /** Sendstatus */
             sendStatus?: string | null;
             /** Senderror */
             sendError?: string | null;
             /** Outboundmessageids */
             outboundMessageIds?: string[] | null;
-            /** Mock */
-            mock?: boolean | null;
-            /** Repliedat */
-            repliedAt?: string | null;
             /** Followups */
             followups?: components["schemas"]["RfqFollowup"][] | null;
+            /** Mock */
+            mock?: boolean | null;
         };
         /**
          * RfqStatus
@@ -4437,8 +4555,8 @@ export interface components {
         /**
          * UpdateMeRequest
          * @description Editable account settings. `ccEmail` is the address copied on outgoing
-         *     mail you trigger; `null` clears it. It is never a From address — everything
-         *     is sent from the workspace mailbox (see services/rfq/sender.py).
+         *     mail you trigger; `null` clears it. It is never a From address: everything
+         *     is sent from the organization's agent inbox (see services/rfq/sender.py).
          */
         UpdateMeRequest: {
             /** Ccemail */
@@ -4822,6 +4940,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receive_api_webhooks_agentmail_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
@@ -6790,6 +6928,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntakeRow"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_inbound_api_inbound_get: {
+        parameters: {
+            query?: {
+                kind?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundEmailOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reprocess_api_inbound__row_id__reprocess_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                row_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundEmailOut"];
                 };
             };
             /** @description Validation Error */

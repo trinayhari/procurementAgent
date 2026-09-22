@@ -61,7 +61,7 @@ Node frontend at the repo root.
 | --- | --- |
 | `PROCUREAI_OPENAI_API_KEY` | real GPT-4.1 plan/BOM extraction |
 | `PROCUREAI_GOOGLE_MAPS_API_KEY` | real supplier discovery (Geocoding + Places) |
-| `PROCUREAI_GMAIL_*` | real RFQ email send / quote ingest. `PROCUREAI_GMAIL_SENDER_ADDRESS` is the single From address for **all** outbound mail (users are Cc'd, never used as the sender) — set it to the account you minted the token for. See [docs/email-setup.md](docs/email-setup.md). |
+| `PROCUREAI_AGENTMAIL_*` | real RFQ email send / supplier replies. `PROCUREAI_AGENTMAIL_API_KEY` turns sending on (one agent inbox per organization, users are Cc'd, never used as the sender); `PROCUREAI_AGENTMAIL_DOMAIN` is the verified custom domain inboxes are created on; `PROCUREAI_AGENTMAIL_WEBHOOK_SECRET` verifies the inbound webhook (required in production). See [docs/email-setup.md](docs/email-setup.md). |
 
 ### A note on uploaded files
 
@@ -125,7 +125,7 @@ are baked in.
 5. Add the remaining variables (same names as the Render table above):
    `PROCUREAI_JWT_SECRET` (any long random string), `PROCUREAI_CORS_ORIGINS`
    (JSON array of your Vercel URL — set after step 2 below), and optionally the
-   `PROCUREAI_OPENAI_API_KEY` / `PROCUREAI_GOOGLE_MAPS_API_KEY` / `PROCUREAI_GMAIL_*`
+   `PROCUREAI_OPENAI_API_KEY` / `PROCUREAI_GOOGLE_MAPS_API_KEY` / `PROCUREAI_AGENTMAIL_*`
    keys (blank ⇒ mock behaviour).
 6. Deploy → **Settings → Networking → Generate Domain** to get the public URL.
    Verify `https://<your-app>.up.railway.app/health` → `{"status":"ok"}`.
