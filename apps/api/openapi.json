@@ -438,6 +438,143 @@
         }
       }
     },
+    "/api/webhooks/slack/oauth/callback": {
+      "get": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Oauth Callback",
+        "description": "Where Slack sends the user after the consent screen. `state` proves\nwhich org and user started the install; the code is exchanged for the\nbot token and the browser lands back on Proq's settings page.",
+        "operationId": "oauth_callback_api_webhooks_slack_oauth_callback_get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/slack/events": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Events",
+        "operationId": "events_api_webhooks_slack_events_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/slack/interactions": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Interactions",
+        "operationId": "interactions_api_webhooks_slack_interactions_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/slack/commands": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Commands",
+        "operationId": "commands_api_webhooks_slack_commands_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/dashboard": {
       "get": {
         "tags": [
@@ -3816,6 +3953,206 @@
             }
           }
         }
+      }
+    },
+    "/api/slack/status": {
+      "get": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Slack Status",
+        "description": "Server configuration + this org's installation and linked channels.",
+        "operationId": "slack_status_api_slack_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/slack/install-url": {
+      "get": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Install Url",
+        "description": "The Slack consent URL, with a state bound to this org + user (10 min).",
+        "operationId": "install_url_api_slack_install_url_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackInstallUrl"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/slack/channels": {
+      "get": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "List Channels",
+        "operationId": "list_channels_api_slack_channels_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SlackChannelLink"
+                  },
+                  "type": "array",
+                  "title": "Response List Channels Api Slack Channels Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/slack/channels/{channel_id}": {
+      "put": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Link Channel",
+        "description": "Link (or relink) a channel to one of the org's projects.",
+        "operationId": "link_channel_api_slack_channels__channel_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Channel Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackChannelLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackChannelLink"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Unlink Channel",
+        "operationId": "unlink_channel_api_slack_channels__channel_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Channel Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/installation": {
+      "delete": {
+        "tags": [
+          "slack"
+        ],
+        "summary": "Uninstall",
+        "description": "Disconnect the workspace: drop the token and every link, and revoke\nthe token at Slack (best effort: a failed revoke still disconnects).",
+        "operationId": "uninstall_api_slack_installation_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/health/providers": {
@@ -8746,6 +9083,178 @@
           "message"
         ],
         "title": "SelectResult"
+      },
+      "SlackChannelLink": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "teamId": {
+            "type": "string",
+            "title": "Teamid"
+          },
+          "channelId": {
+            "type": "string",
+            "title": "Channelid"
+          },
+          "channelName": {
+            "type": "string",
+            "title": "Channelname",
+            "default": ""
+          },
+          "projectId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projectid"
+          },
+          "projectName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projectname"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "teamId",
+          "channelId"
+        ],
+        "title": "SlackChannelLink",
+        "description": "A Slack channel the agent listens in, and the project it feeds."
+      },
+      "SlackChannelLinkRequest": {
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "title": "Projectid"
+          },
+          "channelName": {
+            "type": "string",
+            "title": "Channelname",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "projectId"
+        ],
+        "title": "SlackChannelLinkRequest"
+      },
+      "SlackInstallUrl": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "SlackInstallUrl"
+      },
+      "SlackStatus": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing",
+            "default": []
+          },
+          "installed": {
+            "type": "boolean",
+            "title": "Installed"
+          },
+          "teamId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teamid"
+          },
+          "teamName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teamname"
+          },
+          "botUserId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Botuserid"
+          },
+          "installedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installedat"
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/SlackChannelLink"
+            },
+            "type": "array",
+            "title": "Channels",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "installed"
+        ],
+        "title": "SlackStatus",
+        "description": "Whether the Slack app is set up on the server and installed by this org.\n\n`configured` is server-side (the three PROCUREAI_SLACK_* variables);\n`installed` is per organization (an OAuth install exists)."
       },
       "Stage": {
         "type": "string",

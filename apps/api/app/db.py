@@ -53,6 +53,8 @@ SCOPED_TABLES = (
     "lenders",
     "package_budgets",
     "inbound_emails",
+    "slack_installations",
+    "slack_channel_links",
 )
 
 

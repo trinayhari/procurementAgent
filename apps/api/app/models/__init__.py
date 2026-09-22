@@ -24,6 +24,8 @@ from app.models.reference import (
     SeedLineItemGroup,
 )
 from app.models.rfq import Rfq
+from app.models.slack_channel_link import SlackChannelLink
+from app.models.slack_installation import SlackInstallation
 from app.models.supplier import Supplier, SupplierComm
 from app.models.timeline_event import TimelineEvent
 from app.models.user import User
@@ -39,6 +41,8 @@ __all__ = [
     "ProjectEvent",
     "FoundSupplier",
     "InboundEmail",
+    "SlackInstallation",
+    "SlackChannelLink",
     "Rfq",
     "Quote",
     "Document",

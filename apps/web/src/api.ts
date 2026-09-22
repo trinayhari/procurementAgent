@@ -297,6 +297,62 @@ export async function acceptInvite(
   return data.user
 }
 
+// ----------------------------------------------------------------- Slack API
+// The agent as a coworker in the customer's Slack: install the app (OAuth),
+// link channels to projects, and it posts progress + award cards there. The
+// webhook side (events, button clicks) is server-to-server; nothing here.
+export type SlackStatus = Schemas['SlackStatus']
+export type SlackChannelLink = Schemas['SlackChannelLink']
+
+// Whether the server has the Slack app configured and whether this org
+// installed it, plus the linked channels.
+export function getSlackStatus(): Promise<SlackStatus> {
+  return get<SlackStatus>('/api/slack/status')
+}
+
+// The Slack consent URL to send the browser to (state is bound to this org
+// and user, valid ten minutes). 409 when the server is not configured.
+export async function getSlackInstallUrl(): Promise<string> {
+  const data = await get<Schemas['SlackInstallUrl']>('/api/slack/install-url')
+  return data.url
+}
+
+export function getSlackChannels(): Promise<SlackChannelLink[]> {
+  return get<SlackChannelLink[]>('/api/slack/channels')
+}
+
+// Link (or relink) a channel to one of the org's projects.
+export function linkSlackChannel(
+  channelId: string,
+  input: { projectId: string; channelName?: string },
+): Promise<SlackChannelLink> {
+  return fetch(`${BASE}/api/slack/channels/${encodeURIComponent(channelId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(input),
+  }).then(async (r) => {
+    if (!r.ok) throw await responseError(r, `link channel -> ${r.status}`)
+    return r.json() as Promise<SlackChannelLink>
+  })
+}
+
+export async function unlinkSlackChannel(channelId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/slack/channels/${encodeURIComponent(channelId)}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  })
+  if (!res.ok) throw await responseError(res, `unlink channel -> ${res.status}`)
+}
+
+// Disconnect the workspace: drops the bot token and every channel link.
+export async function uninstallSlack(): Promise<void> {
+  const res = await fetch(`${BASE}/api/slack/installation`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  })
+  if (!res.ok) throw await responseError(res, `uninstall slack -> ${res.status}`)
+}
+
 // ------------------------------------------------------- document extraction
 // Plan types the backend extractor supports (drives the upload selector).
 export function getPlanTypes(): Promise<PlanType[]> {
