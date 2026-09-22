@@ -19,7 +19,7 @@ from app.api.routes import (
     suppliers,
     team,
     timeline,
-    webhooks_resend,
+    webhooks_agentmail,
     webhooks_slack,
 )
 from app.config import settings
@@ -109,7 +109,7 @@ app.include_router(team.public_router)
 # Inbound webhooks verify their provider's signature instead of a session, and
 # approval links gate on a signed single-use token (the approver may have no
 # account: the award card lands in email or Slack).
-app.include_router(webhooks_resend.router)
+app.include_router(webhooks_agentmail.router)
 app.include_router(webhooks_slack.router)
 app.include_router(approvals.router)
 

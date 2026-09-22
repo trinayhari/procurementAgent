@@ -163,23 +163,25 @@ class Settings(BaseSettings):
     # How far back the quote-ingest poller looks for supplier replies.
     quote_ingest_lookback_days: int = 30
 
-    # ------------------------------------------------------ Email (Resend)
-    # Outbound mail and the RFQ inbox both run on Resend (see
-    # docs/agent-architecture.md). Every email leaves ONE address
-    # (email_from_address); users are Cc'd, never used as From. Supplier
-    # replies come back through Resend Inbound to
-    #   rfq+<rfq_id>@<email_inbound_domain>
-    # and land in the inbound_emails table via POST /api/webhooks/resend.
-    # Empty resend_api_key → MockSender (logs only, nothing delivered).
-    resend_api_key: str = ""
-    email_from_address: str = ""  # e.g. rfq@tryproq.dev
-    email_from_name: str = "Proq"
-    # Domain configured for Resend Inbound (MX record). Reply-To and the
-    # intake address are built on it. Empty → falls back to email_from_address.
-    email_inbound_domain: str = ""
-    # Svix signing secret for the Resend webhook. Empty in development skips
+    # ---------------------------------------------------- Email (AgentMail)
+    # The agent has its own inbox per customer organization, e.g.
+    # acme@<agentmail_domain> (see docs/agent-architecture.md). Customers
+    # email it, suppliers receive RFQs from it and reply to it, and every
+    # message that arrives is posted to POST /api/webhooks/agentmail. The
+    # inbox id is stored on the organization (created lazily on first use).
+    # Empty agentmail_api_key → MockSender (logs only, nothing delivered).
+    agentmail_api_key: str = ""
+    # Verified custom domain inboxes are created on (e.g. proq.tryproq.dev).
+    # Empty → AgentMail's default domain (fine for development).
+    agentmail_domain: str = ""
+    # Optional pod to create inboxes in (multi-tenant isolation). Empty → the
+    # organization's default pod.
+    agentmail_pod_id: str = ""
+    # Svix signing secret of the webhook endpoint. Empty in development skips
     # signature verification; production refuses unsigned webhooks.
-    resend_webhook_secret: str = ""
+    agentmail_webhook_secret: str = ""
+    # Display name prefix for org inboxes: "Proq for Acme Construction".
+    agentmail_display_name_prefix: str = "Proq for"
 
     # ------------------------------------------------------------- Slack
     # One Slack app; each org installs it (OAuth) and picks channels per

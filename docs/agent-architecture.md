@@ -15,6 +15,7 @@ This document is the contract the workstreams build against. It lives on the
 
 ```
 customer email / Slack ──▶ inbound ──▶ intake ──▶ project + document + extraction
+   (to the org's agent inbox: acme@proq.tryproq.dev)
                                                   │
                              notify ◀── domain events (bom.drafted, rfq.sent,
                                │        quotes.received, award.ready, po.issued)
@@ -29,50 +30,66 @@ supplier reply ──▶ inbound ──▶ rfq_replies ──▶ quote parse ─
 
 | Module | Role | Owner stream |
 |---|---|---|
-| `app/config.py` | All new settings are already declared (Resend, Slack, follow-ups, approvals). Do not add more without need; if you must, append in your own section. | shared |
+| `app/config.py` | All new settings are already declared (AgentMail, Slack, follow-ups, approvals). Do not add more without need; if you must, append in your own section. | shared |
 | `app/services/notify/__init__.py` | `Notice`, `Action`, `ThreadRef`, `Notifier` protocol, `register()`, `emit()`. Every channel plugs in here. | C defines events, E adds Slack |
-| `app/models/inbound_email.py` | `inbound_emails` table: every email the platform receives, stored before processing. Already registered in `models/__init__` and `db.SCOPED_TABLES`. | A |
+| `app/models/inbound_email.py` | `inbound_emails` table: every email an agent inbox receives, stored before processing (with AgentMail `inbox_id` / `thread_id`). Already registered in `models/__init__` and `db.SCOPED_TABLES`. | A |
+| `app/models/organization.py` | `agentmail_inbox_id`: the org's agent inbox, created lazily. | A |
 | `app/services/inbound/__init__.py` | `handle(db, msg)` dispatcher: attributes a row (`rfq_reply` / `intake` / `unknown`) then routes it. | shared (do not edit) |
 | `app/services/inbound/rfq_replies.py` | `attribute()` + `handle()` stubs for supplier replies. | A |
 | `app/services/inbound/intake.py` | `attribute()` + `handle()` stubs for customer requests. | B |
 | `app/services/scheduler.py` | `register(name, interval_s, fn)`, `start()`, `run_once()`. Started from `main.py`. | D registers jobs |
-| `app/api/routes/webhooks_resend.py` | Empty public router at `/api/webhooks/resend`. | A |
+| `app/api/routes/webhooks_agentmail.py` | Empty public router at `/api/webhooks/agentmail`. | A |
 | `app/api/routes/webhooks_slack.py` | Empty public router at `/api/webhooks/slack`. | E |
 | `app/api/routes/approvals.py` | Empty public router at `/api/approvals`. | C |
-| `tests/conftest.py` | Blanks Resend/Slack creds and disables follow-ups for tests. | shared |
+| `tests/conftest.py` | Blanks AgentMail/Slack creds and disables follow-ups for tests. | shared |
 
 ## Workstreams
 
-### A. Email transport on Resend (replaces Gmail entirely)
+### A. Email transport on AgentMail (replaces Gmail entirely)
 
-Outbound: a `ResendSender` implementing the existing `EmailSender` protocol in
-`services/rfq/sender.py`. Same rules as today: one From address
-(`settings.email_from_address`, display name personalised per user), users are
-Cc'd, never From. New rule: **every outbound RFQ sets `Reply-To:
-rfq+<rfq_id>@<email_inbound_domain>`** so replies attribute without a
-mailbox search. Threading via `In-Reply-To`/`References` headers.
-`SentMessage.thread_id` becomes the RFC Message-ID we sent (Resend has no
-thread ids); keep the field so callers do not change.
+The agent has its own inbox per customer organization, created through the
+AgentMail API (`client.inboxes.create(username=<org slug>, domain=
+settings.agentmail_domain, display_name="Proq for <Org>")`) the first time the
+org needs to send or receive mail, and stored on `Organization.agentmail_inbox_id`.
+That address is the agent's identity for that customer: the PM emails it,
+suppliers receive RFQs from it and reply to it. Users are still Cc'd on RFQs
+so they keep a copy; they are never the From address.
 
-Inbound: Resend Inbound delivers to the webhook. `POST /api/webhooks/resend`
-verifies the Svix signature (`settings.resend_webhook_secret`; skip only when
-empty AND `settings.env != "production"`), fetches the full message + attachments
-from Resend, stores attachments through `services/storage.py`, inserts an
-`InboundEmail` row (idempotent on `provider_message_id`), and calls
+Outbound: an `AgentMailSender` implementing the existing `EmailSender`
+protocol in `services/rfq/sender.py`, using `client.inboxes.messages.send`
+for a new conversation and `client.inboxes.messages.reply` when replying
+in-thread (so AgentMail sets In-Reply-To/References). The sender needs the
+org's inbox, so `get_sender(db, org_id)` resolves (or creates) the inbox;
+`SentMessage.message_id` and `thread_id` are AgentMail's ids. Record the
+`thread_id` on every RFQ recipient dict: it is the attribution key for
+replies. Use the official `agentmail` Python SDK.
+
+Inbound: one org-level AgentMail webhook (`message.received`) posts to
+`POST /api/webhooks/agentmail`. The route verifies the Svix signature
+(`settings.agentmail_webhook_secret`; skip only when empty AND
+`settings.env != "production"`), maps `inbox_id` to the organization,
+downloads attachments through the API into `services/storage.py`, inserts an
+`InboundEmail` row (idempotent on `provider_message_id`, with `inbox_id`,
+`thread_id`, and `text` = `extracted_text` when present), and calls
 `services.inbound.handle`.
 
-Consumers to move off Gmail: `services/quotes/ingest.py` (`_collect_replies`
-reads `inbound_emails` where `kind='rfq_reply'` and `processed_at is null`),
-`services/rfq/conversation.py` (thread = outbound RFQ + inbound rows for that
-`rfq_id`), `services/rfq/award_notify.py` (`_thread_ref` uses stored
-Message-IDs). Delete `services/quotes/gmail_reader.py`, `scripts/mint_gmail_token.py`,
-the Gmail settings and deps, and rewrite `docs/email-setup.md` for Resend.
-`GET /api/auth/email-config` reports Resend status instead.
+Attribution in `services/inbound/rfq_replies.py`: `thread_id` matches a
+recipient's recorded `threadId` → `rfq_reply` (fallback: In-Reply-To matches
+a recorded `messageId`). Consumers to move off Gmail: `services/quotes/ingest.py`
+(reads unprocessed `inbound_emails` rows), `services/rfq/conversation.py`
+(thread = `client.threads.get(thread_id)` rendered for display, with the
+stored rows as an offline fallback), `services/rfq/award_notify.py` (reply in
+the winner's thread). Delete `services/quotes/gmail_reader.py`,
+`scripts/mint_gmail_token.py`, the Gmail settings and deps, and rewrite
+`docs/email-setup.md` for AgentMail (custom domain DNS, webhook, env vars).
+`GET /api/auth/email-config` reports the org's inbox address and AgentMail
+status instead.
 
 ### B. Conversational intake by email
 
-`services/inbound/intake.py`. `attribute()`: sender email matches a `User` →
-set `organization_id`, return True. `handle()`:
+`services/inbound/intake.py`. `attribute()`: the row's `organization_id` is
+already set from the inbox; the sender email matches a `User` in that org →
+return True. `handle()`:
 
 1. Resolve the project. Use the subject/body and existing project names for the
    org (LLM call through the existing OpenAI client, with a deterministic
@@ -179,8 +196,10 @@ description so the merge is mechanical.
   tests for every new endpoint and service (the suite is 480 tests; keep it
   green).
 - Mock transports when creds are empty, exactly as `MockSender` does today.
+- Sending needs an org: `get_sender(db, org_id)`. Streams that only have the
+  protocol today should call it that way; stream A owns the signature.
 - Copy: no em dashes anywhere (code comments, emails, UI). Use colons, commas,
   periods.
 - Python 3.11 compatible (prod), no new heavy dependencies without a reason;
-  `httpx` is already available for HTTP APIs (use it for Resend and Slack
-  rather than adding SDKs).
+  `httpx` is already available for HTTP APIs (use it for Slack rather than
+  adding an SDK); the official `agentmail` Python SDK is the one new dependency.
