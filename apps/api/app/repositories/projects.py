@@ -67,6 +67,7 @@ def create_project(
     name: str,
     loc: str = "",
     value: str = "",
+    need_by: Optional[str] = None,
 ) -> dict:
     """Insert a new project (id derived from its name) and return its payload."""
     pid = _unique_id(db, _slugify(name))
@@ -77,11 +78,35 @@ def create_project(
         name=name.strip(),
         loc=loc.strip() or "—",
         value=value.strip() or "$0",
+        need_by=need_by or None,
     )
     db.add(project)
     db.commit()
     db.refresh(project)
     return project.to_dict()
+
+
+_UPDATABLE = ("loc", "value", "need_by")
+
+
+def update_project(db: Session, org_id: str, project_id: str, **fields) -> Optional[dict]:
+    """Change a project's editable details (loc, value, need_by). A key that is
+    present is applied even when None (clearing the need-by); absent keys are
+    left alone. Returns the updated payload, or None when not found."""
+    row = get_row(db, org_id, project_id)
+    if row is None:
+        return None
+    for key, value in fields.items():
+        if key not in _UPDATABLE:
+            raise ValueError(f"{key} is not an editable project field")
+        if key == "loc":
+            value = (value or "").strip() or "—"
+        elif key == "value":
+            value = (value or "").strip() or "$0"
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return row.to_dict()
 
 
 def delete_project(db: Session, org_id: str, project_id: str) -> bool:

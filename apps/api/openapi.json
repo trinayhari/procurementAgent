@@ -796,6 +796,62 @@
       }
     },
     "/api/projects/{project_id}": {
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Update Project",
+        "description": "Change a project's details. Only the fields sent are touched; sending\n`needBy: null` clears the need-by date. RFQs already drafted keep their\nown copy of the date.",
+        "operationId": "update_project_api_projects__project_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "projects"
@@ -8601,6 +8657,17 @@
               }
             ],
             "title": "Sentat"
+          },
+          "needBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needby"
           }
         },
         "type": "object",
@@ -8766,6 +8833,17 @@
             "type": "string",
             "title": "Value"
           },
+          "needBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needby"
+          },
           "stage": {
             "$ref": "#/components/schemas/Stage"
           },
@@ -8829,6 +8907,18 @@
             "maxLength": 50,
             "title": "Value",
             "default": ""
+          },
+          "needBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needby"
           }
         },
         "type": "object",
@@ -8855,6 +8945,17 @@
           "value": {
             "type": "string",
             "title": "Value"
+          },
+          "needBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needby"
           },
           "stage": {
             "$ref": "#/components/schemas/Stage"
@@ -8923,6 +9024,49 @@
         ],
         "title": "ProjectDetail",
         "description": "Full project workspace payload."
+      },
+      "ProjectUpdate": {
+        "properties": {
+          "loc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loc"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "needBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needby"
+          }
+        },
+        "type": "object",
+        "title": "ProjectUpdate",
+        "description": "PATCH payload: only the fields present are changed. `needBy: null`\nclears the date."
       },
       "ProvidersHealth": {
         "properties": {
@@ -9813,6 +9957,18 @@
             },
             "type": "array",
             "title": "Recipients"
+          },
+          "needBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needby"
           },
           "attachment_ids": {
             "anyOf": [

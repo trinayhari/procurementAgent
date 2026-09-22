@@ -9,6 +9,7 @@ import re
 from typing import List, Optional
 
 from app.config import settings
+from app.core.dates import humanize
 from app.services import llm_health
 
 _MAX_RECIPIENTS = 10
@@ -96,10 +97,16 @@ def _request_sentence(package_label: str, project_name: str, location: str) -> s
     return f"{sentence}."
 
 
+def _need_by_sentence(need_by: Optional[str]) -> str:
+    """'We need the material on site by October 14, 2026.' or ''."""
+    when = humanize(need_by)
+    return f"We need the material on site by {when}, so please include your lead time." if when else ""
+
+
 def _opening_paragraph(
-    buyer, package_label: str, project_name: str, location: str
+    buyer, package_label: str, project_name: str, location: str, need_by: Optional[str] = None
 ) -> str:
-    """Who is writing, what they need, and the ask.
+    """Who is writing, what they need, when, and the ask.
 
     Both body paths are built from this one string, so the LLM and the fallback
     template can't drift apart in what they tell the supplier.
@@ -107,6 +114,7 @@ def _opening_paragraph(
     parts = (
         _buyer_intro(buyer),
         _request_sentence(package_label, project_name, location),
+        _need_by_sentence(need_by),
         _ASK,
     )
     return " ".join(p for p in parts if p)
@@ -167,18 +175,20 @@ def generate_rfq_draft(
     line_items: List[dict],
     suppliers: List[dict],
     buyer=None,
+    need_by: Optional[str] = None,
 ) -> RfqDraft:
     """Build subject/body/recipients for an RFQ. Never raises.
 
     `buyer` is the requesting user (anything carrying `.name` / `.company`); the
     body introduces them so the supplier isn't quoting an anonymous stranger.
+    `need_by` (ISO date) is quoted so the supplier prices lead time against it.
     """
     project_name = (project.get("name") or "").strip()
     location = _clean_location(project)
     items_text = _format_items(line_items)
     subject = f"RFQ: {package_label} — {project_name or 'Project'}"
 
-    opening = _opening_paragraph(buyer, package_label, project_name, location)
+    opening = _opening_paragraph(buyer, package_label, project_name, location, need_by)
     body = _llm_body(package_label, items_text, opening) or _template_body(
         opening, items_text
     )
@@ -235,6 +245,11 @@ def _sub_request_sentence(trade_label: str, project_name: str, location: str) ->
 # thread all read exactly what the supplier received.
 ATTACHMENT_SENTENCE = "Please review the attached project documents for additional detail."
 _PROMPT_RESPONSE_RE = re.compile(r"Your prompt response is appreciated\.")
+
+
+def _sub_need_by_sentence(need_by: Optional[str]) -> str:
+    when = humanize(need_by)
+    return f"The work needs to be complete by {when}." if when else ""
 
 
 def _sub_template_body(opening: str, scope: str) -> str:
@@ -322,6 +337,7 @@ def generate_sub_rfq_draft(
     scope: str,
     suppliers: List[dict],
     buyer=None,
+    need_by: Optional[str] = None,
 ) -> RfqDraft:
     """Build subject/body/recipients for a subcontractor bid request. Never raises.
 
@@ -336,6 +352,7 @@ def generate_sub_rfq_draft(
     parts = (
         _buyer_intro(buyer),
         _sub_request_sentence(trade_label, project_name, location),
+        _sub_need_by_sentence(need_by),
         _SUB_ASK,
     )
     opening = " ".join(p for p in parts if p)

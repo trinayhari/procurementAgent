@@ -4,6 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.dates import humanize
 from app.core.security import get_current_user
 from app.db import DEMO_ORG_ID, get_db
 from app.models.user import User
@@ -27,7 +28,7 @@ from app.services.rfq import award_notify
 from app.services.sourcing import packages
 from app.schemas.document import Document, LineItemGroup
 from app.schemas.lender import Lender, LenderCreate
-from app.schemas.project import Project, ProjectCreate, ProjectDetail
+from app.schemas.project import Project, ProjectCreate, ProjectDetail, ProjectUpdate
 from app.schemas.quote import (
     AwardNotifyRequest,
     AwardNotifyResult,
@@ -76,11 +77,12 @@ def create_project(
     org_id = current_user.organization_id
     project = projects_repo.create_project(
         db, org_id, name=payload.name, loc=payload.loc, value=payload.value,
+        need_by=payload.needBy,
     )
     project = {**project, **metrics_service.project_rollups(db, org_id, [project["id"]])[project["id"]]}
     audit_repo.log(
         db, org_id, current_user, "project.created", "project", project["id"],
-        project_id=project["id"], detail={"name": project["name"]},
+        project_id=project["id"], detail={"name": project["name"], "needBy": project.get("needBy")},
     )
     events_repo.log(
         db,
@@ -91,6 +93,44 @@ def create_project(
         tone="ai",
         meta=project["name"],
     )
+    return project
+
+
+@router.patch("/{project_id}", response_model=Project)
+def update_project(
+    project_id: str,
+    payload: ProjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change a project's details. Only the fields sent are touched; sending
+    `needBy: null` clears the need-by date. RFQs already drafted keep their
+    own copy of the date."""
+    org_id = current_user.organization_id
+    _require_project(org_id, project_id, db)
+    changes = payload.model_dump(exclude_unset=True)
+    fields = {}
+    if "loc" in changes:
+        fields["loc"] = changes["loc"]
+    if "value" in changes:
+        fields["value"] = changes["value"]
+    if "needBy" in changes:
+        fields["need_by"] = changes["needBy"]
+    project = projects_repo.update_project(db, org_id, project_id, **fields)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project = {**project, **metrics_service.project_rollups(db, org_id, [project_id])[project_id]}
+    if fields:
+        audit_repo.log(
+            db, org_id, current_user, "project.updated", "project", project_id,
+            project_id=project_id, detail={k: v for k, v in changes.items()},
+        )
+        if "needBy" in changes:
+            events_repo.log(
+                db, org_id, project_id,
+                title=f"Need-by date {'set to ' + humanize(changes['needBy']) if changes['needBy'] else 'cleared'}",
+                icon="calendar", tone="blue", meta=project["name"],
+            )
     return project
 
 

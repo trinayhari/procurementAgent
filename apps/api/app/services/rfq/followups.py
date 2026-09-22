@@ -38,6 +38,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.dates import humanize
 from app.core import locks
 from app.db import SessionLocal
 from app.models.audit_event import AuditEvent
@@ -216,7 +217,7 @@ def _package_name(rfq: dict) -> str:
 
 
 def _need_by_line(rfq: dict) -> str:
-    need_by = (rfq.get("needBy") or "").strip()
+    need_by = humanize((rfq.get("needBy") or "").strip())
     return f"We need the material on site by {need_by}." if need_by else ""
 
 

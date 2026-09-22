@@ -389,7 +389,13 @@ export interface paths {
         delete: operations["delete_project_api_projects__project_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Project
+         * @description Change a project's details. Only the fields sent are touched; sending
+         *     `needBy: null` clears the need-by date. RFQs already drafted keep their
+         *     own copy of the date.
+         */
+        patch: operations["update_project_api_projects__project_id__patch"];
         trace?: never;
     };
     "/api/projects/{project_id}/documents": {
@@ -3455,6 +3461,8 @@ export interface components {
             attachments: components["schemas"]["RfqAttachment"][];
             /** Sentat */
             sentAt?: string | null;
+            /** Needby */
+            needBy?: string | null;
         };
         /**
          * PlanType
@@ -3528,6 +3536,8 @@ export interface components {
             loc: string;
             /** Value */
             value: string;
+            /** Needby */
+            needBy?: string | null;
             stage: components["schemas"]["Stage"];
             stageTone: components["schemas"]["Tone"];
             /** Progress */
@@ -3558,6 +3568,8 @@ export interface components {
              * @default
              */
             value: string;
+            /** Needby */
+            needBy?: string | null;
         };
         /**
          * ProjectDetail
@@ -3572,6 +3584,8 @@ export interface components {
             loc: string;
             /** Value */
             value: string;
+            /** Needby */
+            needBy?: string | null;
             stage: components["schemas"]["Stage"];
             stageTone: components["schemas"]["Tone"];
             /** Progress */
@@ -3590,6 +3604,19 @@ export interface components {
             packages: components["schemas"]["Package"][];
             /** Activity */
             activity: components["schemas"]["Activity"][];
+        };
+        /**
+         * ProjectUpdate
+         * @description PATCH payload: only the fields present are changed. `needBy: null`
+         *     clears the date.
+         */
+        ProjectUpdate: {
+            /** Loc */
+            loc?: string | null;
+            /** Value */
+            value?: string | null;
+            /** Needby */
+            needBy?: string | null;
         };
         /** ProvidersHealth */
         ProvidersHealth: {
@@ -3961,6 +3988,8 @@ export interface components {
             body: string;
             /** Recipients */
             recipients: components["schemas"]["RfqRecipient"][];
+            /** Needby */
+            needBy?: string | null;
             /** Attachment Ids */
             attachment_ids?: string[] | null;
         };
@@ -5244,6 +5273,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_api_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
             };
             /** @description Validation Error */
             422: {

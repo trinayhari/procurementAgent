@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.dates import parse_iso_date
+
 from app.schemas.common import RfqStatus, Tone
 
 
@@ -108,6 +110,8 @@ class PersistedRfq(Rfq):
     attachments: List[RfqAttachment] = []
     # ISO timestamp of the (last) send; null for drafts.
     sentAt: Optional[str] = None
+    # Material need-by date (ISO YYYY-MM-DD) quoted to suppliers, or null.
+    needBy: Optional[str] = None
 
 
 class ConversationMessage(BaseModel):
@@ -152,6 +156,13 @@ class RfqUpdate(BaseModel):
     subject: str
     body: str
     recipients: List[RfqRecipient]
+    # Need-by date. Omitted = leave unchanged; null = clear; "YYYY-MM-DD" = set.
+    needBy: Optional[str] = Field(default=None, max_length=20)
+
+    @field_validator("needBy")
+    @classmethod
+    def _need_by_is_a_date(cls, v: Optional[str]) -> Optional[str]:
+        return parse_iso_date(v)
 
     @field_validator("recipients")
     @classmethod

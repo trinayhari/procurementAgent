@@ -34,6 +34,9 @@ class Project(Base):
     lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     geocoded_loc: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # When the material has to be on site (ISO YYYY-MM-DD). RFQs generated for
+    # the project inherit it; intake fills it from the PM's email when stated.
+    need_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     def to_dict(self) -> dict:
         """The stored fields, camelCased. Routes merge the computed rollup
@@ -45,4 +48,5 @@ class Project(Base):
             "value": self.value,
             "lat": self.lat,
             "lng": self.lng,
+            "needBy": self.need_by,
         }

@@ -1417,6 +1417,7 @@ function ProjectWorkspace({ m }: MProps) {
           <div style={css('display:flex;align-items:center;gap:18px;margin-top:7px;font-size:13px;color:var(--text-2);flex-wrap:wrap')}>
             {m.activeProject.loc && <span style={css('display:flex;align-items:center;gap:5px')}><Svg size={14} d={PIN} />{m.activeProject.loc}</span>}
             {m.activeProject.value && <span>Value <strong style={css("color:var(--text);font-family:'JetBrains Mono',monospace")}>{m.activeProject.value}</strong></span>}
+            {m.activeProject.needBy && <span title="Material needed on site by">Need by <strong style={css('color:var(--text)')}>{fmtNeedBy(m.activeProject.needBy)}</strong></span>}
           </div>
         </div>
         <div style={css('display:flex;gap:9px;flex-wrap:wrap')}>
@@ -2822,6 +2823,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
 }) {
   const [subject, setSubject] = useState(rfq.subject)
   const [body, setBody] = useState(rfq.body)
+  const [needBy, setNeedBy] = useState(rfq.needBy || '')
   const [recipients, setRecipients] = useState<RfqRecipient[]>(rfq.recipients || [])
   const [status, setStatus] = useState(rfq.status)
   const [busy, setBusy] = useState(false)
@@ -2832,7 +2834,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   // user has unsaved edits (closing then asks instead of silently dropping
   // them) and whether "Save draft" has anything to do.
   const [saved, setSaved] = useState(() => ({
-    subject: rfq.subject, body: rfq.body,
+    subject: rfq.subject, body: rfq.body, needBy: rfq.needBy || '',
     recipients: (rfq.recipients || []).map((r) => r.email).join(','),
     attachIds: (rfq.attachments || []).map((a) => a.documentId).slice().sort().join(','),
   }))
@@ -2881,7 +2883,7 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   const sendFailed = status === 'Send failed'
   const unsent = recipients.filter((r) => recipientState(r) !== 'sent')
   const dirty = draft && (
-    subject !== saved.subject || body !== saved.body ||
+    subject !== saved.subject || body !== saved.body || needBy !== saved.needBy ||
     recipients.map((r) => r.email).join(',') !== saved.recipients ||
     liveAttachIds.slice().sort().join(',') !== saved.attachIds
   )
@@ -2899,9 +2901,9 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
   const statusEpoch = useRef(0)
   // Persist the draft's current fields (also the first half of `send`).
   const persist = async () => {
-    const out = await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds })
+    const out = await saveRfq(projectId, rfq.id, { subject, body, recipients, attachmentIds: liveAttachIds, needBy: needBy || null })
     setSaved({
-      subject, body,
+      subject, body, needBy,
       recipients: recipients.map((r) => r.email).join(','),
       attachIds: liveAttachIds.slice().sort().join(','),
     })
@@ -3011,10 +3013,19 @@ function RfqReviewModal({ projectId, rfq, docs, onClose, onChanged }: {
         )}
         <div style={css('padding:18px;display:flex;flex-direction:column;gap:16px')}>
           {draft && (
-            <div>
-              <label style={fieldLabel}>Subject</label>
-              <input value={subject} onChange={(e) => setSubject(e.target.value)} style={fieldInput} />
+            <div style={css('display:flex;gap:12px;flex-wrap:wrap')}>
+              <div style={{ flex: 2, minWidth: 220 }}>
+                <label style={fieldLabel}>Subject</label>
+                <input value={subject} onChange={(e) => setSubject(e.target.value)} style={fieldInput} />
+              </div>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <label style={fieldLabel}>Need by</label>
+                <input type="date" value={needBy} onChange={(e) => setNeedBy(e.target.value)} aria-label="Need by" style={fieldInput} />
+              </div>
             </div>
+          )}
+          {!draft && rfq.needBy && (
+            <div style={css('font-size:12.5px;color:var(--text-2)')}>Material needed on site by <strong style={css('color:var(--text)')}>{fmtNeedBy(rfq.needBy)}</strong></div>
           )}
           <div>
             <label style={fieldLabel}>Recipients ({recipients.length})</label>
@@ -3997,6 +4008,14 @@ function MobileNav({ m }: MProps) {
 /* ----------------------------------------------------- New project modal */
 // "$4.2M", "450,000", "1.5 b", "12000.50" or blank — mirrors the API's rule.
 const MONEY_RE = /^\$?\s*\d{1,3}(,\d{3})*(\.\d+)?\s*[kKmMbB]?$|^\$?\s*\d+(\.\d+)?\s*[kKmMbB]?$/
+// '2026-10-14' -> 'Oct 14, 2026' (the input unchanged when it is not ISO).
+export function fmtNeedBy(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return iso
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 export function isMoneyLike(v: string): boolean {
   const t = v.trim()
   return !t || MONEY_RE.test(t)
@@ -4009,6 +4028,7 @@ function NewProjectModal({ m }: MProps) {
   const [name, setName] = useState('')
   const [loc, setLoc] = useState('')
   const [value, setValue] = useState('')
+  const [needBy, setNeedBy] = useState('')
   // Same rule as the API (ProjectCreate.value): an amount like $4.2M or
   // 450,000, or blank. Free text used to be stored and shown as "Value abc".
   const valueOk = isMoneyLike(value)
@@ -4017,7 +4037,7 @@ function NewProjectModal({ m }: MProps) {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (!valid) return
-    m.createProject({ name, loc, value })
+    m.createProject({ name, loc, value, needBy })
   }
 
   return (
@@ -4047,6 +4067,11 @@ function NewProjectModal({ m }: MProps) {
               <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="$0" aria-invalid={!valueOk} style={{ ...fieldInput, ...(valueOk ? {} : css('border-color:var(--danger)')) }} />
               {!valueOk && <div role="alert" style={css('font-size:11.5px;color:var(--danger);margin-top:5px')}>Enter an amount, e.g. $4.2M or 450,000</div>}
             </div>
+          </div>
+          <div>
+            <label style={fieldLabel}>Material needed on site by</label>
+            <input type="date" value={needBy} onChange={(e) => setNeedBy(e.target.value)} aria-label="Need by" style={fieldInput} />
+            <div style={css('font-size:11.5px;color:var(--text-3);margin-top:5px')}>Optional. Quoted to suppliers on every RFQ and used to time follow-ups.</div>
           </div>
         </div>
         <div style={css('display:flex;justify-content:flex-end;gap:9px;padding:0 20px 20px')}>
