@@ -47,6 +47,8 @@ export interface ProjectForm {
   name: string
   loc: string
   value: string
+  // ISO YYYY-MM-DD from the date input; blank for none.
+  needBy?: string
 }
 
 // Props passed from App.tsx (API data + human-in-the-loop callbacks).
@@ -86,6 +88,8 @@ interface ProjectInput {
   id: string; name: string; loc: string; stage: string; stageTone: string
   value: string; progress: number; suppliers: number; rfqs: number; quotes: number
   barColor: string
+  // Material need-by date (ISO YYYY-MM-DD) or null; RFQs inherit it.
+  needBy?: string | null
   // An optimistic copy from the New project modal whose server id doesn't
   // exist yet. Nothing per-project may be fetched for it (every such request
   // would 404) — see App.tsx NextStepsCard and the projectId effect.
@@ -414,6 +418,7 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
       const temp: ProjectInput = {
         id: 'proj-' + Date.now(), name: form.name.trim(), loc: form.loc.trim() || '—',
         stage: 'Plans Review', stageTone: 'gray', value: form.value.trim() || '$0',
+        needBy: (form.needBy || '').trim() || null,
         progress: 0, suppliers: 0, rfqs: 0, quotes: 0,
         barColor: 'var(--primary)', pending: true,
       }
@@ -422,7 +427,9 @@ export function buildModel(s: State, set: Setter, props?: ModelProps) {
         nav: 'project', projectId: temp.id, tab: 'overview', compare: false, supplierId: null, mnav: false,
       })
       try {
-        const saved = await post<{ id: string }>('/api/projects', { name: temp.name, loc: form.loc.trim(), value: form.value.trim() })
+        const saved = await post<{ id: string }>('/api/projects', {
+          name: temp.name, loc: form.loc.trim(), value: form.value.trim(), needBy: temp.needBy,
+        })
         // Now persisted: swap the optimistic copy for one carrying the real id
         // (in the same render as the route change, so the workspace never
         // points at an id the server doesn't know). The route change refetches

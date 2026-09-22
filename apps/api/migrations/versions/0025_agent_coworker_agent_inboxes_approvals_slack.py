@@ -11,6 +11,8 @@ Create Date: 2026-09-21
 - approval_tokens / package_recommendations: signed single-use award
   approval links and the recommendation they were minted for.
 - purchase_decisions.po_numbers: one PO number per winning supplier.
+- projects.need_by / rfqs.need_by: the material need-by date (ISO
+  YYYY-MM-DD); RFQs inherit the project's at draft time.
 - slack_installations / slack_channel_links: the org's Slack app install
   and channel-to-project links.
 
@@ -147,9 +149,21 @@ def upgrade() -> None:
     with op.batch_alter_table('purchase_decisions', schema=None) as batch_op:
         batch_op.add_column(sa.Column('po_numbers', sa.Text(), nullable=False, server_default='[]'))
 
+    with op.batch_alter_table('projects', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('need_by', sa.String(), nullable=True))
+
+    with op.batch_alter_table('rfqs', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('need_by', sa.String(), nullable=True))
+
 
 
 def downgrade() -> None:
+    with op.batch_alter_table('rfqs', schema=None) as batch_op:
+        batch_op.drop_column('need_by')
+
+    with op.batch_alter_table('projects', schema=None) as batch_op:
+        batch_op.drop_column('need_by')
+
     with op.batch_alter_table('purchase_decisions', schema=None) as batch_op:
         batch_op.drop_column('po_numbers')
 

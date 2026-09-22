@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.core import locks
+from app.core.dates import humanize
 from app.core.security import get_current_user
 from app.db import DEMO_ORG_ID, SessionLocal, get_db
 from app.models.user import User
@@ -686,7 +687,7 @@ def generate_rfq(
             # Keep the chip's stored scope in sync with what was actually sent.
             documents_repo.update_status(db, org_id, package, summary=scope)
         draft = rfq_generator.generate_sub_rfq_draft(
-            project, label, scope, suppliers, buyer=current_user
+            project, label, scope, suppliers, buyer=current_user, need_by=project.get("needBy")
         )
         kind = "subcontractor"
     else:
@@ -703,7 +704,7 @@ def generate_rfq(
             )
             raise HTTPException(status_code=409, detail=detail)
         draft = rfq_generator.generate_rfq_draft(
-            project, label, line_items, suppliers, buyer=current_user
+            project, label, line_items, suppliers, buyer=current_user, need_by=project.get("needBy")
         )
         kind = "materials"
     if not draft.recipients:
@@ -722,6 +723,7 @@ def generate_rfq(
         line_items=draft.line_items,
         recipients=draft.recipients,
         kind=kind,
+        need_by=project.get("needBy"),
     )
     audit_repo.log(
         db, org_id, current_user, "rfq.drafted", "rfq", rfq["id"], project_id=project_id,
@@ -885,11 +887,14 @@ def update_generated_rfq(
         body=payload.body,
         recipients=[r.model_dump() for r in payload.recipients],
         attachments=attachments,
+        need_by=payload.needBy,
+        set_need_by="needBy" in payload.model_fields_set,
     )
     audit_repo.log(
         db, org_id, current_user, "rfq.edited", "rfq", rfq_id, project_id=project_id,
         detail={
             "recipients": [r.email for r in payload.recipients],
+            **({"needBy": payload.needBy} if "needBy" in payload.model_fields_set else {}),
             **(
                 {"attachments": [a["name"] for a in attachments]}
                 if attachments is not None
@@ -1072,7 +1077,7 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
         project = projects_repo.get_project(db, org_id, project_id) or {}
         lines = [f"{delivered} supplier{'s' if delivered != 1 else ''} asked to quote"]
         if rfq.get("needBy"):
-            lines.append(f"Need by {rfq['needBy']}")
+            lines.append(f"Need by {humanize(rfq['needBy'])}")
         if failed:
             lines.append(f"{len(failed)} could not be reached")
         notify.emit(db, notify.Notice(

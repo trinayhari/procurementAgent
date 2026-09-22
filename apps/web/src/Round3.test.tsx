@@ -304,7 +304,7 @@ describe('project rows', () => {
     fireEvent.change(screen.getByPlaceholderText('e.g. Riverside Water Treatment Plant'), { target: { value: 'North Yard' } })
     fireEvent.click(screen.getByRole('button', { name: /Create project/ }))
     await waitFor(() => expect(posts).toHaveLength(1))
-    expect(posts[0]).toEqual({ name: 'North Yard', loc: '', value: '' })
+    expect(posts[0]).toEqual({ name: 'North Yard', loc: '', value: '', needBy: null })
   })
 })
 

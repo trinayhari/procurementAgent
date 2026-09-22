@@ -252,7 +252,7 @@ def test_attachment_becomes_document_and_extraction_starts(project, recorder, pi
         email_address="pm@example.com", email_subject="Test Project",
     )
     assert any(line.startswith("C-101 Site Plan.pdf: Site Plan, 1 page") for line in notice.lines)
-    assert "Need by: 2026-10-14" in notice.lines
+    assert "Need by: October 14, 2026" in notice.lines
     assert notice.lines[-1] == "Drafting the bill of materials now, I'll reply here when it's ready."
     assert not any(chr(0x2014) in line for line in [notice.title, *notice.lines])
 

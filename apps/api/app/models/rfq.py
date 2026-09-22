@@ -40,6 +40,10 @@ class Rfq(Base):
         DateTime, nullable=False, server_default=func.now()
     )
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Material need-by date (ISO YYYY-MM-DD), copied from the project when the
+    # RFQ is drafted and editable per RFQ. Quoted in the email, the follow-ups
+    # and the sent notice.
+    need_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     _STATUS_TONE = {
         "Draft": "gray",
@@ -76,4 +80,5 @@ class Rfq(Base):
             "recipients": recipients,
             "kind": self.kind or "materials",
             "attachments": json.loads(self.attachments or "[]"),
+            "needBy": self.need_by,
         }

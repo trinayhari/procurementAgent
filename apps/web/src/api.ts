@@ -667,12 +667,15 @@ export function saveRfq(
     recipients: RfqRecipient[]
     // Document ids to attach to the outgoing email; omit to leave unchanged.
     attachmentIds?: string[]
+    // Need-by date (ISO YYYY-MM-DD); null clears it, omit to leave unchanged.
+    needBy?: string | null
   },
 ): Promise<PersistedRfq> {
-  const { attachmentIds, ...rest } = patch
+  const { attachmentIds, needBy, ...rest } = patch
   const body = {
     ...rest,
     ...(attachmentIds !== undefined ? { attachment_ids: attachmentIds } : {}),
+    ...(needBy !== undefined ? { needBy } : {}),
   }
   return fetch(`${BASE}/api/projects/${projectId}/rfqs/${rfqId}`, {
     method: 'PUT',

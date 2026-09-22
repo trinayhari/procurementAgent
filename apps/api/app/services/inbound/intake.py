@@ -25,6 +25,7 @@ from typing import Callable, List, Optional
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.dates import humanize
 from app.models.inbound_email import InboundEmail
 from app.models.user import User
 from app.repositories import events as events_repo
@@ -360,6 +361,10 @@ def handle_request(
     """
     sender_name = (user.name if user and user.name else (user.email if user else "")) or ""
     resolved = resolve_project(db, org_id, subject, text, sender_name=sender_name)
+    if resolved.need_by:
+        # The PM's date wins: "pour is the 21st" in a later email is an update,
+        # not a conflict. RFQs already drafted keep their own copy.
+        projects_repo.update_project(db, org_id, resolved.project_id, need_by=resolved.need_by)
     if on_project is not None:
         on_project(resolved.project_id, resolved.created)
 
@@ -425,7 +430,7 @@ def handle_request(
         lines.append(_file_line(filename, plan_type, doc.pages or 0))
 
     if resolved.need_by:
-        lines.append(f"Need by: {resolved.need_by}")
+        lines.append(f"Need by: {humanize(resolved.need_by)}")
     if analyzable:
         lines.append("Drafting the bill of materials now, I'll reply here when it's ready.")
     else:
