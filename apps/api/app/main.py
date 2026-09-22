@@ -30,6 +30,7 @@ from app.repositories import documents as documents_repo
 from app.repositories import jobs as jobs_repo
 from app.services import scheduler
 from app.services.notify import setup as notify_setup
+from app.services.rfq import followups as _followups  # noqa: F401 - registers its scheduler job
 
 logger = logging.getLogger(__name__)
 

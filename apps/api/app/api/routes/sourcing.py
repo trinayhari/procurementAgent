@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core import locks
 from app.core.security import get_current_user
 from app.db import DEMO_ORG_ID, SessionLocal, get_db
@@ -29,8 +30,10 @@ from app.repositories import sourcing as sourcing_repo
 from app.repositories import suppliers as suppliers_repo
 from app.schemas.quote import QuoteIngestResult
 from app.schemas.rfq import (
+    FollowupRunResult,
     PersistedRfq,
     RfqConversation,
+    RfqFollowupStatus,
     RfqGenerateRequest,
     RfqUpdate,
 )
@@ -48,6 +51,7 @@ from app.services import notify, storage
 from app.services.notify import kinds as notice_kinds
 from app.services.quotes import ingest as quotes_ingest
 from app.services.rfq import conversation as rfq_conversation
+from app.services.rfq import followups as rfq_followups
 from app.services.rfq import generator as rfq_generator
 from app.services.rfq import readiness
 from app.services.rfq import sender as rfq_sender
@@ -1093,3 +1097,49 @@ def _send_locked(db: Session, org_id: str, project_id: str, rfq_id: str, current
             meta={"rfqId": rfq_id, "package": rfq["package"], "delivered": delivered},
         ))
     return sent_rfq
+
+
+# ------------------------------------------------------------- follow-ups
+# The scheduler chases non-responders on its own (services/rfq/followups.py);
+# these two routes let the dashboard see that state and force a nudge now.
+def _require_rfq(db: Session, org_id: str, project_id: str, rfq_id: str) -> dict:
+    _require_project(org_id, project_id, db)
+    rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
+    if rfq is None or rfq["projectId"] != project_id:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    return rfq
+
+
+@router.get("/{project_id}/rfqs/{rfq_id}/followups", response_model=RfqFollowupStatus)
+def get_rfq_followups(
+    project_id: str,
+    rfq_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.organization_id
+    rfq = _require_rfq(db, org_id, project_id, rfq_id)
+    return {
+        "rfqId": rfq_id,
+        "max": settings.followup_max,
+        "recipients": rfq_followups.status_for(db, org_id, rfq),
+    }
+
+
+@router.post("/{project_id}/rfqs/{rfq_id}/followups/run", response_model=FollowupRunResult)
+def run_rfq_followups(
+    project_id: str,
+    rfq_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Chase every outstanding recipient now: ignores the delay and the
+    send window, still honours replies, the per-recipient max, and a nudge
+    already in flight. 409 while the scheduler holds this RFQ."""
+    org_id = current_user.organization_id
+    rfq = _require_rfq(db, org_id, project_id, rfq_id)
+    if rfq["status"] == "Draft":
+        raise HTTPException(status_code=409, detail="RFQ has not been sent yet")
+    summary = rfq_followups.chase_rfq(db, org_id, rfq_id, force=True, actor=current_user)
+    rfq = rfqs_repo.get_rfq(db, org_id, rfq_id)
+    return {**summary.to_dict(), "recipients": rfq_followups.status_for(db, org_id, rfq)}

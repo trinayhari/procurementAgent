@@ -44,11 +44,16 @@ class MessageCreate(BaseModel):
     body: str
 
 
-class FollowupDraft(BaseModel):
-    body: str
-
-
 # ------------------------------------------------ persisted (generated) RFQs
+class RfqFollowup(BaseModel):
+    """One nudge to a recipient. `messageId` is null while the send is in
+    flight (an intent); see services/rfq/followups.py."""
+
+    n: int
+    sentAt: str
+    messageId: Optional[str] = None
+
+
 class RfqRecipient(BaseModel):
     supplierId: Optional[str] = None
     name: str
@@ -63,6 +68,10 @@ class RfqRecipient(BaseModel):
     # True when the "send" went through the logging mock (no Gmail configured)
     # — recorded as sent for workflow purposes, but nothing was delivered.
     mock: Optional[bool] = None
+    # Written by the follow-up engine (services/rfq/followups.py) and the
+    # inbound reply path: when this supplier answered, and each nudge we sent.
+    repliedAt: Optional[str] = None
+    followups: Optional[List[RfqFollowup]] = None
 
 
 class RfqLineItem(BaseModel):
@@ -152,3 +161,34 @@ class RfqUpdate(BaseModel):
     # Count-capped: the byte budget alone doesn't bound N tiny files, each of
     # which costs storage round-trips at save and a MIME part per recipient.
     attachment_ids: Optional[List[str]] = Field(default=None, max_length=20)
+
+
+# ------------------------------------------------------------- follow-ups
+class RecipientFollowupStatus(BaseModel):
+    """Per-recipient chase state for GET .../rfqs/{rfq_id}/followups."""
+
+    email: str
+    supplierName: str = ""
+    sentAt: Optional[str] = None
+    repliedAt: Optional[str] = None
+    replied: bool = False
+    followups: List[RfqFollowup] = []
+    # When the next automatic nudge becomes due; null when exhausted, replied,
+    # or the package is already awarded.
+    nextDueAt: Optional[str] = None
+
+
+class RfqFollowupStatus(BaseModel):
+    rfqId: str
+    max: int
+    recipients: List[RecipientFollowupStatus]
+
+
+class FollowupRunResult(BaseModel):
+    """Outcome of POST .../followups/run (the manual "chase now")."""
+
+    rfqsScanned: int
+    nudgesSent: int
+    skippedOutsideHours: int
+    errors: List[str] = []
+    recipients: List[RecipientFollowupStatus]
