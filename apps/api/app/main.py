@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import health as health_routes
 from app.api.routes import (
+    approvals,
     audit,
     auth,
     bench,
@@ -18,12 +19,15 @@ from app.api.routes import (
     suppliers,
     team,
     timeline,
+    webhooks_resend,
+    webhooks_slack,
 )
 from app.config import settings
 from app.core.security import get_current_user
 from app.db import DEMO_ORG_ID, SessionLocal, init_db
 from app.repositories import documents as documents_repo
 from app.repositories import jobs as jobs_repo
+from app.services import scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,8 @@ def _on_startup() -> None:
         # owns the `riverside` project these attach to) is the right home.
         if settings.storage_backend != "s3" and settings.seed_demo_data:
             documents_repo.rehydrate_uploads(db, settings.upload_dir, DEMO_ORG_ID)
+    # Periodic work (supplier follow-ups etc.); durable state is in the DB.
+    scheduler.start()
 
 
 app.add_middleware(
@@ -100,6 +106,12 @@ app.include_router(documents.file_router)
 # Public invite preview/accept: the invitee has no account yet, so these gate
 # on a secret token, not a bearer session.
 app.include_router(team.public_router)
+# Inbound webhooks verify their provider's signature instead of a session, and
+# approval links gate on a signed single-use token (the approver may have no
+# account: the award card lands in email or Slack).
+app.include_router(webhooks_resend.router)
+app.include_router(webhooks_slack.router)
+app.include_router(approvals.router)
 
 # Every other route requires an authenticated user.
 _authed = [Depends(get_current_user)]

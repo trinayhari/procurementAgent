@@ -17,6 +17,14 @@ os.environ.update(
         "PROCUREAI_GMAIL_CLIENT_SECRET": "",
         "PROCUREAI_GMAIL_REFRESH_TOKEN": "",
         "PROCUREAI_GMAIL_SENDER_ADDRESS": "",
+        "PROCUREAI_RESEND_API_KEY": "",
+        "PROCUREAI_RESEND_WEBHOOK_SECRET": "",
+        "PROCUREAI_EMAIL_FROM_ADDRESS": "",
+        "PROCUREAI_EMAIL_INBOUND_DOMAIN": "",
+        "PROCUREAI_SLACK_CLIENT_ID": "",
+        "PROCUREAI_SLACK_CLIENT_SECRET": "",
+        "PROCUREAI_SLACK_SIGNING_SECRET": "",
+        "PROCUREAI_FOLLOWUP_ENABLED": "false",
         "PROCUREAI_OPENAI_API_KEY": "",
         "PROCUREAI_OPENAI_BASE_URL": "",
         "PROCUREAI_SEED_DEMO_DATA": "false",
@@ -37,6 +45,7 @@ def _assert_mocked() -> None:
     assert not settings.google_maps_api_key
     assert not settings.gmail_refresh_token
     assert not settings.openai_api_key
+    assert not settings.resend_api_key
 
 
 _assert_mocked()

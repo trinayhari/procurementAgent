@@ -52,6 +52,7 @@ SCOPED_TABLES = (
     "background_jobs",
     "lenders",
     "package_budgets",
+    "inbound_emails",
 )
 
 

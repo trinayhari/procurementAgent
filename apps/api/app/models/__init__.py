@@ -6,6 +6,7 @@ from app.models.document import Document
 from app.models.event import ProjectEvent
 from app.models.purchase_decision import PurchaseDecision
 from app.models.found_supplier import FoundSupplier
+from app.models.inbound_email import InboundEmail
 from app.models.lender import Lender
 from app.models.organization import Organization
 from app.models.organization_invite import OrganizationInvite
@@ -37,6 +38,7 @@ __all__ = [
     "Project",
     "ProjectEvent",
     "FoundSupplier",
+    "InboundEmail",
     "Rfq",
     "Quote",
     "Document",
