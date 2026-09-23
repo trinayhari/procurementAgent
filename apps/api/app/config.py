@@ -159,11 +159,20 @@ class Settings(BaseSettings):
     # Optional pod to create inboxes in (multi-tenant isolation). Empty → the
     # organization's default pod.
     agentmail_pod_id: str = ""
-    # Svix signing secret of the webhook endpoint. Empty in development skips
-    # signature verification; production refuses unsigned webhooks.
+    # Svix signing secret of the webhook endpoint. Without it the inbound route
+    # cannot tell a real delivery from a forged one, so it refuses every
+    # request unless allow_unsigned_webhooks is explicitly on (see below).
     agentmail_webhook_secret: str = ""
     # Display name prefix for org inboxes: "Proq for Acme Construction".
     agentmail_display_name_prefix: str = "Proq for"
+
+    # Accept inbound webhooks with NO signature check. Local development and
+    # the test scripts only: it lets anyone who knows the URL inject email and
+    # Slack events. Off by default and refused outright when env is
+    # "production", so a deployment that never sets PROCUREAI_ENV is still
+    # closed. This is deliberately not inferred from env alone: relying on one
+    # variable for a security boundary has already failed once in production.
+    allow_unsigned_webhooks: bool = False
 
     # ------------------------------------------------------------- Slack
     # One Slack app; each org installs it (OAuth) and picks channels per

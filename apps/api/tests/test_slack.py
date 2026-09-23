@@ -176,7 +176,9 @@ def test_verify_signature_accepts_valid_and_rejects_bad_or_stale():
 
 
 def test_events_rejects_unsigned_when_secret_set(client, signed):
-    body = json.dumps({"type": "url_verification", "challenge": "abc"}).encode()
+    # A real event, not the url_verification handshake: that one is answered
+    # before the signature check on purpose (see the handshake test below).
+    body = json.dumps({"type": "event_callback", "event_id": "Ev1", "event": {}}).encode()
     r = client.post("/api/webhooks/slack/events", content=body, headers={"Content-Type": "application/json"})
     assert r.status_code == 401
     r = client.post("/api/webhooks/slack/events", content=body, headers=_signed_headers(body, secret="wrong"))
@@ -187,7 +189,7 @@ def test_events_rejects_unsigned_when_secret_set(client, signed):
 
 def test_events_refuses_unsigned_in_production(client, monkeypatch):
     monkeypatch.setattr(settings, "env", "production")
-    body = json.dumps({"type": "url_verification", "challenge": "abc"}).encode()
+    body = json.dumps({"type": "event_callback", "event_id": "Ev2", "event": {}}).encode()
     r = client.post("/api/webhooks/slack/events", content=body, headers={"Content-Type": "application/json"})
     assert r.status_code == 401
 
@@ -706,3 +708,27 @@ def test_events_and_clicks_without_an_installation_are_dropped_with_a_log_line(c
     assert seen == [] and slack_fakes.downloads == []
     assert "slack event EvNoInstall (message): ignored:no_installation" in caplog.text
     assert f"slack interaction from team {TEAM}: ignored:no_installation" in caplog.text
+
+
+def test_url_verification_is_answered_before_the_signature_check(client, monkeypatch):
+    """Slack sends the handshake when you first save the Events request URL.
+
+    That happens before the app exists, so its signing secret cannot be
+    configured yet: verifying the signature first would make the URL
+    impossible to verify on any deployment that refuses unsigned requests
+    (production does). The echo carries no data and performs no action.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "slack_signing_secret", "", raising=False)
+    monkeypatch.setattr(settings, "env", "production", raising=False)
+    monkeypatch.setattr(settings, "allow_unsigned_webhooks", False, raising=False)
+    r = client.post(
+        "/api/webhooks/slack/events",
+        json={"type": "url_verification", "challenge": "c0ffee"},
+    )
+    assert r.status_code == 200 and r.text == "c0ffee"
+
+    # Anything else still needs a valid signature.
+    r = client.post("/api/webhooks/slack/events", json={"type": "event_callback", "event": {}})
+    assert r.status_code == 401

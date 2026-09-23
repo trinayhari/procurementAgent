@@ -93,9 +93,10 @@ Notes:
 - `users:read` is required alongside `users:read.email` (Slack rejects the
   email scope on its own).
 - Slack verifies the events URL when you save the manifest: the API must be
-  running and reachable at that URL, and it answers the `url_verification`
-  challenge without a signing secret configured (development) or with the
-  right one.
+  running and reachable at that URL. The `url_verification` handshake is
+  answered before the signature check, so it succeeds before the app exists
+  and its signing secret is configured, which is the only order the setup can
+  actually happen in. Every other event still requires a valid signature.
 
 From **Basic Information**, copy the **Client ID**, **Client Secret** and
 **Signing Secret**.

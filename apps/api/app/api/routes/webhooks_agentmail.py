@@ -4,8 +4,9 @@ main.py.
 One organization-level webhook in AgentMail posts every `message.received`
 event for every agent inbox here. The route:
 
-1. verifies the Svix signature (skipped only when the secret is empty AND the
-   app is not in production; production with no secret answers 503);
+1. verifies the Svix signature; with no secret configured it refuses (503)
+   unless PROCUREAI_ALLOW_UNSIGNED_WEBHOOKS is explicitly on, which is for
+   local testing and is itself refused in production;
 2. maps `message.inbox_id` to the organization that owns the inbox (unknown
    inbox: 200, logged, dropped, so AgentMail stops retrying);
 3. downloads each attachment through the API into services/storage;
@@ -171,8 +172,15 @@ async def receive(request: Request, background: BackgroundTasks) -> Response:
     if secret:
         if not agentmail_client.verify_svix(secret, request.headers, body):
             return Response(status_code=401, content="invalid signature")
-    elif settings.env == "production":
-        logger.error("AgentMail webhook received but PROCUREAI_AGENTMAIL_WEBHOOK_SECRET is empty; refusing")
+    elif settings.allow_unsigned_webhooks and settings.env != "production":
+        logger.warning(
+            "AgentMail webhook accepted WITHOUT a signature check "
+            "(PROCUREAI_ALLOW_UNSIGNED_WEBHOOKS is on). Never do this on a public host."
+        )
+    else:
+        # Fail closed: with no secret we cannot tell a real delivery from a
+        # forged one, whatever PROCUREAI_ENV happens to say.
+        logger.error("AgentMail webhook refused: PROCUREAI_AGENTMAIL_WEBHOOK_SECRET is empty")
         return Response(status_code=503, content="webhook secret not configured")
     try:
         payload = json.loads(body or b"{}")

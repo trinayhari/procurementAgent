@@ -78,7 +78,36 @@ def _validate_production_config() -> None:
         )
 
 
+def _log_effective_config() -> None:
+    """One line at boot saying what this process actually resolved.
+
+    Names and booleans only, never a secret value. Railway (and any other host)
+    shows it in the deploy log, so "is the variable actually reaching the
+    service?" is answered by reading the log instead of probing the API. Worth
+    the line: a webhook secret that silently failed to apply is invisible
+    otherwise, and looks exactly like a working deployment.
+    """
+    def on(value) -> str:
+        return "set" if (value or "") else "MISSING"
+
+    logger.warning(
+        "effective config: env=%s bench=%s unsigned_webhooks=%s | agentmail key=%s domain=%s "
+        "webhook_secret=%s | slack signing=%s | storage=%s | jwt_secret=%s | app_base_url=%s",
+        settings.env,
+        settings.bench_enabled,
+        settings.allow_unsigned_webhooks,
+        on(settings.agentmail_api_key),
+        settings.agentmail_domain or "MISSING",
+        on(settings.agentmail_webhook_secret),
+        on(settings.slack_signing_secret),
+        settings.storage_backend,
+        "default (INSECURE)" if settings.jwt_secret == _DEFAULT_JWT_SECRET else "set",
+        settings.app_base_url or "MISSING",
+    )
+
+
 _validate_production_config()
+_log_effective_config()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 

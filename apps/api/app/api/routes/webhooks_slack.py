@@ -38,9 +38,12 @@ async def _verified_body(request: Request) -> bytes:
     body = await request.body()
     secret = settings.slack_signing_secret
     if not secret:
-        if settings.env == "production":
-            raise HTTPException(status_code=401, detail="Slack signing secret is not configured")
-        return body
+        # Fail closed, exactly as the AgentMail webhook does: without the
+        # secret a forged event is indistinguishable from a real one, so an
+        # explicit opt-in is required and is itself refused in production.
+        if settings.allow_unsigned_webhooks and settings.env != "production":
+            return body
+        raise HTTPException(status_code=401, detail="Slack signing secret is not configured")
     ok = slack_client.verify_signature(
         secret,
         request.headers.get("x-slack-request-timestamp", ""),
@@ -92,14 +95,27 @@ def oauth_callback(
 # ------------------------------------------------------------------ events
 @router.post("/events")
 async def events(request: Request, background: BackgroundTasks):
+    # The url_verification handshake is answered BEFORE the signature check.
+    # Slack sends it when you first save the Events request URL, which is
+    # necessarily before the app exists and therefore before its signing
+    # secret can be configured: checking the signature first makes the URL
+    # impossible to verify on a deployment that refuses unsigned requests.
+    # Echoing a challenge carries no data and performs no action, so there is
+    # nothing for a forged one to gain. Everything else below is verified.
+    raw = await request.body()
+    try:
+        envelope = json.loads(raw or b"{}")
+    except ValueError:
+        envelope = {}
+    if envelope.get("type") == "url_verification":
+        return PlainTextResponse(str(envelope.get("challenge") or ""))
+
     body = await _verified_body(request)
     try:
         envelope = json.loads(body or b"{}")
     except ValueError:
         raise HTTPException(status_code=400, detail="Malformed event body")
     kind = envelope.get("type")
-    if kind == "url_verification":
-        return PlainTextResponse(str(envelope.get("challenge") or ""))
     if kind != "event_callback":
         return Response(status_code=200)
     event_id = str(envelope.get("event_id") or "")
