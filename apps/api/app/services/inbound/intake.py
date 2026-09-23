@@ -31,7 +31,7 @@ from app.models.user import User
 from app.repositories import events as events_repo
 from app.repositories import projects as projects_repo
 from app.repositories import users as users_repo
-from app.services import documents_intake, extraction, notify
+from app.services import documents_intake, extraction, notify, storage
 
 logger = logging.getLogger("procureai.inbound.intake")
 
@@ -198,12 +198,56 @@ def _keyword_slot(text: str) -> Optional[str]:
     return hits[0] if len(hits) == 1 else None
 
 
-def infer_plan_type(filename: str, text: str = "") -> str:
+def _slot_by_discipline() -> dict:
+    """{"civil": "site_plan", "structural": "building_plan", ...} from the
+    registry, so a new plan type is picked up without touching this module."""
+    out = {}
+    for spec in extraction.registry.all_specs():
+        if not spec.enabled:
+            continue
+        for discipline in spec.sheet_disciplines:
+            out.setdefault(discipline, spec.key)
+    return out
+
+
+def classify_from_content(locator: str, *, max_pages: int = 12) -> Optional[str]:
+    """The plan type a document's own sheets say it is, or None.
+
+    A plan set is usually named for the submittal ("54-61 APPROVAL PLAN.pdf"),
+    not the discipline, so the filename often carries no signal at all. The
+    sheets themselves do: the extraction pipeline already classifies a page by
+    its title block and sheet number, so reuse that and take the discipline
+    that wins across the set. Best effort: any failure means "unknown", and
+    the caller falls back to an additional document.
+    """
+    from app.services.extraction import pdf, sheets
+
+    slots = _slot_by_discipline()
+    tally: dict = {}
+    try:
+        with storage.local_copy(locator) as path:
+            pages = pdf.extract_text_pages(path, max_pages=max_pages)
+    except Exception:  # noqa: BLE001 - classification must never break intake
+        logger.warning("intake: could not read %s for classification", locator, exc_info=True)
+        return None
+    for page in pages:
+        discipline = sheets.classify_page(page.get("text") or "")
+        slot = slots.get(discipline or "")
+        if slot:
+            tally[slot] = tally.get(slot, 0) + 1
+    if not tally:
+        return None
+    return max(tally, key=lambda k: tally[k])
+
+
+def infer_plan_type(filename: str, text: str = "", locator: Optional[str] = None) -> str:
     """Guess the registry plan type for an attachment.
 
     The filename decides first (keywords, then a sheet prefix such as E-101);
-    the message text breaks a tie only when the filename says nothing. Files
-    the extractor cannot read, and disabled or ambiguous cases, go to "other".
+    the message text breaks a tie only when the filename says nothing. When
+    neither says anything and `locator` is given, the document's own sheets
+    decide (classify_from_content). Files the extractor cannot read, and
+    disabled or still-ambiguous cases, go to "other".
     """
     ext = os.path.splitext(filename or "")[1].lower()
     if ext not in documents_intake.EXTRACTABLE_EXTENSIONS:
@@ -216,6 +260,8 @@ def infer_plan_type(filename: str, text: str = "") -> str:
             key = _SHEET_PREFIX.get(sheet.group(1).lower())
     if key is None:
         key = _keyword_slot(text)
+    if key is None and locator:
+        key = classify_from_content(locator)
     if key is None:
         return "other"
     spec = extraction.registry.get(key)
@@ -351,6 +397,7 @@ def handle_request(
     attachments: List[dict],
     thread: Optional[notify.ThreadRef],
     on_project: Optional[Callable[[str, bool], None]] = None,
+    project_id: Optional[str] = None,
 ) -> IntakeResult:
     """Run one intake request end to end and acknowledge it on `thread`.
 
@@ -358,9 +405,26 @@ def handle_request(
     size, locator. `on_project(project_id, created)` fires as soon as the
     project is known, before any document work or notice, so a transport can
     persist the link the reply-threading later relies on.
+
+    `project_id` names the project outright and skips resolution: the caller
+    already knows which one this belongs to (a Slack channel linked with
+    `/proq link`, a reply in a thread we started). Guessing from the subject
+    in that case invents a project named after the channel and files the work
+    somewhere nobody is looking.
     """
     sender_name = (user.name if user and user.name else (user.email if user else "")) or ""
-    resolved = resolve_project(db, org_id, subject, text, sender_name=sender_name)
+    resolved = None
+    if project_id:
+        row = projects_repo.get_project(db, org_id, project_id)
+        if row is not None:
+            resolved = ResolvedProject(
+                row["id"], row["name"], False,
+                need_by=parse_need_by(text) or parse_need_by(subject),
+            )
+        else:
+            logger.warning("intake: project %s not found in org %s, resolving by name", project_id, org_id)
+    if resolved is None:
+        resolved = resolve_project(db, org_id, subject, text, sender_name=sender_name)
     if resolved.need_by:
         # The PM's date wins: "pour is the 21st" in a later email is an update,
         # not a conflict. RFQs already drafted keep their own copy.
@@ -392,10 +456,11 @@ def handle_request(
     lines: List[str] = []
     taken_slots: set = set()
     analyzable = False
+    drafting_bom = False
     for att in attachments:
         filename = os.path.basename(att.get("filename") or "attachment")
         locator = att.get("locator") or ""
-        plan_type = infer_plan_type(filename, text)
+        plan_type = infer_plan_type(filename, text, locator=locator)
         # One file per slot within a message: a second "site" PDF would
         # otherwise replace the first before it was even read.
         if plan_type != "other" and plan_type in taken_slots:
@@ -426,13 +491,23 @@ def handle_request(
                 continue
         taken_slots.add(plan_type)
         analyzable = analyzable or doc.processing
+        spec = extraction.registry.get(plan_type)
+        if doc.processing and spec is not None and spec.categories:
+            drafting_bom = True
         documents.append({"id": doc.id, "name": doc.name, "planType": plan_type})
         lines.append(_file_line(filename, plan_type, doc.pages or 0))
 
     if resolved.need_by:
         lines.append(f"Need by: {humanize(resolved.need_by)}")
-    if analyzable:
+    if drafting_bom:
         lines.append("Drafting the bill of materials now, I'll reply here when it's ready.")
+    elif analyzable:
+        # Readable, but filed where no take-off happens. Saying "drafting the
+        # BOM" here promises a reply that never comes.
+        lines.append(
+            "Filed as an additional document, so I am not taking off quantities from it. "
+            "If it is a plan set, reply with site, building or electrical and I'll read it as one."
+        )
     else:
         lines.append("Filed on the project. Nothing to extract from these files.")
 

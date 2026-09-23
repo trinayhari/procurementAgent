@@ -142,9 +142,9 @@ def intake_stub(monkeypatch):
 
     seen = []
 
-    def handle_request(db, *, org_id, user, text, subject, attachments, thread):
+    def handle_request(db, *, org_id, user, text, subject, attachments, thread, project_id=None):
         seen.append({"org_id": org_id, "user": user.email, "text": text, "subject": subject,
-                     "attachments": attachments, "thread": thread})
+                     "attachments": attachments, "thread": thread, "project_id": project_id})
         return SimpleNamespace(project_id=getattr(handle_request, "project_id", "riverside-wtp"))
 
     monkeypatch.setattr(intake, "handle_request", handle_request, raising=False)
@@ -732,3 +732,36 @@ def test_url_verification_is_answered_before_the_signature_check(client, monkeyp
     # Anything else still needs a valid signature.
     r = client.post("/api/webhooks/slack/events", json={"type": "event_callback", "event": {}})
     assert r.status_code == 401
+
+
+def test_linked_channel_names_the_project_instead_of_the_channel(client, signed, slack_fakes, intake_stub):
+    """A channel linked with /proq link must route work to THAT project.
+
+    Passing only the channel name let intake resolve by name, which invented a
+    project called after the channel ("all-proq") and filed the plan set where
+    nobody was looking, beside the real one.
+    """
+    headers, me = _register(client, "pm@alpha-gc.com", "Alpha GC")
+    pid = _new_project(client, headers, "Southside Meadows")
+    _install(me["organizationId"], me["id"])
+    _link(me["organizationId"], CHANNEL, pid)
+    seen, _ = intake_stub
+
+    body = json.dumps(_message_event(files=[PLAN_FILE])).encode()
+    r = client.post("/api/webhooks/slack/events", content=body, headers=_signed_headers(body))
+    assert r.status_code == 200
+    assert len(seen) == 1 and seen[0]["project_id"] == pid
+
+
+def test_unlinked_channel_leaves_the_project_to_intake(client, signed, slack_fakes, intake_stub):
+    """No link, no opinion: intake resolves and the channel is linked after."""
+    headers, me = _register(client, "pm@alpha-gc.com", "Alpha GC")
+    _install(me["organizationId"], me["id"])
+    seen, _ = intake_stub
+
+    env = _message_event(files=[PLAN_FILE], text=f"<@{BOT_USER}> here is the set")
+    env["event"]["type"] = "app_mention"
+    body = json.dumps(env).encode()
+    r = client.post("/api/webhooks/slack/events", content=body, headers=_signed_headers(body))
+    assert r.status_code == 200
+    assert len(seen) == 1 and seen[0]["project_id"] is None

@@ -3,8 +3,8 @@
 Intake (services/inbound/intake.py) is owned by the email-intake work and
 exposes
 
-    handle_request(db, *, org_id, user, text, subject, attachments, thread)
-        -> IntakeResult   (has .project_id)
+    handle_request(db, *, org_id, user, text, subject, attachments, thread,
+                   project_id=None) -> IntakeResult   (has .project_id)
 
 where attachments are `{filename, mimeType, size, locator}` dicts (bytes in
 object storage) and thread is a notify.ThreadRef. The import is deferred so
@@ -35,6 +35,7 @@ def handle(
     subject: str,
     attachments: List[dict],
     thread: ThreadRef,
+    project_id: Optional[str] = None,
 ) -> Optional[Any]:
     """Run intake for a Slack request. Returns the IntakeResult, or None when
     intake is not available yet (the caller has already been told)."""
@@ -54,6 +55,7 @@ def handle(
             subject=subject,
             attachments=attachments,
             thread=thread,
+            project_id=project_id,
         )
     except NotImplementedError:
         logger.warning("slack intake: handle_request is still a stub")

@@ -433,3 +433,73 @@ def test_upload_route_still_attaches_through_the_service(project, pipeline):
         assert "Document uploaded: site-plan" in titles
     # BackgroundTasks ran the (stubbed) pipeline after the response.
     assert pipeline == [(org_id, doc_id, doc.source_path, "other")]
+
+
+# ------------------------------------------- routing, honesty, classification
+def test_an_explicit_project_id_beats_resolving_by_name(client, project, pipeline):
+    """The caller sometimes already knows the project: a Slack channel linked
+    with /proq link, or a reply in a thread we started. Resolving by name in
+    that case invented a project named after the channel."""
+    _, headers, pid = project
+    with SessionLocal() as db:
+        org_id = _org_of(db)
+        result = intake.handle_request(
+            db, org_id=org_id, user=None, subject="all-proq", text="get me the BOM on this",
+            attachments=[], thread=None, project_id=pid,
+        )
+        assert result.project_id == pid and result.project_created is False
+        # Nothing called "all-proq" was created next to it.
+        assert not [p for p in projects_repo.list_projects(db, org_id) if p["name"] == "all-proq"]
+
+
+def test_an_unknown_project_id_falls_back_to_resolving(client, project, pipeline):
+    _, headers, pid = project
+    with SessionLocal() as db:
+        org_id = _org_of(db)
+        result = intake.handle_request(
+            db, org_id=org_id, user=None, subject="Test Project", text="",
+            attachments=[], thread=None, project_id="does-not-exist",
+        )
+        assert result.project_id == pid  # matched "Test Project" by name
+
+
+def test_a_non_extractable_document_does_not_promise_a_bill_of_materials(client, project, pipeline, recorder):
+    """A plan set filed as an additional document gets no take-off, so saying
+    'drafting the bill of materials now' promises a reply that never comes."""
+    _, headers, pid = project
+    att = store_fixture("54-61 APPROVAL PLAN.pdf")
+    with SessionLocal() as db:
+        intake.handle_request(
+            db, org_id=_org_of(db), user=None, subject="Test Project",
+            text="get me the BOM on this", attachments=[att], thread=None, project_id=pid,
+        )
+    [notice] = [n for n in recorder.notices if n.kind == "intake.received"]
+    body = " ".join(notice.lines)
+    assert "bill of materials" not in body
+    assert "additional document" in body and "site, building or electrical" in body
+
+
+def test_plan_type_is_read_off_the_sheets_when_the_filename_says_nothing(monkeypatch):
+    """Plan sets are named for the submittal ("54-61 APPROVAL PLAN.pdf"), not
+    the discipline, so the filename usually carries no signal; the sheets do."""
+    from app.services.extraction import pdf
+
+    assert intake.infer_plan_type("54-61 APPROVAL PLAN.pdf") == "other"
+
+    monkeypatch.setattr(pdf, "extract_text_pages", lambda path, max_pages=12: [
+        {"text": "SHEET E-101 ELECTRICAL PANEL SCHEDULE RECEPTACLE"},
+        {"text": "SHEET E-102 LIGHTING PLAN LUMINAIRE"},
+    ])
+    att = store_fixture("54-61 APPROVAL PLAN.pdf")
+    assert intake.infer_plan_type("54-61 APPROVAL PLAN.pdf", locator=att["locator"]) == "electrical_plan"
+
+    # An unreadable file is not a crash and not a guess.
+    monkeypatch.setattr(pdf, "extract_text_pages", lambda path, max_pages=12: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert intake.infer_plan_type("54-61 APPROVAL PLAN.pdf", locator=att["locator"]) == "other"
+
+
+def test_a_named_filename_still_wins_over_the_sheets(monkeypatch):
+    from app.services.extraction import pdf
+
+    monkeypatch.setattr(pdf, "extract_text_pages", lambda path, max_pages=12: [{"text": "E-101 ELECTRICAL"}])
+    assert intake.infer_plan_type("C-101 site plan.pdf") == "site_plan"

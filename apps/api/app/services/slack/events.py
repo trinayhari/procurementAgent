@@ -230,6 +230,10 @@ def handle_event(db: Session, envelope: dict) -> Optional[str]:
         subject=name,
         attachments=attachments,
         thread=thread,
+        # A linked channel already names the project; without this the channel
+        # name is treated as a subject and a project called "#all-proq" gets
+        # invented next to the real one.
+        project_id=link.project_id if link is not None else None,
     )
     if result is None:
         slack_client.post_message(
